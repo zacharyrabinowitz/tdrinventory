@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Receive Box • {{ item.name }}</h1>
+      <span class="muted">Add one box/lot at a time.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}/lots">Back</a>
+      <a class="btn" href="/items/{{ item.id }}/lots/bulk">Bulk Receive</a>
+    </div>
+  </div>
+
+  <form method="POST" action="/items/{{ item.id }}/lots/add" class="form">
+    <div class="grid2">
+      <div class="field">
+        <label>Received Date</label>
+        <input class="input" type="date" name="received_date" value="{{ today }}" required>
+      </div>
+
+      <div class="field">
+        <label>State</label>
+        <select class="input" name="state">
+          <option value="raw" selected>raw</option>
+          <option value="prepped">prepped</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:10px;">
+      <div class="field">
+        <label>Box #</label>
+        <input class="input" type="number" name="lot_number" placeholder="Suggested: {{ start_num }}">
+      </div>
+
+      <div class="field">
+        <label>Box Label (optional)</label>
+        <input class="input" name="lot_label" placeholder="Optional label">
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:10px;">
+      <div class="field">
+        <label>Location</label>
+        <select class="input" name="storage">
+          <option value="freezer" selected>freezer</option>
+          <option value="cooler">cooler</option>
+          <option value="out">out</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Units Inside (optional)</label>
+        <input class="input" type="number" min="0" name="count_units" placeholder="For prepped units (like wings)">
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:10px;">
+      <label>Notes (optional)</label>
+      <input class="input" name="notes" placeholder="Optional notes">
+    </div>
+
+    <div class="actions" style="margin-top:14px;">
+      <button class="btn primary" type="submit">Save Box</button>
+      <a class="btn" href="/items/{{ item.id }}/lots">Cancel</a>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

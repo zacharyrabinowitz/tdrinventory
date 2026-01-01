@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Audit History</h1>
+      <span class="muted">Full change log with user + timestamp. Showing up to 500 most recent entries.</span>
+    </div>
+  </div>
+
+  <form method="GET" action="/audit" class="form">
+    <div class="grid3">
+      <div class="field">
+        <label>Search (message/details/entity/id)</label>
+        <input class="input" name="q" value="{{ q or '' }}" placeholder="e.g. wings, lot 12, moved, deleted...">
+      </div>
+
+      <div class="field">
+        <label>User</label>
+        <input class="input" name="user" value="{{ user_q or '' }}" placeholder="e.g. Draft Room, admin, zach...">
+      </div>
+
+      <div class="field">
+        <label>Action</label>
+        <select class="input" name="action">
+          <option value="">All</option>
+          {% for a in actions %}
+            <option value="{{ a }}" {% if action == a %}selected{% endif %}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="grid3">
+      <div class="field">
+        <label>Entity</label>
+        <select class="input" name="entity">
+          <option value="">All</option>
+          {% for e in entities %}
+            <option value="{{ e }}" {% if entity == e %}selected{% endif %}>{{ e }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>From (date)</label>
+        <input class="input" type="date" name="from" value="{{ date_from or '' }}">
+      </div>
+
+      <div class="field">
+        <label>To (date)</label>
+        <input class="input" type="date" name="to" value="{{ date_to or '' }}">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" type="submit">Apply Filters</button>
+      <a class="btn" href="/audit">Reset</a>
+    </div>
+  </form>
+
+  <div style="height:14px;"></div>
+
+  {% if logs and logs|length > 0 %}
+    <div class="table">
+      <div class="row head" style="grid-template-columns: 1.1fr .9fr .7fr .9fr 2fr;">
+        <div>Timestamp</div>
+        <div>User</div>
+        <div>Action</div>
+        <div>Entity</div>
+        <div>Message / Details</div>
+      </div>
+
+      {% for l in logs %}
+        <div class="row" style="grid-template-columns: 1.1fr .9fr .7fr .9fr 2fr;">
+          <div class="muted">
+            <span class="strong">{{ l.created_at.strftime("%b %d, %Y %I:%M:%S %p") }}</span>
+          </div>
+
+          <div>
+            <div class="strong">{{ l.actor_name }}</div>
+            <div class="muted smalltxt">{{ l.actor_role or "—" }}</div>
+          </div>
+
+          <div class="muted">
+            <span class="strong">{{ l.action }}</span>
+          </div>
+
+          <div class="muted">
+            <div class="strong">{{ l.entity_type }}</div>
+            <div class="smalltxt muted">ID: {{ l.entity_id or "—" }}</div>
+          </div>
+
+          <div class="muted" style="line-height:1.35;">
+            {% if l.message %}
+              <div class="strong">{{ l.message }}</div>
+            {% endif %}
+            {% if l.details %}
+              <div class="smalltxt" style="white-space:pre-wrap; opacity:.92; margin-top:4px;">{{ l.details }}</div>
+            {% endif %}
+            <div class="smalltxt" style="opacity:.7; margin-top:6px;">
+              {% if l.ip %}IP: {{ l.ip }}{% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No audit entries yet.</div>
+  {% endif %}
+</section>
+
+{% endblock %}

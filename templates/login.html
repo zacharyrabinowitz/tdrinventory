@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card center">
+  <h1>Login</h1>
+
+  <form method="POST" action="/login" class="form">
+    <div class="field">
+      <label>Username</label>
+      <input class="input" name="username" autocomplete="username" required>
+    </div>
+
+    <div class="field">
+      <label>Password</label>
+      <input class="input" type="password" name="password" autocomplete="current-password" required>
+    </div>
+
+    <button class="btn primary full" type="submit">Login</button>
+
+    <div class="muted smalltxt" style="margin-top:10px;">
+      Forgot your password? Contact an admin to reset it.
+    </div>
+  </form>
+</section>
+
+{% endblock %}

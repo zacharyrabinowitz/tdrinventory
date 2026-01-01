@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Prep Batch</h1>
+      <span class="muted">{{ item.name }} • Prepped {{ batch.prep_date }} • Expires {{ batch.expiration_date() }}</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/prep">Back</a>
+
+      {% if can_edit_inventory %}
+        <form method="POST" action="/batch/{{ batch.id }}/delete" class="inline">
+          <button class="btn danger" type="submit" onclick="return confirm('Delete this entire batch?')">Delete Batch</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card mini">
+      <div class="muted">Output Units</div>
+      <div class="big">{{ batch.output_units }}</div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Sold Total</div>
+      <div class="big">{{ sold_total }}</div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Expected Remaining</div>
+      <div class="big">{{ expected_remaining }}</div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Shelf Life Days</div>
+      <div class="big">{{ batch.shelf_life_days }}</div>
+    </div>
+  </div>
+
+  <div style="height:14px;"></div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="cardhead">
+        <h2>Source Lots</h2>
+      </div>
+      {% if sources and sources|length > 0 %}
+        <div class="table">
+          <div class="row head" style="grid-template-columns: 1.2fr .7fr .7fr;">
+            <div>Item</div><div>Label</div><div>Received</div>
+          </div>
+          {% for s in sources %}
+            <div class="row" style="grid-template-columns: 1.2fr .7fr .7fr;">
+              <div class="strong">{{ s.lot.item.name }}</div>
+              <div class="muted">{{ s.lot.lot_label or '—' }}</div>
+              <div class="muted">{{ s.lot.received_date }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">No source lots recorded.</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="cardhead">
+        <h2>Sales</h2>
+      </div>
+
+      {% if can_edit_inventory %}
+        <form method="POST" action="/sales/add" class="form">
+          <input type="hidden" name="batch_id" value="{{ batch.id }}">
+          <div class="grid2">
+            <div class="field">
+              <label>Sale Date</label>
+              <input type="date" name="sale_date" value="{{ batch.prep_date }}">
+            </div>
+
+            {% if item.sales_mode == 'packs_4' %}
+              <div class="field">
+                <label>{{ item.pack1_label }}</label>
+                <input type="number" min="0" name="pack1_qty" value="0">
+              </div>
+              <div class="field">
+                <label>{{ item.pack2_label }}</label>
+                <input type="number" min="0" name="pack2_qty" value="0">
+              </div>
+              <div class="field">
+                <label>{{ item.pack3_label }}</label>
+                <input type="number" min="0" name="pack3_qty" value="0">
+              </div>
+              <div class="field">
+                <label>{{ item.pack4_label }}</label>
+                <input type="number" min="0" name="pack4_qty" value="0">
+              </div>
+            {% else %}
+              <div class="field">
+                <label>Units Sold</label>
+                <input type="number" min="0" name="units_sold" value="0">
+              </div>
+              <div class="field">
+                <label>Notes (optional)</label>
+                <input type="text" name="notes" placeholder="optional">
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" type="submit">Add Sales</button>
+          </div>
+        </form>
+      {% else %}
+        <div class="empty">Sales entry is disabled for staff (view-only).</div>
+      {% endif %}
+
+      <div style="height:10px;"></div>
+
+      {% if sales and sales|length > 0 %}
+        <div class="table">
+          <div class="row head" style="grid-template-columns: .7fr .7fr 1fr;">
+            <div>Date</div><div>Total</div><div></div>
+          </div>
+          {% for s in sales %}
+            <div class="row" style="grid-template-columns: .7fr .7fr 1fr;">
+              <div class="muted">{{ s.sale_date }}</div>
+              <div class="strong">{{ s.total_units_sold }}</div>
+              <div class="row-actions">
+                {% if can_edit_inventory %}
+                  <a class="btn small" href="/sales/{{ s.id }}/edit">Edit</a>
+                  <form method="POST" action="/sales/{{ s.id }}/delete" class="inline">
+                    <button class="btn small danger" type="submit" onclick="return confirm('Delete this sales entry?')">Delete</button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div style="height:14px;"></div>
+
+  <section class="card">
+    <div class="cardhead">
+      <h2>Reconcile</h2>
+      <span class="muted">Record actual count to show missing vs expected.</span>
+    </div>
+
+    {% if can_edit_inventory %}
+      <form method="POST" action="/reconcile/add" class="form">
+        <input type="hidden" name="batch_id" value="{{ batch.id }}">
+        <div class="grid2">
+          <div class="field">
+            <label>Date</label>
+            <input type="date" name="reconcile_date" value="{{ batch.prep_date }}">
+          </div>
+          <div class="field">
+            <label>Actual Remaining</label>
+            <input type="number" min="0" name="actual_remaining" value="0">
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="submit">Save Reconcile</button>
+        </div>
+      </form>
+    {% else %}
+      <div class="empty">Reconcile is disabled for staff (view-only).</div>
+    {% endif %}
+
+    {% if reconciles and reconciles|length > 0 %}
+      <div style="height:10px;"></div>
+      <div class="table">
+        <div class="row head" style="grid-template-columns: .7fr .7fr .7fr 1fr;">
+          <div>Date</div><div>Expected</div><div>Missing</div><div></div>
+        </div>
+        {% for r in reconciles %}
+          <div class="row" style="grid-template-columns: .7fr .7fr .7fr 1fr;">
+            <div class="muted">{{ r.reconcile_date }}</div>
+            <div class="strong">{{ r.expected_remaining }}</div>
+            <div class="strong">{{ r.missing_units }}</div>
+            <div class="row-actions">
+              {% if can_edit_inventory %}
+                <a class="btn small" href="/reconcile/{{ r.id }}/edit">Edit</a>
+                <form method="POST" action="/reconcile/{{ r.id }}/delete" class="inline">
+                  <button class="btn small danger" type="submit" onclick="return confirm('Delete this reconcile entry?')">Delete</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+</section>
+
+{% endblock %}

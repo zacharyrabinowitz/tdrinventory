@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <h1>Lot Details</h1>
+    <div class="actions">
+      <a class="btn ghost" href="/lots">Back</a>
+      <a class="btn primary" href="/lots/{{ lot.id }}/edit">Edit</a>
+      <form method="POST" action="/lots/{{ lot.id }}/delete" class="inline">
+        <button class="btn danger" type="submit" onclick="return confirm('Delete this lot?')">Delete</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="kv">
+    <div class="k">Item</div><div class="v">{{ lot.item.name }}</div>
+    <div class="k">Lot Label</div><div class="v">{{ lot.lot_label or "—" }}</div>
+    <div class="k">Received</div><div class="v">{{ lot.received_date }}</div>
+    <div class="k">Quantity</div><div class="v">{{ lot.quantity }} {{ lot.item.unit }}</div>
+    <div class="k">Storage</div><div class="v">{{ lot.storage }}</div>
+    <div class="k">State</div><div class="v">{{ lot.state }}</div>
+
+    <div class="k">Expiration</div>
+    <div class="v">
+      {% set exp = lot.expiration_date() %}
+      {% if exp is not none %}
+        {{ exp }}
+        {% set dl = lot.days_left() %}
+        {% if dl is not none %}
+          {% if dl < 0 %}
+            <span class="badge danger" style="margin-left:8px;">Expired</span>
+          {% elif dl <= 1 %}
+            <span class="badge warn" style="margin-left:8px;">Use ASAP</span>
+          {% else %}
+            <span class="badge ok" style="margin-left:8px;">{{ dl }} days left</span>
+          {% endif %}
+        {% endif %}
+      {% else %}
+        —
+      {% endif %}
+    </div>
+
+    <div class="k">Unit Cost</div>
+    <div class="v">
+      {% if lot.unit_cost is not none %}
+        ${{ '%.2f'|format(lot.unit_cost) }}
+      {% else %}
+        —
+      {% endif %}
+    </div>
+
+    <div class="k">Notes</div><div class="v">{{ lot.notes or "—" }}</div>
+  </div>
+</section>
+
+{% endblock %}

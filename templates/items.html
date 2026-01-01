@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>All Items</h1>
+      <span class="muted">Search + manage the master item list.</span>
+    </div>
+
+    <div class="actions">
+      <form method="GET" action="/items" class="inline">
+        <input class="input" name="q" placeholder="Search items..." value="{{ q or '' }}">
+        <button class="btn" type="submit">Search</button>
+      </form>
+
+      {% if can_edit_inventory %}
+        <a class="btn primary" href="/items/new">Add Item</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if items and items|length > 0 %}
+    <div class="table">
+      <div class="row head" style="grid-template-columns: 1.3fr .8fr .7fr .9fr .9fr .8fr;">
+        <div>Name</div>
+        <div>Category</div>
+        <div>Unit</div>
+        <div>Prep Type</div>
+        <div>Supplier</div>
+        <div></div>
+      </div>
+
+      {% for it in items %}
+        <div class="row" style="grid-template-columns: 1.3fr .8fr .7fr .9fr .9fr .8fr;">
+          <div class="strong">
+            <a class="navlink" style="padding:0; border:none;" href="/items/{{ it.id }}">{{ it.name }}</a>
+          </div>
+          <div class="muted">{{ it.category }}</div>
+          <div class="muted">{{ it.unit }}</div>
+          <div class="muted">{{ it.prep_type }}</div>
+          <div class="muted">{{ it.supplier.name if it.supplier else "—" }}</div>
+
+          <div class="row-actions">
+            {% if can_edit_inventory %}
+              <a class="btn small" href="/items/{{ it.id }}/edit">Edit</a>
+              <form method="POST" action="/items/{{ it.id }}/delete" class="inline">
+                <button class="btn small danger" type="submit"
+                        onclick="return confirm('Delete this item? (Only allowed if no history exists)')">
+                  Delete
+                </button>
+              </form>
+            {% else %}
+              <span class="muted smalltxt">view only</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No items yet.</div>
+  {% endif %}
+</section>
+
+{% endblock %}

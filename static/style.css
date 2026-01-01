@@ -1,0 +1,677 @@
+/* Variables */
+:root {
+  --bg1: #0b1220;
+  --bg2: #0d1b2a;
+
+  --card: rgba(255, 255, 255, 0.06);
+  --card2: rgba(255, 255, 255, 0.08);
+  --stroke: rgba(255, 255, 255, 0.12);
+
+  --input: rgba(255, 255, 255, 0.92);
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.65);
+
+  --primary: #3b82f6;
+  --danger: #ef4444;
+  --ok: #22c55e;
+
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --r: 18px;
+
+  /* New variables for consistent opacities */
+  --opacity-low: 0.06;
+  --opacity-med: 0.12;
+  --opacity-high: 0.14;
+  --opacity-hover: 0.09;
+}
+
+/* Base Styles */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(59, 130, 246, 0.25), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(34, 197, 94, 0.14), transparent 60%),
+    linear-gradient(180deg, var(--bg1), var(--bg2));
+}
+
+.bg {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(800px 380px at 30% 15%, rgba(255, 255, 255, var(--opacity-low)), transparent 60%),
+    radial-gradient(700px 400px at 70% 10%, rgba(255, 255, 255, 0.05), transparent 60%);
+  pointer-events: none;
+}
+
+.container {
+  width: min(1200px, 92vw);
+  margin: 22px auto 60px;
+}
+
+/* Topbar */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(10px);
+  background: rgba(7, 12, 24, 0.55);
+  border-bottom: 1px solid var(--stroke);
+}
+
+.topbar-inner {
+  width: min(1200px, 92vw);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  gap: 14px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 99px;
+  background: linear-gradient(135deg, var(--primary), #a78bfa);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+
+.brand-title {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.brand-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.navlink {
+  color: var(--text);
+  text-decoration: none;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+.navlink:hover {
+  background: rgba(255, 255, 255, var(--opacity-low));
+  border-color: rgba(255, 255, 255, var(--opacity-med));
+}
+
+/* Cards */
+.card {
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.card.mini { padding: 14px; }
+
+.card.center {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.cardhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+h1 { margin: 0; font-size: 26px; }
+h2 { margin: 0; font-size: 18px; }
+
+.muted { color: var(--muted); }
+.smalltxt { font-size: 12px; }
+
+.actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Buttons (more bootstrappy feel, same colors) */
+.btn {
+  border: 1px solid rgba(255, 255, 255, var(--opacity-high));
+  background: rgba(255, 255, 255, var(--opacity-low));
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 12px; /* slightly tighter like Bootstrap */
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  line-height: 1.1;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.04s ease;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, var(--opacity-hover));
+}
+
+.btn:active { transform: translateY(1px); }
+
+.btn.primary {
+  background: rgba(59, 130, 246, 0.20);
+  border-color: rgba(59, 130, 246, 0.38);
+}
+
+.btn.primary:hover {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.btn.danger {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.36);
+}
+
+.btn.danger:hover {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+.btn.small {
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.btn.full {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Inputs (bootstrappy + fixes dropdown visibility) */
+.input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--input);
+  outline: none;
+  line-height: 1.25;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.input:hover {
+  border-color: rgba(255, 255, 255, 0.26);
+}
+
+.input:focus {
+  border-color: rgba(59, 130, 246, 0.75);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.22);
+  background: rgba(255, 255, 255, 0.085);
+}
+
+/* Labels */
+label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.88);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Textarea matches input */
+textarea.input,
+.textarea {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--input);
+  outline: none;
+  min-height: 90px;
+  resize: vertical;
+  line-height: 1.25;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+textarea.input:focus,
+.textarea:focus {
+  border-color: rgba(59, 130, 246, 0.75);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.22);
+  background: rgba(255, 255, 255, 0.085);
+}
+
+/* ---- SELECT FIXES ---- */
+/* Make select look consistent and readable in dropdown */
+select.input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 42px; /* space for caret */
+  cursor: pointer;
+
+  /* caret */
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(255,255,255,0.75) 50%),
+    linear-gradient(135deg, rgba(255,255,255,0.75) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 12px) 50%;
+  background-size:
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+}
+
+/* Dropdown options: force readable contrast */
+select.input option {
+  background: #ffffff;
+  color: #0b1220;
+}
+
+/* Optgroups if used */
+select.input optgroup {
+  background: #ffffff;
+  color: #0b1220;
+}
+
+/* Placeholders (works for inputs) */
+::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Disabled controls */
+.input:disabled,
+select.input:disabled,
+textarea.input:disabled,
+.textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Autofill fix (Chrome) */
+input.input:-webkit-autofill,
+input.input:-webkit-autofill:hover,
+input.input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  transition: background-color 9999s ease-in-out 0s;
+  box-shadow: 0 0 0px 1000px rgba(255,255,255,0.07) inset;
+}
+
+/* Forms and Grids */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .grid2, .grid3 { grid-template-columns: 1fr; }
+}
+
+/* Tables */
+.table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.row {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid rgba(255, 255, 255, var(--opacity-med));
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.row.head {
+  border-top: none;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+}
+
+.strong { font-weight: 800; }
+
+/* Tiles */
+.tile {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  padding: 16px;
+  text-decoration: none;
+  color: var(--text);
+  display: block;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.tile:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, var(--opacity-hover));
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.tile-title {
+  font-weight: 900;
+  font-size: 18px;
+}
+
+.tile-sub {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Empty States */
+.empty {
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Toasts */
+.toasts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.toast {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, var(--opacity-high));
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toast.success {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.toast.error {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* Footer */
+.footer {
+  position: fixed;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.50);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* Split Layout */
+.split {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .split { grid-template-columns: 1fr; }
+}
+
+/* Sidebar */
+.sidebar {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, var(--opacity-med));
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.sidehead {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.sidelink {
+  display: block;
+  text-decoration: none;
+  color: var(--text);
+  padding: 10px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+.sidelink:hover {
+  background: rgba(255, 255, 255, var(--opacity-low));
+  border-color: rgba(255, 255, 255, var(--opacity-med));
+}
+
+.sidelink.active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+/* =========================
+   Bootstrap-style Dropdowns
+   ========================= */
+
+.dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.dropdown-toggle {
+  width: 100%;
+  justify-content: space-between;
+  padding-right: 14px;
+}
+
+.dropdown-toggle .caret {
+  width: 0;
+  height: 0;
+  margin-left: 10px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid rgba(255,255,255,0.75);
+}
+
+.dropdown-menu {
+  position: absolute;
+  z-index: 9999;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: rgba(12, 18, 34, 0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+  overflow: hidden;
+  display: none;
+}
+
+.dropdown.open .dropdown-menu {
+  display: block;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.92);
+  text-decoration: none;
+  user-select: none;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  background: transparent;
+}
+
+.dropdown-item:first-child {
+  border-top: none;
+}
+
+.dropdown-item:hover,
+.dropdown-item.active {
+  background: rgba(255,255,255,0.08);
+}
+
+.dropdown-search {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+}
+
+.dropdown-search input {
+  width: 100%;
+}
+
+/* Small helper label style inside dropdown toggle */
+.dropdown-toggle .value {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255,255,255,0.92);
+}
+
+.dropdown-toggle .placeholder {
+  color: rgba(255,255,255,0.55);
+}
+/* =========================
+   Bootstrap-style Dropdowns
+   ========================= */
+.dropdown { position: relative; width: 100%; }
+
+.dropdown-toggle {
+  width: 100%;
+  justify-content: space-between;
+  padding-right: 14px;
+}
+
+.dropdown-toggle .caret {
+  width: 0;
+  height: 0;
+  margin-left: 10px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid rgba(255,255,255,0.75);
+}
+
+.dropdown-menu {
+  position: absolute;
+  z-index: 9999;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: rgba(12, 18, 34, 0.96);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+  overflow: hidden;
+  display: none;
+}
+
+.dropdown.open .dropdown-menu { display: block; }
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.92);
+  user-select: none;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  background: transparent;
+}
+
+.dropdown-item:first-child { border-top: none; }
+
+.dropdown-item:hover,
+.dropdown-item.active { background: rgba(255,255,255,0.08); }
+
+.dropdown-search {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+}
+
+/* placeholder look inside toggle */
+.dropdown-toggle [data-dd-value].placeholder {
+  color: rgba(255,255,255,0.55);
+}
+/* --- Table spacing fix (prevents squished columns) --- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.tablewrap {
+  width: 100%;
+  overflow-x: auto;
+}

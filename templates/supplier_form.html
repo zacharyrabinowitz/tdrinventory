@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>{% if supplier %}Edit Supplier{% else %}Add Supplier{% endif %}</h1>
+      <span class="muted">Save vendor contact info for quick reference.</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/suppliers">Back</a>
+    </div>
+  </div>
+
+  <form class="form" method="POST"
+        action="{% if supplier %}/suppliers/{{ supplier.id }}/edit{% else %}/suppliers/new{% endif %}">
+
+    <div class="grid2">
+      <div class="field">
+        <label>Name</label>
+        <input class="input" name="name" required
+               value="{% if supplier %}{{ supplier.name }}{% endif %}"
+               placeholder="e.g., US Foods">
+      </div>
+
+      <div class="field">
+        <label>Contact Name (optional)</label>
+        <input class="input" name="contact_name"
+               value="{% if supplier and supplier.contact_name %}{{ supplier.contact_name }}{% endif %}"
+               placeholder="e.g., John Smith">
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Phone (optional)</label>
+        <input class="input" name="phone"
+               value="{% if supplier and supplier.phone %}{{ supplier.phone }}{% endif %}"
+               placeholder="e.g., (716) 555-1234">
+      </div>
+
+      <div class="field">
+        <label>Email (optional)</label>
+        <input class="input" name="email"
+               value="{% if supplier and supplier.email %}{{ supplier.email }}{% endif %}"
+               placeholder="e.g., orders@vendor.com">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Notes (optional)</label>
+      <input class="input" name="notes"
+             value="{% if supplier and supplier.notes %}{{ supplier.notes }}{% endif %}"
+             placeholder="Delivery days, rep info, ordering notes...">
+    </div>
+
+    <div class="actions" style="margin-top:10px;">
+      <button class="btn primary" type="submit">{% if supplier %}Save Changes{% else %}Create Supplier{% endif %}</button>
+      <a class="btn" href="/suppliers">Cancel</a>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

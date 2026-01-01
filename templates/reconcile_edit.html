@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Edit Reconcile • {{ item.name }}</h1>
+      <span class="muted">Update counts, sales, and (optional) linked prepped lots.</span>
+    </div>
+    <div class="actions">
+      <a class="btn ghost" href="/items/{{ item.id }}/reconcile">Back</a>
+    </div>
+  </div>
+
+  <form method="POST" action="/reconcile/{{ rec.id }}/edit" class="form">
+
+    <div class="grid2">
+      <div class="field">
+        <label>Event Date</label>
+        <input class="input" type="date" name="event_date" value="{{ rec.event_date.strftime('%Y-%m-%d') }}" required>
+      </div>
+      <div class="field">
+        <label>Actual Units</label>
+        <input class="input" type="number" min="0" name="actual_units" value="{{ rec.actual_units }}">
+      </div>
+    </div>
+
+    <div class="empty" style="margin-top:8px;">
+      <b>Starting Units</b>:
+      If you select prepped lots below, starting units auto-calculates from them.
+      If you select none, you can manually enter starting units.
+    </div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Manual Starting Units (only used if no prepped lots selected)</label>
+        <input class="input" type="number" min="0" name="starting_units" value="{{ rec.starting_units }}">
+      </div>
+      <div></div>
+    </div>
+
+    <div class="card" style="margin-top:10px; background: rgba(255,255,255,0.04);">
+      <div class="strong" style="margin-bottom:8px;">Link Prepped Lots (optional)</div>
+
+      {% if prepped_rows and prepped_rows|length > 0 %}
+        <div class="table">
+          <div class="row head" style="grid-template-columns: .35fr 1fr .8fr 1.2fr;">
+            <div></div>
+            <div>Prepped Lot</div>
+            <div>Units</div>
+            <div>Expiration</div>
+          </div>
+
+          {% for r in prepped_rows %}
+            {% set lot = r.lot %}
+            {% set exp = r.expires_on %}
+            {% set left = r.days_left %}
+
+            <div class="row" style="grid-template-columns: .35fr 1fr .8fr 1.2fr;">
+              <div>
+                <input type="checkbox" name="prepped_lot_ids" value="{{ lot.id }}" {% if r.selected %}checked{% endif %}>
+              </div>
+
+              <div class="muted">
+                {% if lot.lot_number %}#{{ lot.lot_number }}{% else %}Lot {{ lot.id }}{% endif %}
+                <span class="muted smalltxt"> • {{ lot.received_date.strftime("%b %d, %Y") }}</span>
+              </div>
+
+              <div class="muted">{{ lot.count_units or 0 }}</div>
+
+              <div class="muted">
+                {% if exp %}
+                  <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
+                  {% if left is not none %}
+                    {% if left < 0 %}
+                      <span class="muted"> • EXPIRED ({{ left * -1 }}d ago)</span>
+                    {% elif left == 0 %}
+                      <span class="muted"> • expires today</span>
+                    {% else %}
+                      <span class="muted"> • {{ left }}d left</span>
+                    {% endif %}
+                  {% endif %}
+                {% else %}
+                  <span class="muted">No rule set</span>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">No active prepped lots found for this item.</div>
+      {% endif %}
+    </div>
+
+    {% if item.sales_mode == "packs_4" %}
+      <div class="grid2" style="margin-top:10px;">
+        <div class="field">
+          <label>{{ item.pack1_label }}</label>
+          <input class="input" type="number" min="0" name="pack1_qty" value="{{ rec.pack1_qty }}">
+        </div>
+        <div class="field">
+          <label>{{ item.pack2_label }}</label>
+          <input class="input" type="number" min="0" name="pack2_qty" value="{{ rec.pack2_qty }}">
+        </div>
+        <div class="field">
+          <label>{{ item.pack3_label }}</label>
+          <input class="input" type="number" min="0" name="pack3_qty" value="{{ rec.pack3_qty }}">
+        </div>
+        <div class="field">
+          <label>{{ item.pack4_label }}</label>
+          <input class="input" type="number" min="0" name="pack4_qty" value="{{ rec.pack4_qty }}">
+        </div>
+      </div>
+      <div class="muted smalltxt" style="margin-top:8px;">
+        Sales units recalc using multipliers on save.
+      </div>
+    {% else %}
+      <div class="field" style="margin-top:10px;">
+        <label>Sales Units</label>
+        <input class="input" type="number" min="0" name="sales_units_override" value="{{ rec.sales_units }}" disabled>
+        <div class="muted smalltxt">This item is not in packs_4 mode; sales entry is handled by your reconcile create logic.</div>
+      </div>
+    {% endif %}
+
+    <div style="margin-top:10px;">
+      <label>Notes</label>
+      <textarea class="textarea" name="notes" rows="3">{{ rec.notes or "" }}</textarea>
+    </div>
+
+    <div class="actions" style="margin-top:14px;">
+      <button class="btn primary" type="submit">Save Changes</button>
+      <a class="btn ghost" href="/items/{{ item.id }}/reconcile">Cancel</a>
+    </div>
+  </form>
+
+  <div style="height:14px;"></div>
+
+  <form method="POST" action="/reconcile/{{ rec.id }}/delete" onsubmit="return confirm('Delete this reconcile record? This cannot be undone.');">
+    <button class="btn danger" type="submit">Delete Reconcile</button>
+  </form>
+</section>
+
+{% endblock %}

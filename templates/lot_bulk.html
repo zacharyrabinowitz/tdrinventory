@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Bulk Receive • {{ item.name }}</h1>
+      <span class="muted">Add lots of boxes fast. Think “spreadsheet”. Each row = one box.</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}/lots">Back</a>
+    </div>
+  </div>
+
+  <form method="POST" action="/items/{{ item.id }}/lots/bulk" class="form" id="bulkForm">
+    <div class="grid2">
+      <div class="field">
+        <label>Received Date</label>
+        <input class="input" type="date" name="received_date" value="{{ today }}" required>
+      </div>
+
+      <div class="field">
+        <label>State</label>
+        <select class="input" name="state">
+          <option value="raw" selected>raw</option>
+          <option value="prepped">prepped</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="height:10px;"></div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="addRowBtn">+ Add Row</button>
+      <button type="button" class="btn" id="add10Btn">+ Add 10 Rows</button>
+      <button type="button" class="btn" id="autoFillBtn">Auto-fill box #s</button>
+      <div class="muted smalltxt" style="margin-left:auto;">Starting # suggestion: {{ start_num }}</div>
+    </div>
+
+    <div style="height:10px;"></div>
+
+    <div class="table" id="bulkTable">
+      <div class="row head" style="grid-template-columns: .6fr .9fr .9fr .9fr 1.2fr .3fr;">
+        <div>Box #</div>
+        <div>Box Label</div>
+        <div>Location</div>
+        <div>Units Inside</div>
+        <div>Notes</div>
+        <div></div>
+      </div>
+
+      <!-- rows injected by JS -->
+    </div>
+
+    <div class="empty" style="margin-top:12px;">
+      Tip: Leave a row blank if you don’t need it — blank rows are ignored.
+    </div>
+
+    <div class="actions" style="margin-top:14px;">
+      <button class="btn primary" type="submit">Save Boxes</button>
+      <a class="btn" href="/items/{{ item.id }}/lots">Cancel</a>
+    </div>
+  </form>
+</section>
+
+<script>
+(function(){
+  const table = document.getElementById("bulkTable");
+  const addRowBtn = document.getElementById("addRowBtn");
+  const add10Btn = document.getElementById("add10Btn");
+  const autoFillBtn = document.getElementById("autoFillBtn");
+
+  const START_NUM = {{ start_num|int }};
+
+  function makeRow(boxNum="") {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.gridTemplateColumns = ".6fr .9fr .9fr .9fr 1.2fr .3fr";
+    row.innerHTML = `
+      <div><input class="input" name="lot_number[]" type="number" placeholder="#" value="${boxNum}"></div>
+      <div><input class="input" name="lot_label[]" placeholder="optional label"></div>
+      <div>
+        <select class="input" name="storage[]">
+          <option value="freezer" selected>freezer</option>
+          <option value="cooler">cooler</option>
+          <option value="out">out</option>
+        </select>
+      </div>
+      <div><input class="input" name="count_units[]" type="number" placeholder="optional"></div>
+      <div><input class="input" name="notes[]" placeholder="optional notes"></div>
+      <div style="display:flex; justify-content:flex-end;">
+        <button type="button" class="btn small danger">X</button>
+      </div>
+    `;
+    row.querySelector("button").addEventListener("click", () => row.remove());
+    table.appendChild(row);
+  }
+
+  function addRows(n) {
+    for (let i=0; i<n; i++) makeRow("");
+  }
+
+  function autoFill() {
+    // fill missing box numbers sequentially starting at START_NUM
+    let num = START_NUM;
+    const rows = table.querySelectorAll(".row:not(.head)");
+    rows.forEach(r => {
+      const input = r.querySelector('input[name="lot_number[]"]');
+      if (input && (!input.value || input.value.trim() === "")) {
+        input.value = num;
+        num += 1;
+      } else if (input && input.value) {
+        const v = parseInt(input.value, 10);
+        if (!isNaN(v) && v >= num) num = v + 1;
+      }
+    });
+  }
+
+  addRowBtn.addEventListener("click", () => addRows(1));
+  add10Btn.addEventListener("click", () => addRows(10));
+  autoFillBtn.addEventListener("click", autoFill);
+
+  // start with 10 rows
+  addRows(10);
+})();
+</script>
+
+{% endblock %}

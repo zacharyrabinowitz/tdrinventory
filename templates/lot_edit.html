@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Edit Box • {{ item.name }}</h1>
+      <span class="muted">Update box details. Consumed lots cannot be deleted to protect history.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}/lots">Back</a>
+    </div>
+  </div>
+
+  <form method="POST" action="/lots/{{ lot.id }}/edit" class="form">
+    <div class="grid2">
+      <div class="field">
+        <label>Received Date</label>
+        <input class="input" type="date" name="received_date"
+               value="{{ lot.received_date.strftime('%Y-%m-%d') if lot.received_date else today }}" required>
+      </div>
+
+      <div class="field">
+        <label>State</label>
+        <select class="input" name="state">
+          <option value="raw" {% if (lot.state or '') == 'raw' %}selected{% endif %}>raw</option>
+          <option value="prepped" {% if (lot.state or '') == 'prepped' %}selected{% endif %}>prepped</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:10px;">
+      <div class="field">
+        <label>Box #</label>
+        <input class="input" type="number" name="lot_number" value="{{ lot.lot_number or '' }}">
+      </div>
+
+      <div class="field">
+        <label>Box Label (optional)</label>
+        <input class="input" name="lot_label" value="{{ lot.lot_label or '' }}">
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:10px;">
+      <div class="field">
+        <label>Location</label>
+        <select class="input" name="storage">
+          <option value="freezer" {% if (lot.storage or '') == 'freezer' %}selected{% endif %}>freezer</option>
+          <option value="cooler" {% if (lot.storage or '') == 'cooler' %}selected{% endif %}>cooler</option>
+          <option value="out" {% if (lot.storage or '') == 'out' %}selected{% endif %}>out</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Units Inside (optional)</label>
+        <input class="input" type="number" min="0" name="count_units"
+               value="{{ lot.count_units if lot.count_units is not none else '' }}">
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:10px;">
+      <label>Notes (optional)</label>
+      <input class="input" name="notes" value="{{ lot.notes or '' }}">
+    </div>
+
+    <div class="actions" style="margin-top:14px;">
+      <button class="btn primary" type="submit">Save Changes</button>
+      <a class="btn" href="/items/{{ item.id }}/lots">Cancel</a>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

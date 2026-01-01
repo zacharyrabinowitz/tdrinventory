@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Users</h1>
+      <span class="muted">Admins can create users, toggle active status, reset passwords, and delete users.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/">Back</a>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;">
+    <h2 style="margin-bottom:10px;">Create User</h2>
+    <form class="form" method="POST" action="/users/create">
+      <div class="grid3">
+        <div class="field">
+          <label>Username</label>
+          <input class="input" name="username" placeholder="e.g. john" required>
+        </div>
+        <div class="field">
+          <label>First Name</label>
+          <input class="input" name="first_name" placeholder="optional">
+        </div>
+        <div class="field">
+          <label>Last Name</label>
+          <input class="input" name="last_name" placeholder="optional">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Role</label>
+          <select class="input" name="role">
+            <option value="staff" selected>staff</option>
+            <option value="manager">manager</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Temp Password</label>
+          <input class="input" name="password" type="password" placeholder="min 6 chars" required>
+          <div class="muted smalltxt">They can log in with this. You can reset anytime.</div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" type="submit">Create User</button>
+      </div>
+    </form>
+  </div>
+
+  <h2 style="margin-bottom:10px;">All Users</h2>
+
+  {% if users and users|length > 0 %}
+    <div class="table">
+      <div class="row head" style="grid-template-columns: 1.1fr .9fr .6fr .6fr 1fr;">
+        <div>User</div>
+        <div>Role</div>
+        <div>Status</div>
+        <div>Created</div>
+        <div></div>
+      </div>
+
+      {% for u in users %}
+        <div class="row" style="grid-template-columns: 1.1fr .9fr .6fr .6fr 1fr;">
+          <div>
+            <div class="strong">{{ u.display_name() }}</div>
+            <div class="muted smalltxt">@{{ u.username }}</div>
+          </div>
+
+          <div class="muted">{{ u.role }}</div>
+
+          <div class="muted">
+            {% if u.is_active %}
+              <span class="strong" style="color: rgba(34,197,94,0.95);">active</span>
+            {% else %}
+              <span class="strong" style="color: rgba(239,68,68,0.95);">inactive</span>
+            {% endif %}
+          </div>
+
+          <div class="muted">{{ u.created_at.strftime("%b %d, %Y") }}</div>
+
+          <div class="row-actions">
+            <form method="POST" action="/users/{{ u.id }}/toggle_active" class="inline">
+              {% if u.is_active %}
+                <button class="btn small danger" type="submit"
+                        onclick="return confirm('Deactivate this user?')">Deactivate</button>
+              {% else %}
+                <button class="btn small" type="submit"
+                        onclick="return confirm('Reactivate this user?')">Reactivate</button>
+              {% endif %}
+            </form>
+
+            <form method="POST" action="/users/{{ u.id }}/reset_password" class="inline"
+                  onsubmit="return confirm('Reset password for {{ u.username }}?');">
+              <input class="input" style="width:170px;" name="new_password" type="password" placeholder="New password" required>
+              <button class="btn small" type="submit">Reset</button>
+            </form>
+
+            <form method="POST" action="/users/{{ u.id }}/delete" class="inline">
+              <button class="btn small danger" type="submit"
+                      onclick="return confirm('Delete this user? This cannot be undone.');">Delete</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No users found.</div>
+  {% endif %}
+</section>
+
+{% endblock %}

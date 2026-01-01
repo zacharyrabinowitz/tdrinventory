@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Move Boxes • {{ item.name }}</h1>
+      <span class="muted">Move boxes between freezer, cooler, and out using FIFO or selected boxes.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}/lots">Back to Boxes</a>
+      <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
+    </div>
+  </div>
+
+  <form method="POST" action="/items/{{ item.id }}/move_boxes" class="form" id="moveForm">
+    <input type="hidden" name="from_loc" value="{{ from_loc }}">
+
+    <div class="grid2">
+      <div class="field">
+        <label>From Location</label>
+        <select class="input" name="from_loc" id="fromSel">
+          <option value="freezer" {% if from_loc == "freezer" %}selected{% endif %}>freezer</option>
+          <option value="cooler" {% if from_loc == "cooler" %}selected{% endif %}>cooler</option>
+          <option value="out" {% if from_loc == "out" %}selected{% endif %}>out</option>
+        </select>
+        <div class="muted smalltxt">This controls which boxes show below.</div>
+      </div>
+
+      <div class="field">
+        <label>To Location</label>
+        <select class="input" name="to_loc" required>
+          <option value="freezer" {% if default_to == "freezer" %}selected{% endif %}>freezer</option>
+          <option value="cooler"  {% if default_to == "cooler" %}selected{% endif %}>cooler</option>
+          <option value="out"     {% if default_to == "out" %}selected{% endif %}>out</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Move Method</label>
+        <select class="input" name="mode" id="modeSel">
+          <option value="first_n" selected>FIFO: move first N boxes</option>
+          <option value="selected">Select specific boxes</option>
+        </select>
+      </div>
+
+      <div class="field" id="firstNWrap">
+        <label>How many boxes (FIFO)</label>
+        <input class="input" type="number" min="1" name="first_n" id="firstN" placeholder="e.g. 3">
+      </div>
+    </div>
+
+    <div id="selectedWrap" style="display:none;">
+      <div style="height:10px;"></div>
+
+      <div class="actions" style="margin-bottom:8px;">
+        <button type="button" class="btn" id="selectAllBtn">Select All</button>
+        <button type="button" class="btn" id="clearAllBtn">Clear</button>
+      </div>
+
+      {% if rows and rows|length > 0 %}
+        <div class="table">
+          <div class="row head" style="grid-template-columns: .35fr .85fr .55fr .7fr 1.2fr;">
+            <div></div>
+            <div>Received</div>
+            <div>Box</div>
+            <div>Units</div>
+            <div>Expiration</div>
+          </div>
+
+          {% for r in rows %}
+            {% set lot = r.lot %}
+            {% set exp = r.expires_on %}
+            {% set left = r.days_left %}
+
+            <div class="row" style="grid-template-columns: .35fr .85fr .55fr .7fr 1.2fr;">
+              <div>
+                <input type="checkbox" class="pickBox" name="lot_ids" value="{{ lot.id }}">
+              </div>
+
+              <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+
+              <div class="muted">
+                {% if lot.lot_number %}{{ lot.lot_number }}
+                {% elif lot.lot_label %}{{ lot.lot_label }}
+                {% else %}—{% endif %}
+              </div>
+
+              <div class="muted">
+                {% if lot.count_units %}{{ lot.count_units }}{% else %}—{% endif %}
+              </div>
+
+              <div class="muted">
+                {% if exp %}
+                  <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
+                  {% if left is not none %}
+                    {% if left < 0 %}
+                      <span class="muted"> • EXPIRED</span>
+                    {% else %}
+                      <span class="muted"> • {{ left }}d left</span>
+                    {% endif %}
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">No available boxes in {{ from_loc }}.</div>
+      {% endif %}
+    </div>
+
+    <div class="actions" style="margin-top:14px;">
+      <button class="btn primary" type="submit">Move Boxes</button>
+      <a class="btn" href="/items/{{ item.id }}/lots">Cancel</a>
+    </div>
+  </form>
+</section>
+
+<script>
+(function(){
+  const fromSel = document.getElementById("fromSel");
+  const modeSel = document.getElementById("modeSel");
+  const firstNWrap = document.getElementById("firstNWrap");
+  const selectedWrap = document.getElementById("selectedWrap");
+  const firstN = document.getElementById("firstN");
+
+  const selectAllBtn = document.getElementById("selectAllBtn");
+  const clearAllBtn = document.getElementById("clearAllBtn");
+
+  function syncMode() {
+    const mode = modeSel.value;
+    if (mode === "selected") {
+      firstNWrap.style.display = "none";
+      selectedWrap.style.display = "block";
+      if (firstN) firstN.value = "";
+    } else {
+      firstNWrap.style.display = "block";
+      selectedWrap.style.display = "none";
+      document.querySelectorAll(".pickBox").forEach(cb => cb.checked = false);
+    }
+  }
+
+  fromSel.addEventListener("change", () => {
+    const v = fromSel.value;
+    window.location = "/items/{{ item.id }}/move_boxes?from=" + encodeURIComponent(v);
+  });
+
+  modeSel.addEventListener("change", syncMode);
+  syncMode();
+
+  if (selectAllBtn) selectAllBtn.addEventListener("click", () => {
+    document.querySelectorAll(".pickBox").forEach(cb => cb.checked = true);
+  });
+  if (clearAllBtn) clearAllBtn.addEventListener("click", () => {
+    document.querySelectorAll(".pickBox").forEach(cb => cb.checked = false);
+  });
+})();
+</script>
+
+{% endblock %}

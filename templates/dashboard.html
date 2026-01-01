@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Dashboard</h1>
+      <span class="muted">Choose a category to manage items.</span>
+    </div>
+
+    <div class="actions">
+      {% if can_edit_inventory %}
+        <a class="btn primary" href="/items/new">Add Item</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid3">
+    {% for c in categories %}
+      <a class="tile" href="/category/{{ c.name }}">
+        <div class="tile-title">{{ c.name }}</div>
+        <div class="tile-sub">{{ c.count }} items</div>
+      </a>
+    {% endfor %}
+  </div>
+
+  <div style="height:16px;"></div>
+
+  <div class="card mini">
+    <div class="cardhead">
+      <h2>Recently Added</h2>
+      <span class="muted">Quick access</span>
+    </div>
+
+    {% if recent_items and recent_items|length > 0 %}
+      <div class="table">
+        <div class="row head" style="grid-template-columns: 1.2fr .8fr .6fr;">
+          <div>Item</div><div>Category</div><div></div>
+        </div>
+
+        {% for it in recent_items %}
+          <div class="row" style="grid-template-columns: 1.2fr .8fr .6fr;">
+            <div class="strong">{{ it.name }}</div>
+            <div class="muted">{{ it.category }}</div>
+            <div class="row-actions">
+              <a class="btn small" href="/items/{{ it.id }}">Open</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty">No items yet.</div>
+    {% endif %}
+  </div>
+</section>
+
+{% endblock %}

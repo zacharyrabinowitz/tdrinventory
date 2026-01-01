@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <h1>Edit Sales Entry</h1>
+    <div class="actions">
+      <a class="btn ghost" href="/batch/{{ batch.id }}">Back to Batch</a>
+    </div>
+  </div>
+
+  <form method="POST" action="/sales/{{ sale.id }}/edit" class="form">
+    <div class="grid2">
+      <div>
+        <label class="label">Sale Date</label>
+        <input class="input" type="date" name="sale_date" value="{{ sale.sale_date }}">
+      </div>
+      <div></div>
+    </div>
+
+    {% if item.sales_mode == "packs_4" %}
+      <div class="grid2" style="margin-top:10px;">
+        <div>
+          <label class="label">{{ item.pack1_label }}</label>
+          <input class="input" type="number" min="0" name="pack1_qty" value="{{ sale.pack1_qty }}">
+        </div>
+        <div>
+          <label class="label">{{ item.pack2_label }}</label>
+          <input class="input" type="number" min="0" name="pack2_qty" value="{{ sale.pack2_qty }}">
+        </div>
+        <div>
+          <label class="label">{{ item.pack3_label }}</label>
+          <input class="input" type="number" min="0" name="pack3_qty" value="{{ sale.pack3_qty }}">
+        </div>
+        <div>
+          <label class="label">{{ item.pack4_label }}</label>
+          <input class="input" type="number" min="0" name="pack4_qty" value="{{ sale.pack4_qty }}">
+        </div>
+      </div>
+      <div class="muted smalltxt" style="margin-top:8px;">
+        Total recalculates using multipliers on save.
+      </div>
+    {% else %}
+      <div style="margin-top:10px;">
+        <label class="label">Units Sold</label>
+        <input class="input" type="number" min="0" name="units_sold" value="{{ sale.units_sold }}">
+      </div>
+    {% endif %}
+
+    <div style="margin-top:10px;">
+      <label class="label">Notes</label>
+      <textarea class="textarea" name="notes" rows="3">{{ sale.notes or "" }}</textarea>
+    </div>
+
+    <div class="actions" style="margin-top:14px;">
+      <button class="btn primary" type="submit">Save Changes</button>
+      <a class="btn ghost" href="/batch/{{ batch.id }}">Cancel</a>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

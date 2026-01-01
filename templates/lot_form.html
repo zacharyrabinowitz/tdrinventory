@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>{% if lot %}Edit Box{% else %}Add 1 Box{% endif %} • {{ item.name }}</h1>
+      <span class="muted">This is for adding/editing ONE box. Use Bulk Receive for big shipments.</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}/lots">Back</a>
+    </div>
+  </div>
+
+  <form method="POST" action="{% if lot %}/lots/{{ lot.id }}/edit{% else %}/items/{{ item.id }}/lots/new{% endif %}" class="form">
+    <div class="grid2">
+
+      <div class="field">
+        <label>Received Date</label>
+        <input class="input" type="date" name="received_date"
+               value="{% if lot %}{{ lot.received_date.strftime('%Y-%m-%d') }}{% else %}{{ today }}{% endif %}"
+               required>
+      </div>
+
+      <div class="field">
+        <label>Box # (numeric)</label>
+        <input class="input" type="number" name="lot_number"
+               value="{% if lot and lot.lot_number %}{{ lot.lot_number }}{% elif next_num %}{{ next_num }}{% else %}{% endif %}"
+               placeholder="e.g. 1">
+      </div>
+
+      <div class="field">
+        <label>Box Label (optional)</label>
+        <input class="input" name="lot_label"
+               value="{% if lot and lot.lot_label %}{{ lot.lot_label }}{% endif %}"
+               placeholder="optional text label">
+      </div>
+
+      <div class="field">
+        <label>Location</label>
+        {% set s = lot.storage if lot else 'cooler' %}
+        <select class="input" name="storage">
+          <option value="freezer" {% if s=='freezer' %}selected{% endif %}>freezer</option>
+          <option value="cooler" {% if s=='cooler' %}selected{% endif %}>cooler</option>
+          <option value="out" {% if s=='out' %}selected{% endif %}>out</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>State</label>
+        {% set st = lot.state if lot else 'raw' %}
+        <select class="input" name="state">
+          <option value="raw" {% if st=='raw' %}selected{% endif %}>raw</option>
+          <option value="prepped" {% if st=='prepped' %}selected{% endif %}>prepped</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Boxes (usually 1)</label>
+        <input class="input" type="number" name="boxes" min="1"
+               value="{% if lot %}{{ (lot.quantity or 1)|int }}{% else %}1{% endif %}">
+        <div class="muted smalltxt">For most use cases: leave at 1 (one row = one box).</div>
+      </div>
+
+      <div class="field">
+        <label>Units Inside (optional)</label>
+        <input class="input" type="number" name="count_units"
+               value="{% if lot and lot.count_units %}{{ lot.count_units }}{% endif %}"
+               placeholder="ex: 120 wings in this box">
+      </div>
+
+      <div class="field">
+        <label>Cost (optional)</label>
+        <input class="input" type="number" step="0.01" name="unit_cost"
+               value="{% if lot and lot.unit_cost is not none %}{{ lot.unit_cost }}{% endif %}"
+               placeholder="ex: 92.50">
+      </div>
+
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>Expiration Override (optional)</label>
+        <input class="input" type="date" name="expiration_override"
+               value="{% if lot and lot.expiration_override %}{{ lot.expiration_override.strftime('%Y-%m-%d') }}{% endif %}">
+        <div class="muted smalltxt">Leave blank to use item shelf-life rules.</div>
+      </div>
+
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>Notes (optional)</label>
+        <textarea class="input" name="notes" rows="3">{% if lot and lot.notes %}{{ lot.notes }}{% endif %}</textarea>
+      </div>
+
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" type="submit">{% if lot %}Save{% else %}Add Box{% endif %}</button>
+      <a class="btn" href="/items/{{ item.id }}/lots">Cancel</a>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Prep • {{ item.name }}</h1>
+      <span class="muted">
+        Select raw boxes used, enter produced units, and the system creates a prepped lot + expiration.
+      </span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
+      <a class="btn" href="/items/{{ item.id }}/lots">View Boxes</a>
+      <a class="btn" href="/items/{{ item.id }}/reconcile">Count / Reconcile</a>
+    </div>
+  </div>
+
+  <div class="actions" style="margin-bottom:12px;">
+    <a class="btn {% if from_loc=='freezer' %}primary{% endif %}" href="/items/{{ item.id }}/prep?from=freezer">Use boxes from Freezer</a>
+    <a class="btn {% if from_loc=='cooler' %}primary{% endif %}" href="/items/{{ item.id }}/prep?from=cooler">Use boxes from Cooler</a>
+    <a class="btn {% if from_loc=='out' %}primary{% endif %}" href="/items/{{ item.id }}/prep?from=out">Use boxes from Out</a>
+  </div>
+
+  <form method="POST" action="/items/{{ item.id }}/prep" class="form" id="prepForm">
+    <input type="hidden" name="from_loc" value="{{ from_loc }}">
+
+    <div class="grid2">
+      <div class="field">
+        <label>Prep Date</label>
+        <input class="input" type="date" name="prep_date" value="{{ today }}" required>
+      </div>
+
+      <div class="field">
+        <label>Send prepped product to</label>
+        <select class="input" name="to_loc" id="toLoc">
+          <option value="cooler" {% if default_to=='cooler' %}selected{% endif %}>cooler</option>
+          <option value="out" {% if default_to=='out' %}selected{% endif %}>out</option>
+          <option value="freezer" {% if default_to=='freezer' %}selected{% endif %}>freezer</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="height:10px;"></div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Mode</label>
+        <select class="input" name="mode" id="mode">
+          <option value="first_n" selected>Use first N boxes (FIFO)</option>
+          <option value="selected">Select boxes</option>
+        </select>
+      </div>
+
+      <div class="field" id="firstNWrap">
+        <label>Boxes used (first N)</label>
+        <input class="input" type="number" min="1" name="first_n" id="firstNInput" placeholder="e.g. 3">
+        <div class="muted smalltxt">Oldest boxes are used first.</div>
+      </div>
+    </div>
+
+    <div style="height:10px;"></div>
+
+    <div class="field">
+      <label>Produced Units</label>
+      <input class="input" type="number" min="1" name="produced_units" required placeholder="Example: Wings prepped = 840">
+      <div class="muted smalltxt">Generic: this is how many usable units you now have after prep.</div>
+    </div>
+
+    <div class="field">
+      <label>Notes (optional)</label>
+      <input class="input" name="notes" placeholder="Anything helpful about this prep batch">
+    </div>
+
+    <div style="height:12px;"></div>
+
+    <h2 style="margin-bottom:8px;">Available Raw Boxes ({{ from_loc }})</h2>
+
+    {% if box_rows and box_rows|length > 0 %}
+      <div class="table" id="selectWrap">
+        <div class="row head" style="grid-template-columns:.35fr .85fr .6fr 1.2fr;">
+          <div></div>
+          <div>Received</div>
+          <div>#</div>
+          <div>Expiration</div>
+        </div>
+
+        {% for r in box_rows %}
+          {% set lot = r.lot %}
+          {% set exp = r.expires_on %}
+          {% set left = r.days_left %}
+          <div class="row" style="grid-template-columns:.35fr .85fr .6fr 1.2fr;">
+            <div>
+              <input type="checkbox" class="lotCheck" name="lot_ids" value="{{ lot.id }}">
+            </div>
+            <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+            <div class="muted">
+              {% if lot.lot_number %}{{ lot.lot_number }}
+              {% elif lot.lot_label %}{{ lot.lot_label }}
+              {% else %}—{% endif %}
+            </div>
+            <div class="muted">
+              {% if exp %}
+                <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
+                {% if left is not none %}
+                  {% if left < 0 %}<span class="muted"> • EXPIRED</span>
+                  {% else %}<span class="muted"> • {{ left }}d left</span>
+                  {% endif %}
+                {% endif %}
+              {% else %}
+                <span class="muted">No rule set</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="actions" style="margin-top:10px;">
+        <button type="button" class="btn" id="selectAllBtn">Select All</button>
+        <button type="button" class="btn" id="clearAllBtn">Clear</button>
+        <button class="btn primary" type="submit">Save Prep</button>
+      </div>
+    {% else %}
+      <div class="empty">No raw boxes available in {{ from_loc }}.</div>
+    {% endif %}
+  </form>
+
+  <div style="height:18px;"></div>
+
+  <h2 style="margin-bottom:8px;">Recent Prep Batches</h2>
+  {% if history and history|length > 0 %}
+    <div class="table">
+      <div class="row head" style="grid-template-columns:.9fr .7fr .8fr 1.2fr .5fr;">
+        <div>Date</div>
+        <div>Boxes</div>
+        <div>Produced</div>
+        <div>Expires</div>
+        <div></div>
+      </div>
+
+      {% for b in history %}
+        <div class="row" style="grid-template-columns:.9fr .7fr .8fr 1.2fr .5fr;">
+          <div class="strong">{{ b.prep_date.strftime("%b %d, %Y") }}</div>
+          <div class="muted">{{ b.boxes_used }} (from {{ b.from_loc }})</div>
+          <div class="muted">{{ b.produced_units }}</div>
+          <div class="muted">
+            {% if b.expires_on %}{{ b.expires_on.strftime("%b %d, %Y") }}{% else %}—{% endif %}
+          </div>
+          <div class="row-actions">
+            <form method="POST" action="/prep/{{ b.id }}/delete" class="inline">
+              <button class="btn danger small" type="submit" onclick="return confirm('Delete this prep batch? This will undo the consumption + delete the created prepped lot.')">Delete</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No prep batches yet.</div>
+  {% endif %}
+</section>
+
+<script>
+(function(){
+  const mode = document.getElementById("mode");
+  const firstNWrap = document.getElementById("firstNWrap");
+  const firstNInput = document.getElementById("firstNInput");
+
+  function syncMode(){
+    const v = mode.value;
+    const checks = document.querySelectorAll(".lotCheck");
+    if (v === "first_n") {
+      firstNWrap.style.display = "";
+      checks.forEach(cb => { cb.disabled = true; cb.checked = false; });
+    } else {
+      firstNWrap.style.display = "none";
+      if (firstNInput) firstNInput.value = "";
+      checks.forEach(cb => { cb.disabled = false; });
+    }
+  }
+  mode.addEventListener("change", syncMode);
+
+  // auto switch to selected when clicking checkboxes
+  document.querySelectorAll(".lotCheck").forEach(cb=>{
+    cb.addEventListener("click", ()=>{
+      mode.value = "selected";
+      syncMode();
+    });
+  });
+
+  const selectAllBtn = document.getElementById("selectAllBtn");
+  const clearAllBtn = document.getElementById("clearAllBtn");
+
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", ()=>{
+      mode.value = "selected";
+      syncMode();
+      document.querySelectorAll(".lotCheck").forEach(cb => { if(!cb.disabled) cb.checked = true; });
+    });
+  }
+
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener("click", ()=>{
+      document.querySelectorAll(".lotCheck").forEach(cb => cb.checked = false);
+    });
+  }
+
+  syncMode();
+})();
+</script>
+
+{% endblock %}

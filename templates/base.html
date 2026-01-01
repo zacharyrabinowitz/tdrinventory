@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Draft Room • Inventory</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<script>
+(function(){
+  function closeAll() {
+    document.querySelectorAll(".dropdown.open").forEach(d => d.classList.remove("open"));
+  }
+
+  document.addEventListener("click", (e) => {
+    const dd = e.target.closest(".dropdown");
+    if (!dd) closeAll();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeAll();
+  });
+
+  document.querySelectorAll("[data-dd-toggle]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const dd = btn.closest(".dropdown");
+      const isOpen = dd.classList.contains("open");
+      closeAll();
+      if (!isOpen) dd.classList.add("open");
+    });
+  });
+
+  document.querySelectorAll("[data-dd-item]").forEach(item => {
+    item.addEventListener("click", () => {
+      const dd = item.closest(".dropdown");
+      const value = item.getAttribute("data-value");
+      const label = item.getAttribute("data-label") || item.textContent.trim();
+
+      const hidden = dd.querySelector("input[type='hidden']");
+      const valueSpan = dd.querySelector("[data-dd-value]");
+
+      // set hidden value for form submit
+      if (hidden) hidden.value = value;
+
+      // update UI text
+      if (valueSpan) {
+        valueSpan.textContent = label;
+        valueSpan.classList.remove("placeholder");
+      }
+
+      // active highlight
+      dd.querySelectorAll(".dropdown-item").forEach(x => x.classList.remove("active"));
+      item.classList.add("active");
+
+      dd.classList.remove("open");
+    });
+  });
+
+  // Optional: search filter
+  document.querySelectorAll("[data-dd-search]").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const q = inp.value.toLowerCase().trim();
+      const dd = inp.closest(".dropdown");
+      dd.querySelectorAll(".dropdown-item").forEach(it => {
+        const t = (it.getAttribute("data-label") || it.textContent).toLowerCase();
+        it.style.display = t.includes(q) ? "" : "none";
+      });
+    });
+  });
+})();
+</script>
+
+<body>
+  <div class="bg"></div>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="dot"></div>
+        <div>
+          <div class="brand-title">Draft Room • Inventory</div>
+          <div class="brand-sub">
+            {% if auth_break_glass %}
+              Logged in: Break-glass Admin
+            {% elif auth_user %}
+              Logged in: {{ auth_user.display_name() }} ({{ auth_role }})
+            {% else %}
+              Not logged in
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        {% if auth_user or auth_break_glass %}
+          <a class="navlink" href="/">Dashboard</a>
+          <a class="navlink" href="/items">All Items</a>
+          <a class="navlink" href="/suppliers">Suppliers</a>
+
+          {% if can_manage_users %}
+            <a class="navlink" href="/users">Users</a>
+            <a class="navlink" href="/audit">Audit</a>
+
+          {% endif %}
+
+          <a class="navlink" href="/logout">Logout</a>
+        {% else %}
+          <a class="navlink" href="/login">Login</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="toasts">
+          {% for category, message in messages %}
+            <div class="toast {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">Draft Room Inventory</footer>
+</body>
+</html>

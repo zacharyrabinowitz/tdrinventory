@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>{{ item.name }}</h1>
+      <span class="muted">Category: {{ item.category }} • Prep Type: {{ item.prep_type }}</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/category/{{ item.category }}">Back to {{ item.category }}</a>
+    </div>
+  </div>
+
+  <!-- ✅ SUMMARY BOXES -->
+  <div class="grid3">
+    <div class="card mini">
+      <div class="muted">Prepped Units Available (Cooler)</div>
+      <div class="big">{{ prepped_units_available }}</div>
+      <div class="muted smalltxt">Not consumed • state=prepped</div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Expiring Soon (Cooler)</div>
+      <div class="big">{{ expiring_soon_count }}</div>
+      <div class="muted smalltxt">Expires in the next 0–4 days</div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Quick Actions</div>
+      <div class="muted smalltxt">Receive, move, prep, reconcile</div>
+    </div>
+  </div>
+
+  {% if expiring_soon_count and expiring_soon_count > 0 %}
+    <div style="height:12px;"></div>
+
+    <div class="card" style="padding:14px;">
+      <div class="strong" style="margin-bottom:8px;">Expiring Soon (Cooler)</div>
+
+      <div class="table">
+        <div class="row head" style="grid-template-columns: .75fr .55fr .7fr .8fr 1.2fr;">
+          <div>Received</div>
+          <div>#</div>
+          <div>State</div>
+          <div>Units</div>
+          <div>Expiration</div>
+        </div>
+
+        {% for r in expiring_soon %}
+          {% set lot = r.lot %}
+          {% set exp = r.expires_on %}
+          {% set left = r.days_left %}
+
+          <div class="row" style="grid-template-columns: .75fr .55fr .7fr .8fr 1.2fr;">
+            <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+
+            <div class="muted">
+              {% if lot.lot_number %}
+                {{ lot.lot_number }}
+              {% elif lot.lot_label %}
+                {{ lot.lot_label }}
+              {% else %}
+                —
+              {% endif %}
+            </div>
+
+            <div class="muted">{{ lot.state }}</div>
+
+            <div class="muted">
+              {% if lot.count_units %}
+                {{ lot.count_units }}
+              {% else %}
+                —
+              {% endif %}
+            </div>
+
+            <div class="muted">
+              <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
+              {% if left == 0 %}
+                <span class="muted"> • expires today</span>
+              {% else %}
+                <span class="muted"> • {{ left }}d left</span>
+              {% endif %}
+              {% if lot.expiration_override %}
+                <span class="muted smalltxt"> • override</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div style="height:10px;"></div>
+      <div class="actions" style="justify-content:flex-end;">
+        <a class="btn" href="/items/{{ item.id }}/lots">View All Boxes</a>
+      </div>
+    </div>
+  {% endif %}
+
+  <div style="height:14px;"></div>
+
+  <!-- ✅ YOUR EXISTING TILE LAYOUT (UNCHANGED) -->
+  <div class="grid3">
+    <a class="tile" href="/items/{{ item.id }}/lots">
+      <div class="tile-title">Receive / Boxes</div>
+      <div class="tile-sub">Add boxes and view FIFO list</div>
+    </a>
+
+    {% if can_edit_inventory %}
+      <a class="tile" href="/items/{{ item.id }}/move_boxes">
+        <div class="tile-title">Move Boxes</div>
+        <div class="tile-sub">Move FIFO or selected boxes by location</div>
+      </a>
+    {% else %}
+      <div class="tile disabled">
+        <div class="tile-title">Move Boxes</div>
+        <div class="tile-sub">Manager/Admin only</div>
+      </div>
+    {% endif %}
+
+    {% if can_edit_inventory %}
+      <a class="tile" href="/items/{{ item.id }}/prep">
+        <div class="tile-title">Prep</div>
+        <div class="tile-sub">Use boxes → create prepped batch with expiration</div>
+      </a>
+    {% else %}
+      <div class="tile disabled">
+        <div class="tile-title">Prep</div>
+        <div class="tile-sub">Manager/Admin only</div>
+      </div>
+    {% endif %}
+
+    <a class="tile" href="/items/{{ item.id }}/reconcile">
+      <div class="tile-title">Count / Reconcile</div>
+      <div class="tile-sub">Expected vs actual + missing</div>
+    </a>
+  </div>
+</section>
+
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %} 
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Suppliers</h1>
+      <span class="muted">Vendor list + contact info</span>
+    </div>
+
+    <div class="actions">
+      <form method="GET" action="/suppliers" class="inline">
+        <input class="input" name="q" placeholder="Search suppliers..." value="{{ q or '' }}">
+        <button class="btn" type="submit">Search</button>
+      </form>
+
+      {% if can_edit_inventory %}
+        <a class="btn primary" href="/suppliers/new">Add Supplier</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if suppliers and suppliers|length > 0 %}
+    <div class="table">
+      <div class="row head" style="grid-template-columns: 1.1fr .9fr .9fr .6fr;">
+        <div>Name</div><div>Contact</div><div>Phone / Email</div><div></div>
+      </div>
+
+      {% for s in suppliers %}
+        <div class="row" style="grid-template-columns: 1.1fr .9fr .9fr .6fr;">
+          <div class="strong">{{ s.name }}</div>
+          <div class="muted">{{ s.contact_name or '—' }}</div>
+          <div class="muted">
+            {{ s.phone or '—' }}{% if s.email %} • {{ s.email }}{% endif %}
+          </div>
+
+          <div class="row-actions">
+            {% if can_edit_inventory %}
+              <a class="btn small" href="/suppliers/{{ s.id }}/edit">Edit</a>
+              <form method="POST" action="/suppliers/{{ s.id }}/delete" class="inline">
+                <button class="btn small danger" type="submit" onclick="return confirm('Delete this supplier?')">Delete</button>
+              </form>
+            {% else %}
+              <span class="muted smalltxt">view only</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No suppliers yet.</div>
+  {% endif %}
+</section>
+
+{% endblock %}

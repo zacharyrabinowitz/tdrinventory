@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>{% if user %}Edit User{% else %}Add User{% endif %}</h1>
+      <span class="muted">Only admins can manage users.</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/users">Back</a>
+    </div>
+  </div>
+
+  <form method="POST" action="{% if user %}/users/{{ user.id }}/edit{% else %}/users/new{% endif %}" class="form">
+    <div class="grid2">
+      <div class="field">
+        <label>First Name</label>
+        <input class="input" name="first_name" value="{{ user.first_name if user else '' }}">
+      </div>
+
+      <div class="field">
+        <label>Last Name</label>
+        <input class="input" name="last_name" value="{{ user.last_name if user else '' }}">
+      </div>
+
+      <div class="field">
+        <label>Username</label>
+        <input class="input" name="username" required value="{{ user.username if user else '' }}" {% if user %}readonly{% endif %}>
+      </div>
+
+      <div class="field">
+        <label>Role</label>
+        {% set r = user.role if user else 'staff' %}
+        <select class="input" name="role">
+          <option value="staff" {% if r=='staff' %}selected{% endif %}>staff</option>
+          <option value="manager" {% if r=='manager' %}selected{% endif %}>manager</option>
+          <option value="admin" {% if r=='admin' %}selected{% endif %}>admin</option>
+        </select>
+      </div>
+
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>{% if user %}New Password (leave blank to keep current){% else %}Password{% endif %}</label>
+        <input class="input" type="password" name="password" {% if not user %}required{% endif %}>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" type="submit">{% if user %}Save Changes{% else %}Create User{% endif %}</button>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

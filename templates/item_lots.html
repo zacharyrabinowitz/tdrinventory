@@ -1,0 +1,269 @@
+{# templates/item_lots.html #}
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>{{ item.name }} • Boxes (FIFO)</h1>
+      <span class="muted">We are tracking boxes/lots (not pounds totals). Oldest is first.</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
+
+      {% if can_edit_inventory %}
+        <a class="btn" href="/items/{{ item.id }}/lots/bulk">Bulk Receive</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="grid3">
+    <div class="card mini">
+      <div class="muted">Freezer</div>
+      <div class="big">{{ totals.freezer_boxes }} boxes</div>
+      <div class="muted smalltxt">Units inside: {{ totals.freezer_units }}</div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Cooler</div>
+      <div class="big">{{ totals.cooler_boxes }} boxes</div>
+      <div class="muted smalltxt">Units inside: {{ totals.cooler_units }}</div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Out</div>
+      <div class="big">{{ totals.out_boxes }} boxes</div>
+      <div class="muted smalltxt">Units inside: {{ totals.out_units }}</div>
+    </div>
+  </div>
+
+  <div style="height:16px;"></div>
+
+  {# ✅ FIX: Bulk delete must post to the REAL route you have in app.py:
+     POST /items/<id>/lots/bulk_delete
+     And it must submit lot_ids[] as regular form inputs. #}
+  {% if can_edit_inventory and rows and rows|length > 0 %}
+    <form method="POST" action="/items/{{ item.id }}/lots/bulk_delete" id="bulkDeleteForm">
+      <div class="actions" style="gap:10px; align-items:center; flex-wrap:wrap;">
+        <button type="button" class="btn" id="selectAllBtn">Select All</button>
+        <button type="button" class="btn" id="clearAllBtn">Clear</button>
+
+        <button class="btn danger" id="bulkDeleteBtn" type="submit" style="display:none;"
+                onclick="return confirm('Delete ALL selected boxes? This cannot be undone. Consumed boxes will be skipped.')">
+          Delete Selected
+        </button>
+
+        <div class="muted smalltxt" id="selCount" style="margin-left:auto; display:none;"></div>
+      </div>
+
+      <div style="height:10px;"></div>
+
+      <div class="table">
+        <div class="row head" style="grid-template-columns: {% if can_edit_inventory %}.35fr {% endif %}.75fr .55fr .7fr .6fr .8fr 1.2fr {% if can_edit_inventory %}.7fr{% endif %};">
+          {% if can_edit_inventory %}<div></div>{% endif %}
+          <div>Received</div>
+          <div>#</div>
+          <div>Storage</div>
+          <div>State</div>
+          <div>Units Inside</div>
+          <div>Expiration</div>
+          {% if can_edit_inventory %}<div></div>{% endif %}
+        </div>
+
+        {% for r in rows %}
+          {% set lot = r.lot %}
+          {% set exp = r.expires_on %}
+          {% set left = r.days_left %}
+
+          <div class="row" style="grid-template-columns: {% if can_edit_inventory %}.35fr {% endif %}.75fr .55fr .7fr .6fr .8fr 1.2fr {% if can_edit_inventory %}.7fr{% endif %};">
+            {% if can_edit_inventory %}
+              <div>
+                {# ✅ IMPORTANT: this checkbox is now a REAL form input named lot_ids #}
+                <input
+                  type="checkbox"
+                  class="lotCheck"
+                  name="lot_ids"
+                  value="{{ lot.id }}"
+                  {% if lot.is_consumed %}disabled{% endif %}
+                >
+              </div>
+            {% endif %}
+
+            <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+
+            <div class="muted">
+              {% if lot.lot_number %}
+                {{ lot.lot_number }}
+              {% elif lot.lot_label %}
+                {{ lot.lot_label }}
+              {% else %}
+                —
+              {% endif %}
+              {% if lot.is_consumed %}
+                <span class="muted smalltxt"> • consumed</span>
+              {% endif %}
+            </div>
+
+            <div class="muted">{{ lot.storage }}</div>
+            <div class="muted">{{ lot.state }}</div>
+
+            <div class="muted">
+              {% if lot.count_units %}
+                {{ lot.count_units }}
+              {% else %}
+                —
+              {% endif %}
+            </div>
+
+            <div class="muted">
+              {% if exp %}
+                <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
+                {% if left is not none %}
+                  {% if left < 0 %}
+                    <span class="muted"> • EXPIRED ({{ left * -1 }}d ago)</span>
+                  {% elif left == 0 %}
+                    <span class="muted"> • expires today</span>
+                  {% else %}
+                    <span class="muted"> • {{ left }}d left</span>
+                  {% endif %}
+                {% endif %}
+                {% if lot.expiration_override %}
+                  <span class="muted smalltxt"> • override</span>
+                {% endif %}
+              {% else %}
+                <span class="muted">No rule set</span>
+                <span class="muted smalltxt"> (set shelf-life on item)</span>
+              {% endif %}
+            </div>
+
+            {% if can_edit_inventory %}
+              <div class="row-actions">
+                <a class="btn small" href="/lots/{{ lot.id }}/edit">Edit</a>
+                <form method="POST" action="/lots/{{ lot.id }}/delete" class="inline">
+                  <button class="btn small danger" type="submit" onclick="return confirm('Delete this box/lot? Consumed lots are blocked.')">Delete</button>
+                </form>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </form>
+  {% elif rows and rows|length > 0 %}
+    {# view-only users still see the list #}
+    <div class="table">
+      <div class="row head" style="grid-template-columns: .75fr .55fr .7fr .6fr .8fr 1.2fr;">
+        <div>Received</div>
+        <div>#</div>
+        <div>Storage</div>
+        <div>State</div>
+        <div>Units Inside</div>
+        <div>Expiration</div>
+      </div>
+
+      {% for r in rows %}
+        {% set lot = r.lot %}
+        {% set exp = r.expires_on %}
+        {% set left = r.days_left %}
+
+        <div class="row" style="grid-template-columns: .75fr .55fr .7fr .6fr .8fr 1.2fr;">
+          <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+
+          <div class="muted">
+            {% if lot.lot_number %}
+              {{ lot.lot_number }}
+            {% elif lot.lot_label %}
+              {{ lot.lot_label }}
+            {% else %}
+              —
+            {% endif %}
+            {% if lot.is_consumed %}
+              <span class="muted smalltxt"> • consumed</span>
+            {% endif %}
+          </div>
+
+          <div class="muted">{{ lot.storage }}</div>
+          <div class="muted">{{ lot.state }}</div>
+
+          <div class="muted">
+            {% if lot.count_units %}
+              {{ lot.count_units }}
+            {% else %}
+              —
+            {% endif %}
+          </div>
+
+          <div class="muted">
+            {% if exp %}
+              <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
+              {% if left is not none %}
+                {% if left < 0 %}
+                  <span class="muted"> • EXPIRED ({{ left * -1 }}d ago)</span>
+                {% elif left == 0 %}
+                  <span class="muted"> • expires today</span>
+                {% else %}
+                  <span class="muted"> • {{ left }}d left</span>
+                {% endif %}
+              {% endif %}
+              {% if lot.expiration_override %}
+                <span class="muted smalltxt"> • override</span>
+              {% endif %}
+            {% else %}
+              <span class="muted">No rule set</span>
+              <span class="muted smalltxt"> (set shelf-life on item)</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      No boxes yet for this item. Click <b>Bulk Receive</b> to add many boxes fast.
+    </div>
+  {% endif %}
+</section>
+
+{% if can_edit_inventory %}
+<script>
+(function(){
+  const checks = Array.from(document.querySelectorAll(".lotCheck"));
+  const bulkDeleteBtn = document.getElementById("bulkDeleteBtn");
+  const selCount = document.getElementById("selCount");
+  const selectAllBtn = document.getElementById("selectAllBtn");
+  const clearAllBtn = document.getElementById("clearAllBtn");
+
+  function selectedCount(){
+    return checks.filter(c => c.checked && !c.disabled).length;
+  }
+
+  function syncUI(){
+    const n = selectedCount();
+    if (bulkDeleteBtn) bulkDeleteBtn.style.display = n > 0 ? "inline-flex" : "none";
+    if (selCount) {
+      selCount.style.display = n > 0 ? "block" : "none";
+      selCount.textContent = n + " selected";
+    }
+  }
+
+  checks.forEach(c => c.addEventListener("change", syncUI));
+
+  if (selectAllBtn){
+    selectAllBtn.addEventListener("click", () => {
+      checks.forEach(c => { if (!c.disabled) c.checked = true; });
+      syncUI();
+    });
+  }
+
+  if (clearAllBtn){
+    clearAllBtn.addEventListener("click", () => {
+      checks.forEach(c => c.checked = false);
+      syncUI();
+    });
+  }
+
+  syncUI();
+})();
+</script>
+{% endif %}
+
+{% endblock %}

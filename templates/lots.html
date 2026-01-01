@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Lots</h1>
+      <span class="muted">FIFO: earliest received first, then lot label</span>
+    </div>
+
+    <div class="actions">
+      <form method="GET" action="/lots" class="inline">
+        <input class="input" name="q" placeholder="Search item..." value="{{ q or '' }}">
+        <button class="btn" type="submit">Search</button>
+      </form>
+
+      {% if can_edit_inventory %}
+        <a class="btn primary" href="/lots/new">Add Lot</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if lots and lots|length > 0 %}
+    <div class="table">
+      <div class="row head" style="grid-template-columns: 1.2fr .7fr .7fr .6fr .6fr .6fr;">
+        <div>Item</div><div>Label</div><div>Received</div><div>Storage</div><div>State</div><div></div>
+      </div>
+
+      {% for l in lots %}
+        <div class="row" style="grid-template-columns: 1.2fr .7fr .7fr .6fr .6fr .6fr;">
+          <div class="strong">{{ l.item.name }}</div>
+          <div class="muted">{{ l.lot_label or '—' }}</div>
+          <div class="muted">{{ l.received_date }}</div>
+          <div class="muted">{{ l.storage }}</div>
+          <div class="muted">{{ l.state }}</div>
+
+          <div class="row-actions">
+            <a class="btn small" href="/lots/{{ l.id }}">View</a>
+            {% if can_edit_inventory %}
+              <a class="btn small" href="/lots/{{ l.id }}/edit">Edit</a>
+              <form method="POST" action="/lots/{{ l.id }}/delete" class="inline">
+                <button class="btn small danger" type="submit" onclick="return confirm('Delete this lot?')">Delete</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No lots yet.</div>
+  {% endif %}
+</section>
+
+{% endblock %}

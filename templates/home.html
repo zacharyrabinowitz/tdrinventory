@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card hero">
+  <div>
+    <h1>Home</h1>
+    <p class="muted">
+      Quick access page. Your main overview is the Dashboard.
+    </p>
+
+    <div class="actions">
+      <a class="btn primary" href="/">Dashboard</a>
+      <a class="btn" href="/items">Items</a>
+      <a class="btn" href="/lots">Lots</a>
+      <a class="btn" href="/prep">Prep</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">1</div><div class="num" style="font-size:16px;">Items</div></div>
+    <div class="stat"><div class="label">2</div><div class="num" style="font-size:16px;">Lots</div></div>
+    <div class="stat"><div class="label">3</div><div class="num" style="font-size:16px;">Prep + Sales</div></div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="cardhead"><h2>Workflow</h2></div>
+  <div class="kv">
+    <div class="k">Items</div><div class="v">Create food items + shelf-life rules + optional wings-style sales packs.</div>
+    <div class="k">Lots</div><div class="v">Receive inventory into freezer/cooler/out with FIFO-friendly dates + numeric labels.</div>
+    <div class="k">Prep</div><div class="v">Create prep batches (output units + shelf life).</div>
+    <div class="k">Sales</div><div class="v">Enter simple units or 4-pack sales mode (like wings 10/20).</div>
+    <div class="k">Reconcile</div><div class="v">Enter actual remaining and the system shows missing units.</div>
+  </div>
+</section>
+
+{% endblock %}
