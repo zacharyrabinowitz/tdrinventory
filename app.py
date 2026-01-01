@@ -9,6 +9,11 @@ from flask import Flask, flash, redirect, render_template, request, session, abo
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 from werkzeug.security import generate_password_hash, check_password_hash
+import json
+from datetime import datetime
+from flask import send_file, request, redirect, flash, url_for
+from io import BytesIO
+from sqlalchemy import text
 
 try:
     # Python 3.9+
@@ -53,6 +58,80 @@ def to_local(dt: Optional[datetime]) -> Optional[datetime]:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(ZoneInfo(APP_TZ))
 
+def _db_tables():
+    # Only real tables (skip sqlite internal)
+    rows = db.session.execute(text("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY name
+    """)).fetchall()
+    return [r[0] for r in rows]
+
+def _export_db_to_dict():
+    tables = _db_tables()
+    payload = {
+        "meta": {
+            "exported_at": datetime.utcnow().isoformat() + "Z",
+            "app": "inventory_system",
+            "format": "sqlite-json-backup-v1",
+        },
+        "tables": {}
+    }
+
+    for t in tables:
+        cols = db.session.execute(text(f"PRAGMA table_info({t})")).fetchall()
+        col_names = [c[1] for c in cols]  # (cid, name, type, notnull, dflt_value, pk)
+
+        data_rows = db.session.execute(text(f"SELECT * FROM {t}")).fetchall()
+        payload["tables"][t] = {
+            "columns": col_names,
+            "rows": [list(r) for r in data_rows]
+        }
+
+    return payload
+
+def _import_db_from_dict(payload):
+    # Basic validation
+    if not isinstance(payload, dict) or "tables" not in payload:
+        raise ValueError("Invalid backup file (missing tables).")
+
+    tables = payload.get("tables", {})
+    if not isinstance(tables, dict):
+        raise ValueError("Invalid backup file (tables not a dict).")
+
+    # Safety: wrap in transaction
+    with db.session.begin():
+        # Disable FK checks during import (SQLite)
+        db.session.execute(text("PRAGMA foreign_keys=OFF"))
+
+        # Clear existing data (delete in reverse order usually helps FK chains)
+        existing_tables = _db_tables()
+        for t in reversed(existing_tables):
+            db.session.execute(text(f"DELETE FROM {t}"))
+
+        # Insert rows table-by-table
+        for t, block in tables.items():
+            if t not in existing_tables:
+                # Ignore tables not present in this code version
+                continue
+
+            columns = block.get("columns", [])
+            rows = block.get("rows", [])
+
+            if not columns or not isinstance(rows, list):
+                continue
+
+            placeholders = ", ".join([f":c{i}" for i in range(len(columns))])
+            col_sql = ", ".join([f'"{c}"' for c in columns])
+            stmt = text(f'INSERT INTO "{t}" ({col_sql}) VALUES ({placeholders})')
+
+            for row in rows:
+                params = {f"c{i}": row[i] if i < len(row) else None for i in range(len(columns))}
+                db.session.execute(stmt, params)
+
+        # Re-enable FK checks
+        db.session.execute(text("PRAGMA foreign_keys=ON"))
 
 @app.template_filter("fmt_dt")
 def fmt_dt(dt: Optional[datetime], fmt: str = "%b %d, %Y %I:%M %p") -> str:
@@ -1173,6 +1252,47 @@ def item_hub(item_id: int):
         expiring_soon_count=expiring_soon_count
     )
 
+
+@app.route("/admin/backup/download", methods=["POST"])
+def admin_backup_download():
+    # TODO: Apply your admin check here (same pattern you use elsewhere)
+    # if session.get("role") != "admin": abort(403)
+
+    payload = _export_db_to_dict()
+    raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"inventory_backup_{stamp}.json"
+
+    bio = BytesIO(raw)
+    bio.seek(0)
+    return send_file(
+        bio,
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename
+    )
+
+@app.route("/admin/backup/import", methods=["POST"])
+def admin_backup_import():
+    # TODO: Apply your admin check here (same pattern you use elsewhere)
+    # if session.get("role") != "admin": abort(403)
+
+    f = request.files.get("backup_file")
+    if not f or not f.filename:
+        flash("No backup file selected.", "error")
+        return redirect(request.referrer or url_for("home"))
+
+    try:
+        payload = json.loads(f.read().decode("utf-8"))
+        _import_db_from_dict(payload)
+        db.session.commit()
+        flash("Import completed successfully.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Import failed: {str(e)}", "error")
+
+    return redirect(request.referrer or url_for("home"))
 
 # ============================================================
 # SUPPLIERS
