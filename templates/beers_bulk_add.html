@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Bulk Add Beers</h1>
+      <span class="muted">Paste multiple beers at once (one per line). You can use commas or tabs.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/beers/dashboard">Back to Beer Dashboard</a>
+      <a class="btn" href="/beers">Manage Beers</a>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2 style="margin-bottom:8px;">Paste List</h2>
+      <div class="muted smalltxt" style="margin-bottom:10px;">
+        Format per line:<br>
+        <span class="strong">name, brewery, style, abv, cost, keg_size(full/half), price, cups_per_keg(optional)</span><br>
+        Example:<br>
+        Blue Light, Labatt, Lager, 4.2, 110, half, 5, 124
+      </div>
+
+      <textarea id="bulkInput" placeholder="Paste lines here..."></textarea>
+
+      <div class="actions" style="margin-top:12px;">
+        <button class="btn" type="button" id="previewBtn">Preview</button>
+        <button class="btn" type="button" id="clearBtn">Clear</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-bottom:8px;">Preview</h2>
+      <div class="muted smalltxt" style="margin-bottom:10px;">
+        Fix any row directly in the grid before submitting.
+      </div>
+
+      <form method="POST" action="/beers/bulk" id="bulkForm">
+        <input type="hidden" name="payload" id="payload">
+
+        <div class="table" id="previewTable" style="display:none;">
+          <div class="row head" style="grid-template-columns: 1.2fr 1.1fr .9fr .5fr .6fr .7fr .6fr .8fr .6fr;">
+            <div>Name</div>
+            <div>Brewery</div>
+            <div>Style</div>
+            <div>ABV</div>
+            <div>Cost</div>
+            <div>Keg</div>
+            <div>Price</div>
+            <div>Cups/Keg</div>
+            <div></div>
+          </div>
+          <div id="previewBody"></div>
+        </div>
+
+        <div class="empty" id="emptyState">
+          Paste beers on the left and click <b>Preview</b>.
+        </div>
+
+        <div class="actions" style="margin-top:12px;">
+          <button class="btn" type="submit" id="submitBtn" style="display:none;">Add All</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  const bulkInput = document.getElementById("bulkInput");
+  const previewBtn = document.getElementById("previewBtn");
+  const clearBtn = document.getElementById("clearBtn");
+
+  const previewTable = document.getElementById("previewTable");
+  const previewBody = document.getElementById("previewBody");
+  const emptyState = document.getElementById("emptyState");
+
+  const payloadInput = document.getElementById("payload");
+  const submitBtn = document.getElementById("submitBtn");
+
+  function splitLine(line){
+    // supports comma or tab; trims quotes/spaces
+    const raw = line.includes("\t") ? line.split("\t") : line.split(",");
+    return raw.map(v => (v || "").toString().trim().replace(/^"(.*)"$/, "$1"));
+  }
+
+  function toNumber(val){
+    if(!val) return null;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function rowTemplate(b, idx){
+    const safe = (s) => (s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    return `
+      <div class="row" data-idx="${idx}" style="grid-template-columns: 1.2fr 1.1fr .9fr .5fr .6fr .7fr .6fr .8fr .6fr;">
+        <div><input type="text" value="${safe(b.name)}" data-k="name"></div>
+        <div><input type="text" value="${safe(b.brewery)}" data-k="brewery"></div>
+        <div><input type="text" value="${safe(b.style)}" data-k="style"></div>
+        <div><input type="text" value="${b.abv ?? ""}" data-k="abv"></div>
+        <div><input type="text" value="${b.cost ?? ""}" data-k="cost"></div>
+        <div>
+          <select data-k="keg_size">
+            <option value="full" ${b.keg_size==="full"?"selected":""}>full</option>
+            <option value="half" ${b.keg_size==="half"?"selected":""}>half</option>
+          </select>
+        </div>
+        <div><input type="text" value="${b.price ?? ""}" data-k="price"></div>
+        <div><input type="text" value="${b.cups_per_keg ?? ""}" data-k="cups_per_keg"></div>
+        <div class="row-actions">
+          <button class="btn small danger" type="button" data-remove="${idx}">Remove</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function rebuildPayload(){
+    const rows = Array.from(previewBody.querySelectorAll(".row"));
+    const beers = rows.map(r => {
+      const get = (k) => r.querySelector(`[data-k="${k}"]`).value.trim();
+      return {
+        name: get("name"),
+        brewery: get("brewery"),
+        style: get("style"),
+        abv: toNumber(get("abv")),
+        cost: toNumber(get("cost")),
+        keg_size: get("keg_size") || "half",
+        price: toNumber(get("price")),
+        cups_per_keg: toNumber(get("cups_per_keg"))
+      };
+    }).filter(b => b.name.length);
+
+    payloadInput.value = JSON.stringify(beers);
+    submitBtn.style.display = beers.length ? "inline-flex" : "none";
+  }
+
+  function preview(){
+    const lines = bulkInput.value
+      .split("\n")
+      .map(l => l.trim())
+      .filter(Boolean);
+
+    if(!lines.length){
+      previewBody.innerHTML = "";
+      previewTable.style.display = "none";
+      emptyState.style.display = "block";
+      submitBtn.style.display = "none";
+      payloadInput.value = "[]";
+      return;
+    }
+
+    const beers = lines.map(line => {
+      const p = splitLine(line);
+      return {
+        name: p[0] || "",
+        brewery: p[1] || "",
+        style: p[2] || "",
+        abv: toNumber(p[3]),
+        cost: toNumber(p[4]),
+        keg_size: (p[5] || "half").toLowerCase() === "full" ? "full" : "half",
+        price: toNumber(p[6]),
+        cups_per_keg: toNumber(p[7])
+      };
+    });
+
+    previewBody.innerHTML = beers.map((b,i)=>rowTemplate(b,i)).join("");
+    previewTable.style.display = "block";
+    emptyState.style.display = "none";
+
+    // remove buttons
+    previewBody.querySelectorAll("[data-remove]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const idx = btn.getAttribute("data-remove");
+        const row = previewBody.querySelector(`.row[data-idx="${idx}"]`);
+        if(row) row.remove();
+        rebuildPayload();
+      });
+    });
+
+    // any change updates payload
+    previewBody.querySelectorAll("input,select").forEach(el=>{
+      el.addEventListener("input", rebuildPayload);
+      el.addEventListener("change", rebuildPayload);
+    });
+
+    rebuildPayload();
+  }
+
+  previewBtn.addEventListener("click", preview);
+  clearBtn.addEventListener("click", ()=>{
+    bulkInput.value = "";
+    preview();
+  });
+
+  // block empty submit
+  document.getElementById("bulkForm").addEventListener("submit", (e)=>{
+    rebuildPayload();
+    try{
+      const arr = JSON.parse(payloadInput.value || "[]");
+      if(!arr.length){
+        e.preventDefault();
+        alert("Nothing to add.");
+      }
+    }catch{
+      e.preventDefault();
+      alert("Preview data is invalid.");
+    }
+  });
+
+  preview();
+})();
+</script>
+
+{% endblock %}

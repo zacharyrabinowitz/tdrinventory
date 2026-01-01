@@ -1,5 +1,27 @@
 {% extends "base.html" %}
 {% block content %}
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Backup / Restore</h1>
+      <span class="muted">Download a full backup before redeploying. Import to restore.</span>
+    </div>
+  </div>
+
+  <div class="actions" style="gap:10px; flex-wrap:wrap;">
+    <form method="POST" action="/admin/backup/download" class="inline">
+      <button class="btn" type="submit">Download Data Backup</button>
+    </form>
+
+    <form method="POST" action="/admin/backup/import" enctype="multipart/form-data" class="inline">
+      <input type="file" name="backup_file" accept="application/json" required style="max-width:260px;">
+      <button class="btn" type="submit"
+              onclick="return confirm('Import will overwrite ALL current data. Continue?')">
+        Import Backup
+      </button>
+    </form>
+  </div>
+</section>
 
 <section class="card">
   <div class="cardhead">
@@ -109,28 +131,6 @@
   {% else %}
     <div class="empty">No audit entries yet.</div>
   {% endif %}
-</section>
-<section class="card">
-  <div class="cardhead">
-    <div>
-      <h1>Backup / Restore</h1>
-      <span class="muted">Download a full backup before redeploying. Import to restore.</span>
-    </div>
-  </div>
-
-  <div class="actions" style="gap:10px; flex-wrap:wrap;">
-    <form method="POST" action="/admin/backup/download" class="inline">
-      <button class="btn" type="submit">Download Data Backup</button>
-    </form>
-
-    <form method="POST" action="/admin/backup/import" enctype="multipart/form-data" class="inline">
-      <input type="file" name="backup_file" accept="application/json" required style="max-width:260px;">
-      <button class="btn" type="submit"
-              onclick="return confirm('Import will overwrite ALL current data. Continue?')">
-        Import Backup
-      </button>
-    </form>
-  </div>
 </section>
 
 {% endblock %}

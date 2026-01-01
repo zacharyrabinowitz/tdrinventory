@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container-fluid py-3 beers-edit-page">
+
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+      <h1 class="h3 mb-1">Edit Beer</h1>
+      <div class="text-muted">{{ beer.name }} • {{ beer.brewery }}</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="/beers">
+        <i class="fa-solid fa-arrow-left me-1"></i> Back to Manage Beers
+      </a>
+      <a class="btn btn-outline-secondary" href="/beers/dashboard">
+        <i class="fa-solid fa-chart-simple me-1"></i> Beer Dashboard
+      </a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <form method="POST" action="/beers/{{ beer.id }}/edit" class="row g-3">
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">Name</label>
+          <input class="form-control" name="name" value="{{ beer.name }}" required>
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">Brewery</label>
+          <input class="form-control" name="brewery" value="{{ beer.brewery }}" required>
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">Style</label>
+          <input class="form-control" name="style" value="{{ beer.style or '' }}" placeholder="IPA, Lager, Pilsner...">
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">ABV (%)</label>
+          <input
+            class="form-control"
+            name="abv"
+            type="number"
+            step="0.1"
+            min="0"
+            max="30"
+            value="{% if beer.abv is not none %}{{ '%.1f'|format(beer.abv) }}{% endif %}"
+            placeholder="4.2"
+          >
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">Cost (your keg cost)</label>
+          <input
+            class="form-control"
+            name="cost"
+            type="number"
+            step="0.01"
+            min="0"
+            value="{% if beer.cost is not none %}{{ '%.2f'|format(beer.cost) }}{% endif %}"
+            placeholder="0.00"
+          >
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">Selling Price (per cup)</label>
+          <input
+            class="form-control"
+            name="price"
+            type="number"
+            step="0.01"
+            min="0"
+            value="{% if beer.price is not none %}{{ '%.2f'|format(beer.price) }}{% endif %}"
+            placeholder="0.00"
+          >
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">Keg Size</label>
+          <select class="form-select" name="keg_size">
+            <option value="half" {% if (beer.keg_size or 'half') == 'half' %}selected{% endif %}>Half</option>
+            <option value="full" {% if beer.keg_size == 'full' %}selected{% endif %}>Full</option>
+          </select>
+        </div>
+
+        <div class="col-12 col-md-6">
+          <label class="form-label">Cups per Keg (optional)</label>
+          <input
+            class="form-control"
+            name="cups_per_keg"
+            type="number"
+            step="1"
+            min="0"
+            value="{% if beer.cups_per_keg is not none %}{{ beer.cups_per_keg }}{% endif %}"
+            placeholder="e.g. 120"
+          >
+        </div>
+
+        <div class="col-12">
+          <label class="form-label">Kegs On Hand (unopened)</label>
+
+          <!-- IMPORTANT: must be on_hand_kegs to match your route + model -->
+          <input
+            class="form-control"
+            name="on_hand_kegs"
+            type="number"
+            step="1"
+            min="0"
+            value="{{ beer.on_hand_kegs if beer.on_hand_kegs is not none else 0 }}"
+          >
+
+          <div class="form-text">This is unopened backstock kegs for this beer.</div>
+        </div>
+
+        <div class="col-12 d-flex gap-2 flex-wrap mt-2">
+          <button class="btn btn-success" type="submit">
+            <i class="fa-solid fa-floppy-disk me-1"></i> Save Changes
+          </button>
+          <a class="btn btn-outline-secondary" href="/beers">
+            Cancel
+          </a>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

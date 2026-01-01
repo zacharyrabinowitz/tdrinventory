@@ -675,3 +675,951 @@ input.input:-webkit-autofill:focus {
   width: 100%;
   overflow-x: auto;
 }
+/* ============================
+   GLOBAL BASE
+============================ */
+:root{
+  --bg: #0b1020;
+  --bg2:#0f1731;
+  --card:#0f1a36;
+  --card2:#0c1530;
+  --text:#f2f5ff;
+  --muted: rgba(242,245,255,.68);
+  --border: rgba(255,255,255,.10);
+  --shadow: 0 18px 60px rgba(0,0,0,.35);
+  --radius: 18px;
+
+  --btn:#1b2a57;
+  --btn2:#22356b;
+  --danger:#b9273a;
+  --danger2:#e0465b;
+
+  --focus: rgba(104,163,255,.45);
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  background: radial-gradient(1200px 700px at 12% 8%, rgba(86,150,255,.20), transparent 55%),
+              radial-gradient(1200px 700px at 92% 15%, rgba(185,39,58,.18), transparent 58%),
+              linear-gradient(180deg, var(--bg), var(--bg2));
+  color:var(--text);
+}
+
+a{color:inherit; text-decoration:none}
+a:hover{opacity:.95}
+img{max-width:100%; display:block}
+
+/* ============================
+   MAIN PAGE WRAPPER
+   (works with most base.html setups)
+============================ */
+main, .page, .container, .content{
+  width: min(1200px, calc(100% - 40px));
+  margin: 22px auto 60px auto;
+}
+
+/* ============================
+   TYPOGRAPHY HELPERS
+============================ */
+h1,h2,h3{
+  margin:0;
+  letter-spacing:-.02em;
+}
+h1{font-size:28px}
+h2{font-size:20px}
+.smalltxt{font-size:12.5px}
+.muted{color:var(--muted)}
+.strong{font-weight:700}
+.big{font-size:30px; font-weight:800; letter-spacing:-.02em}
+
+/* ============================
+   CARD SYSTEM
+============================ */
+.card{
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  backdrop-filter: blur(10px);
+}
+
+.card.mini{
+  padding: 14px 16px;
+}
+
+.cardhead{
+  display:flex;
+  gap: 14px;
+  align-items:flex-start;
+  justify-content:space-between;
+  margin-bottom: 14px;
+}
+
+.cardhead .actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+
+.actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+
+/* ============================
+   GRID LAYOUTS
+============================ */
+.grid2{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 14px;
+}
+
+.grid3{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 14px;
+}
+
+@media (max-width: 900px){
+  .grid3{grid-template-columns: 1fr}
+}
+@media (max-width: 760px){
+  .grid2{grid-template-columns: 1fr}
+  .cardhead{flex-direction:column; align-items:stretch}
+  .cardhead .actions{justify-content:flex-start}
+}
+
+/* ============================
+   BUTTONS
+============================ */
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--btn2), var(--btn));
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight:700;
+  letter-spacing:-.01em;
+  cursor:pointer;
+  transition: transform .08s ease, filter .12s ease, border-color .12s ease;
+  user-select:none;
+}
+
+.btn:hover{filter:brightness(1.08)}
+.btn:active{transform: translateY(1px)}
+.btn.small{
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.btn.danger{
+  background: linear-gradient(180deg, var(--danger2), var(--danger));
+  border-color: rgba(255,255,255,.14);
+}
+
+.inline{display:inline}
+
+/* ============================
+   FORMS
+============================ */
+.form{
+  display:block;
+}
+
+label{
+  display:block;
+  margin-bottom: 6px;
+  font-weight:700;
+  color: var(--muted);
+}
+
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+select,
+textarea{
+  width:100%;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(10,16,35,.55);
+  color: var(--text);
+  outline:none;
+}
+
+select{
+  appearance:none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(242,245,255,.75) 50%),
+    linear-gradient(135deg, rgba(242,245,255,.75) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 52%,
+    calc(100% - 10px) 52%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat:no-repeat;
+}
+
+textarea{min-height: 90px; resize: vertical}
+
+input:focus, select:focus, textarea:focus{
+  border-color: rgba(104,163,255,.55);
+  box-shadow: 0 0 0 4px var(--focus);
+}
+
+/* ============================
+   TABLE SYSTEM
+============================ */
+.table{
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow:hidden;
+  background: rgba(5,10,22,.22);
+}
+
+.row{
+  display:grid;
+  gap: 12px;
+  padding: 12px 14px;
+  align-items:center;
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+
+.row:first-child{border-top:none}
+
+.row.head{
+  background: rgba(255,255,255,.06);
+  border-top:none;
+  font-weight:800;
+  color: rgba(242,245,255,.86);
+}
+
+.row-actions{
+  display:flex;
+  gap: 10px;
+  justify-content:flex-end;
+  align-items:center;
+  flex-wrap:wrap;
+}
+
+/* ============================
+   EMPTY STATE
+============================ */
+.empty{
+  padding: 16px;
+  border: 1px dashed rgba(255,255,255,.18);
+  border-radius: 14px;
+  background: rgba(255,255,255,.03);
+  color: var(--muted);
+}
+
+/* ============================
+   TILE (optional)
+============================ */
+.tile{
+  display:block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: rgba(255,255,255,.04);
+  box-shadow: 0 14px 40px rgba(0,0,0,.25);
+  transition: transform .10s ease, filter .12s ease;
+}
+.tile:hover{filter: brightness(1.06)}
+.tile:active{transform: translateY(1px)}
+.tile-title{
+  font-weight:900;
+  font-size: 17px;
+  margin-bottom: 4px;
+}
+.tile-sub{
+  color: var(--muted);
+  font-size: 13px;
+}
+.tile.disabled{
+  opacity:.45;
+  pointer-events:none;
+}
+/* =========================================================
+   BEER DASHBOARD (tables feel like a spreadsheet)
+   ========================================================= */
+
+.beer-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 900px) {
+  .beer-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.sheet {
+  width: 100%;
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+.sheet table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 900px;
+}
+
+.sheet th,
+.sheet td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.sheet th {
+  position: sticky;
+  top: 0;
+  background: rgba(10,10,10,0.65);
+  backdrop-filter: blur(10px);
+  z-index: 2;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+}
+
+.sheet tr:hover td {
+  background: rgba(255,255,255,0.06);
+}
+
+.cell-input {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.25);
+  color: inherit;
+  padding: 8px 10px;
+  border-radius: 10px;
+  outline: none;
+}
+
+.cell-input:focus {
+  border-color: rgba(255,255,255,0.28);
+  background: rgba(0,0,0,0.35);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  font-size: 12px;
+}
+
+.pill.low {
+  border-color: rgba(255, 208, 0, 0.35);
+  background: rgba(255, 208, 0, 0.10);
+}
+
+.pill.critical {
+  border-color: rgba(255, 64, 64, 0.35);
+  background: rgba(255, 64, 64, 0.12);
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+/* =========================
+   BEER DASHBOARD (side-by-side)
+   ========================= */
+
+.tap-split{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.tap-window{
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.tap-window-head{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.tap-window-head h2{
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.tablewrap{
+  overflow: auto;
+  max-height: 70vh;
+}
+
+.pct-edit{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pct-edit input{
+  width: 90px;
+}
+
+.pill{
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.85rem;
+}
+
+.small{ font-size: 0.85rem; }
+
+/* Responsive: stack only on small screens */
+@media (max-width: 1100px){
+  .tap-split{
+    grid-template-columns: 1fr;
+  }
+  .tablewrap{
+    max-height: none;
+  }
+}
+/* ===============================
+   BEER DASHBOARD – FULL WIDTH
+   =============================== */
+
+/* Remove any max-width limits */
+.beer-dashboard-full {
+  width: 100%;
+  max-width: none;
+}
+
+/* If your base layout uses a container/page wrapper */
+.page,
+.page > .card,
+.container {
+  max-width: none !important;
+  width: 100%;
+}
+
+/* Side-by-side tap windows */
+.tap-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+  align-items: start;
+}
+
+/* Each window fills its column */
+.tap-window {
+  width: 100%;
+  min-width: 0; /* critical for grid overflow issues */
+}
+
+/* Tables expand naturally */
+.tap-window table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+/* Remove forced scrolling */
+.tablewrap {
+  overflow: visible;
+  max-height: none;
+}
+
+/* Percent input sizing */
+.pct-edit input,
+.tap-window input[type="number"] {
+  width: 90px;
+}
+
+/* Pills / labels */
+.pill {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.85rem;
+}
+
+/* Responsive: stack ONLY on small screens */
+@media (max-width: 1100px) {
+  .tap-split {
+    grid-template-columns: 1fr;
+  }
+}
+.btn.danger {
+  background: rgba(255, 60, 60, 0.18);
+  border: 1px solid rgba(255, 60, 60, 0.45);
+  color: #ffb3b3;
+}
+.btn.danger:hover {
+  background: rgba(255, 60, 60, 0.28);
+  border-color: rgba(255, 60, 60, 0.65);
+}
+.btn.btn-sm {
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+/* =========================================================
+   BEER DASHBOARD
+   ========================================================= */
+
+.beer-page .beer-header{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.beer-page .beer-title{
+  margin:0;
+  font-size:1.6rem;
+  font-weight:700;
+}
+
+.beer-page .beer-subtitle{
+  opacity:.75;
+  font-size:.95rem;
+}
+
+.beer-page .beer-actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+/* Analytics: always clean grid */
+.beer-page .beer-analytics{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap:12px;
+}
+@media (max-width: 1200px){
+  .beer-page .beer-analytics{ grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+}
+@media (max-width: 680px){
+  .beer-page .beer-analytics{ grid-template-columns: 1fr; }
+}
+
+/* Card look to match dark theme and kill “white slabs” */
+.beer-page .beer-card{
+  background: rgba(10, 14, 28, .55);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+.beer-page .beer-card-head{
+  padding: 14px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.beer-page .beer-card-head-tight{
+  padding: 12px 14px;
+}
+
+.beer-page .beer-card-title{
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.beer-page .beer-card-subtitle{
+  opacity: .75;
+  font-size: .85rem;
+  margin-top: 2px;
+}
+
+.beer-page .beer-card-body{
+  padding: 14px 16px;
+}
+
+.beer-page .beer-pill{
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: .8rem;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.10);
+  opacity: .9;
+}
+
+/* Bootstrap inputs/selects should be dark on this page */
+.beer-page .form-control,
+.beer-page .form-select{
+  background: rgba(0,0,0,.18) !important;
+  color: rgba(255,255,255,.92) !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  border-radius: 12px !important;
+}
+.beer-page .form-control::placeholder{
+  color: rgba(255,255,255,.45) !important;
+}
+.beer-page .form-control:focus,
+.beer-page .form-select:focus{
+  box-shadow: 0 0 0 .2rem rgba(13,110,253,.18) !important;
+  border-color: rgba(13,110,253,.45) !important;
+}
+
+/* Some browsers render select dropdown options light; keep readable */
+.beer-page select option{
+  color: #111;
+}
+
+/* Checkbox alignment */
+.beer-page .beer-check{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding: 10px 0 2px 2px;
+}
+
+/* Side-by-side panels */
+.beer-page .beer-panels{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+@media (max-width: 1200px){
+  .beer-page .beer-panels{ grid-template-columns: 1fr; }
+}
+
+/* Table wrapper & table */
+.beer-page .beer-table-wrap{
+  overflow:auto;
+}
+
+.beer-page .beer-table{
+  width: 100%;
+  margin: 0;
+  color: rgba(255,255,255,.90);
+}
+
+/* Lock column widths so BOTH tables line up perfectly */
+.beer-page .beer-table thead th,
+.beer-page .beer-table tbody td{
+  white-space: nowrap;
+}
+
+.beer-page .beer-table thead th{
+  background: rgba(255,255,255,.06) !important;
+  color: rgba(255,255,255,.92) !important;
+  border-bottom: 1px solid rgba(255,255,255,.10) !important;
+}
+
+.beer-page .beer-table tbody td{
+  background: transparent;
+  border-top: 1px solid rgba(255,255,255,.06);
+  vertical-align: middle;
+}
+
+.beer-page .beer-table.table-hover tbody tr:hover td{
+  background: rgba(255,255,255,.04);
+}
+
+/* Exact widths */
+.beer-page .col-tap{ width: 70px; }
+.beer-page .col-percent{ width: 220px; }
+.beer-page .col-kegs{ width: 120px; }
+.beer-page .col-action{ width: 140px; }
+.beer-page .col-beer{ min-width: 320px; }
+
+/* Percent input + progress */
+.beer-page .beer-percent{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.beer-page .beer-percent-input{
+  width: 110px;
+  min-width: 110px;
+}
+
+.beer-page .beer-progress{
+  height: 6px;
+  margin-top: 8px;
+  background: rgba(255,255,255,.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+/* Make badges look consistent on dark cards */
+.beer-page .badge.text-bg-secondary{
+  background: rgba(255,255,255,.14) !important;
+}
+/* =========================================================
+   MANAGE BEERS
+   ========================================================= */
+
+.beers-page .beers-header{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+}
+
+.beers-page .beers-title{
+  margin:0;
+  font-size:1.6rem;
+  font-weight:700;
+}
+
+.beers-page .beers-subtitle{
+  opacity:.75;
+  font-size:.95rem;
+}
+
+.beers-page .beers-actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+/* Two panels side-by-side */
+.beers-page .beers-panels{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:12px;
+  align-items: stretch;
+}
+@media (max-width: 1200px){
+  .beers-page .beers-panels{ grid-template-columns: 1fr; }
+}
+
+/* Card theme (dark glass) */
+.beers-page .beers-card{
+  background: rgba(10, 14, 28, .55);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+.beers-page .beers-card-head{
+  padding: 14px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.beers-page .beers-card-head-tight{
+  padding: 12px 14px;
+}
+
+.beers-page .beers-card-title{
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.beers-page .beers-card-subtitle{
+  opacity: .75;
+  font-size: .85rem;
+  margin-top: 2px;
+}
+
+.beers-page .beers-card-body{
+  padding: 14px 16px;
+}
+
+/* Make bootstrap inputs/selects match dark theme */
+.beers-page .form-control,
+.beers-page .form-select{
+  background: rgba(0,0,0,.18) !important;
+  color: rgba(255,255,255,.92) !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  border-radius: 12px !important;
+}
+
+.beers-page .form-control::placeholder{
+  color: rgba(255,255,255,.45) !important;
+}
+
+.beers-page .form-control:focus,
+.beers-page .form-select:focus{
+  box-shadow: 0 0 0 .2rem rgba(13,110,253,.18) !important;
+  border-color: rgba(13,110,253,.45) !important;
+}
+
+/* Some browsers render select options light */
+.beers-page select option{
+  color:#111;
+}
+
+/* Table wrapper */
+.beers-page .beers-table-wrap{
+  overflow:auto;
+}
+
+/* Table styling to avoid white headers */
+.beers-page .beers-table{
+  width:100%;
+  color: rgba(255,255,255,.90);
+}
+
+.beers-page .beers-table thead th{
+  background: rgba(255,255,255,.06) !important;
+  color: rgba(255,255,255,.92) !important;
+  border-bottom: 1px solid rgba(255,255,255,.10) !important;
+  white-space: nowrap;
+}
+
+.beers-page .beers-table tbody td{
+  background: transparent;
+  border-top: 1px solid rgba(255,255,255,.06);
+  vertical-align: middle;
+}
+
+.beers-page .beers-table.table-hover tbody tr:hover td{
+  background: rgba(255,255,255,.04);
+}
+
+/* Lock column widths so rows line up perfectly */
+.beers-page .bcol-beer{ min-width: 360px; }
+.beers-page .bcol-style{ width: 180px; }
+.beers-page .bcol-abv{ width: 90px; }
+.beers-page .bcol-keg{ width: 90px; }
+.beers-page .bcol-cups{ width: 90px; }
+.beers-page .bcol-cost{ width: 110px; }
+.beers-page .bcol-price{ width: 110px; }
+.beers-page .bcol-back{ width: 120px; }
+
+/* Row action buttons tidy + not wrapping weird */
+.beers-page .beers-row-actions{
+  margin-top: 8px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+/* Badge readability on dark */
+.beers-page .badge.text-bg-secondary{
+  background: rgba(255,255,255,.14) !important;
+}
+/* =========================================================
+   BEERS — Editable list + Save popup bar
+   ========================================================= */
+
+.beers-page .beers-table-wrap { overflow: auto; }
+
+.beers-page .beers-table { width: 100%; color: rgba(255,255,255,.90); }
+.beers-page .beers-table thead th{
+  background: rgba(255,255,255,.06) !important;
+  color: rgba(255,255,255,.92) !important;
+  border-bottom: 1px solid rgba(255,255,255,.10) !important;
+  white-space: nowrap;
+}
+.beers-page .beers-table tbody td{
+  background: transparent;
+  border-top: 1px solid rgba(255,255,255,.06);
+  vertical-align: middle;
+}
+.beers-page .beers-table.table-hover tbody tr:hover td{
+  background: rgba(255,255,255,.04);
+}
+
+/* Force perfect column alignment */
+.beers-page .bcol-name   { min-width: 220px; }
+.beers-page .bcol-brewery{ min-width: 220px; }
+.beers-page .bcol-style  { width: 180px; }
+.beers-page .bcol-abv    { width: 90px; }
+.beers-page .bcol-keg    { width: 110px; }
+.beers-page .bcol-cups   { width: 90px; }
+.beers-page .bcol-cost   { width: 120px; }
+.beers-page .bcol-price  { width: 120px; }
+.beers-page .bcol-back   { width: 110px; }
+.beers-page .bcol-actions{ min-width: 220px; }
+
+/* Make small inputs look clean and consistent */
+.beers-page .form-control.form-control-sm,
+.beers-page .form-select.form-select-sm{
+  border-radius: 12px !important;
+}
+
+/* Popup save bar */
+.bulk-savebar{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  z-index: 1055;
+  padding: 0 16px;
+}
+
+.bulk-savebar-inner{
+  max-width: 1100px;
+  margin: 0 auto;
+  background: rgba(10, 14, 28, .75);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
+  padding: 12px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+}
+
+.bulk-savebar-title{
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.bulk-savebar-sub{
+  opacity: .75;
+  font-size: .9rem;
+  margin-top: 2px;
+}
+
+.bulk-savebar-right{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}

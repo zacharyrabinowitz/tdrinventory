@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Beers</h1>
+      <span class="muted">Export/import beer + tap data to avoid losing setup when redeploying.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/beers/export">Download Export</a>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <h3 style="margin:0 0 8px 0;">Import</h3>
+    <form method="POST" action="/beers/import" enctype="multipart/form-data" class="form">
+      <div class="grid2">
+        <div>
+          <label class="muted smalltxt">JSON export file</label>
+          <input type="file" name="file" accept="application/json" required>
+        </div>
+
+        <div>
+          <label class="muted smalltxt">Mode</label>
+          <select name="mode">
+            <option value="replace" selected>Replace (wipe beers/taps then import)</option>
+            <option value="merge">Merge (keep existing, update/add by id)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="height:10px;"></div>
+      <button class="btn" type="submit" onclick="return confirm('Import data now?')">Import</button>
+    </form>
+  </div>
+</section>
+
+{% endblock %}

@@ -14,12 +14,19 @@ from datetime import datetime
 from flask import send_file, request, redirect, flash, url_for
 from io import BytesIO
 from sqlalchemy import text
-
+from datetime import datetime, date
 try:
     # Python 3.9+
     from zoneinfo import ZoneInfo
 except Exception:
     ZoneInfo = None  # type: ignore
+import json
+from flask import request, render_template, redirect, jsonify
+from datetime import datetime, date
+from flask import Flask, render_template, request, redirect, flash, send_file
+from flask_sqlalchemy import SQLAlchemy
+import io, json
+from flask import redirect, flash
 
 
 # ============================================================
@@ -221,6 +228,11 @@ def _load_reconcile_or_404(rec_id: int) -> tuple["ReconcileRecord", "Item"]:
     rec = ReconcileRecord.query.get_or_404(rec_id)
     item = Item.query.get_or_404(rec.item_id)
     return rec, item
+
+def require_beer_edit():
+    # Hook into your real permission logic
+    guard = require_inventory_edit()
+    return guard
 @app.context_processor
 def inject_user():
     u = current_user()
@@ -254,6 +266,52 @@ class User(db.Model):
         return full if full else self.username
 
 
+class Beer(db.Model):
+    __tablename__ = "beers"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Product info
+    name = db.Column(db.String(200), nullable=False)
+    brewery = db.Column(db.String(200), nullable=True)
+    style = db.Column(db.String(120), nullable=True)
+
+    abv = db.Column(db.Float, nullable=True)
+    cost = db.Column(db.Float, nullable=True)          # cost per keg
+    price = db.Column(db.Float, nullable=True)         # selling price per pour
+
+    # "full" or "half" (or allow "sixtel" later)
+    keg_size = db.Column(db.String(40), nullable=True)
+
+    # Optional user-entered estimate
+    cups_per_keg = db.Column(db.Integer, nullable=True)
+
+    # ✅ Canonical name (OPTION A)
+    on_hand_kegs = db.Column(db.Integer, nullable=False, default=0)
+    
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    taps = db.relationship("BeerTap", backref="beer", lazy=True)
+
+class BeerTap(db.Model):
+    __tablename__ = "beer_taps"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # ✅ Canonical: store which bar this tap belongs to
+    # values: "main" or "lower"
+    bar_location = db.Column(db.String(20), nullable=False)
+
+    beer_id = db.Column(db.Integer, db.ForeignKey("beers.id"), nullable=True)
+
+    # 0–100
+    percent_remaining = db.Column(db.Integer, nullable=False, default=100)
+
+    tapped_on = db.Column(db.Date, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 class Supplier(db.Model):
     __tablename__ = "suppliers"
     id = db.Column(db.Integer, primary_key=True)
@@ -478,6 +536,37 @@ def audit_log(
     except Exception:
         pass
 
+def ensure_default_beer_taps():
+    """
+    Creates 25 taps for main + 25 taps for lower if they don't exist.
+    This ensures the dashboard always has tap rows.
+    """
+    main_count = BeerTap.query.filter_by(bar_location="main").count()
+    lower_count = BeerTap.query.filter_by(bar_location="lower").count()
+
+    changed = False
+
+    if main_count < 25:
+        for _ in range(25 - main_count):
+            db.session.add(BeerTap(bar_location="main", percent_remaining=100))
+        changed = True
+
+    if lower_count < 25:
+        for _ in range(25 - lower_count):
+            db.session.add(BeerTap(bar_location="lower", percent_remaining=100))
+        changed = True
+
+    if changed:
+        db.session.commit()
+
+def ensure_beer_taps():
+    for bar in ["main", "lower"]:
+        existing = BeerTap.query.filter_by(bar_location=bar).count()
+        if existing < 25:
+            # create missing taps
+            for _ in range(25 - existing):
+                db.session.add(BeerTap(bar_location=bar, beer_id=None, percent_remaining=100))
+            db.session.commit()
 
 # ============================================================
 # HELPERS
@@ -601,6 +690,32 @@ def _lots_fifo_distribute_remaining(lots: list["InventoryLot"], remaining_units:
     # If remaining_units is still > 0, that means remaining exceeded total current units.
     # Clamp to current totals (can't invent inventory).
     return after
+def _safe_int(val, default=0):
+    try:
+        if val is None or val == "":
+            return default
+        return int(val)
+    except Exception:
+        return default
+
+def _safe_float(val, default=None):
+    try:
+        if val is None or val == "":
+            return default
+        return float(val)
+    except Exception:
+        return default
+
+def _safe_date(val):
+    # Accept YYYY-MM-DD or None
+    try:
+        if not val:
+            return None
+        return date.fromisoformat(val)
+    except Exception:
+        return None
+
+
 
 
 def _apply_reconcile_inventory(item_id: int, selected_lot_ids: list[int], actual_left: int) -> dict[str, dict[str, int]]:
@@ -686,6 +801,96 @@ def _undo_reconcile_inventory(snapshot: dict[str, dict[str, int]]):
         l.is_consumed = True if u <= 0 else False
 
 
+# -------------------------
+# Helpers
+# -------------------------
+def _clamp_percent(val):
+    try:
+        n = int(val)
+    except Exception:
+        return 0
+    return max(0, min(100, n))
+
+def _ensure_taps_exist():
+    """
+    Ensure we always have exactly two tap rows: main + lower.
+    """
+    main = BeerTap.query.filter_by(bar_location="main").first()
+    lower = BeerTap.query.filter_by(bar_location="lower").first()
+
+    created = False
+    if not main:
+        main = BeerTap(bar_location="main", beer_id=None, percent_remaining=0, tapped_on=None)
+        db.session.add(main)
+        created = True
+    if not lower:
+        lower = BeerTap(bar_location="lower", beer_id=None, percent_remaining=0, tapped_on=None)
+        db.session.add(lower)
+        created = True
+    if created:
+        db.session.commit()
+
+def _beer_dashboard_rows():
+    """
+    Builds lists used by the dashboard: low tap, low backstock, etc.
+    """
+    _ensure_taps_exist()
+
+    taps = BeerTap.query.order_by(BeerTap.bar_location.asc()).all()
+    beers = Beer.query.order_by(Beer.name.asc()).all()
+
+    # thresholds (easy to change later)
+    TAP_LOW = 30
+    TAP_CRITICAL = 15
+    BACKSTOCK_LOW = 1
+    BACKSTOCK_CRITICAL = 0
+
+    # Low on tap
+    low_on_tap = []
+    for t in taps:
+        if t.beer_id is None:
+            continue
+        if t.percent_remaining <= TAP_LOW:
+            status = "low"
+            if t.percent_remaining <= TAP_CRITICAL:
+                status = "critical"
+
+            cups_left = None
+            if t.beer and t.beer.cups_per_keg:
+                cups_left = int(round((t.percent_remaining / 100.0) * t.beer.cups_per_keg))
+
+            low_on_tap.append({
+                "tap": t,
+                "status": status,
+                "cups_left": cups_left
+            })
+
+    low_on_tap.sort(key=lambda x: x["tap"].percent_remaining)
+
+    # Low backstock
+    low_backstock = []
+    for b in beers:
+        if b.on_hand_kegs <= BACKSTOCK_LOW:
+            status = "low"
+            if b.on_hand_kegs <= BACKSTOCK_CRITICAL:
+                status = "critical"
+            low_backstock.append({"beer": b, "status": status})
+    low_backstock.sort(key=lambda x: x["beer"].on_hand_kegs)
+
+    # “panic list”: low tap AND no backstock
+    panic = []
+    for row in low_on_tap:
+        b = row["tap"].beer
+        if b and b.on_hand_keg <= 0 and row["tap"].percent_remaining <= 20:
+            panic.append(row)
+
+    return {
+        "taps": taps,
+        "beers": beers,
+        "low_on_tap": low_on_tap,
+        "low_backstock": low_backstock,
+        "panic": panic
+    }
 # ============================================================
 # SIMPLE SQLITE MIGRATION
 # ============================================================
@@ -892,11 +1097,1262 @@ def logout():
     flash("Logged out.", "success")
     return redirect("/login")
 
+# -------------------------
+# Routes
+# -------------------------
+@app.route("/beers/dashboard", methods=["GET"])
+def beers_dashboard():
+    ensure_beer_taps()
+
+    beers = Beer.query.order_by(Beer.brewery.asc().nullslast(), Beer.name.asc()).all()
+
+    main_taps = BeerTap.query.filter_by(bar_location="main").order_by(BeerTap.id.asc()).all()
+    lower_taps = BeerTap.query.filter_by(bar_location="lower").order_by(BeerTap.id.asc()).all()
+
+    return render_template(
+        "beers_dashboard.html",
+        beers=beers,
+        main_taps=main_taps,
+        lower_taps=lower_taps
+    )
+
+
+
+@app.route("/beers/taps/assign", methods=["POST"])
+def assign_beer_to_tap():
+    tap_id = request.form.get("tap_id")
+    beer_id = request.form.get("beer_id")  # can be blank for "None"
+    tapped_on = request.form.get("tapped_on")  # optional
+    notes = request.form.get("notes")  # optional
+    set_percent = request.form.get("set_percent")
+
+    if not tap_id:
+        flash("Missing tap selection.", "error")
+        return redirect(url_for("beers_dashboard"))
+
+    tap = BeerTap.query.get(int(tap_id))
+    if not tap:
+        flash("Tap not found.", "error")
+        return redirect(url_for("beers_dashboard"))
+
+    # assign / clear
+    tap.beer_id = int(beer_id) if (beer_id and beer_id.strip()) else None
+
+    # percent (default to 100 when assigning a new beer unless provided)
+    if set_percent and str(set_percent).strip() != "":
+        try:
+            tap.percent_remaining = max(0, min(100, int(set_percent)))
+        except:
+            tap.percent_remaining = 100
+    else:
+        tap.percent_remaining = 100 if tap.beer_id else tap.percent_remaining
+
+    # tapped_on optional
+    if tapped_on and tapped_on.strip():
+        try:
+            tap.tapped_on = datetime.strptime(tapped_on, "%Y-%m-%d").date()
+        except:
+            tap.tapped_on = None
+    else:
+        tap.tapped_on = None
+
+    tap.notes = notes.strip() if notes else None
+
+    db.session.commit()
+    flash("Tap updated.", "success")
+    return redirect(url_for("beers_dashboard"))
+
+
+@app.route("/beers/taps/remove", methods=["POST"])
+def remove_beer_from_tap():
+    tap_id = request.form.get("tap_id")
+    if not tap_id:
+        flash("Missing tap.", "error")
+        return redirect(url_for("beers_dashboard"))
+
+    tap = BeerTap.query.get(int(tap_id))
+    if not tap:
+        flash("Tap not found.", "error")
+        return redirect(url_for("beers_dashboard"))
+
+    tap.beer_id = None
+    tap.tapped_on = None
+    tap.notes = None
+    # leave percent as-is, or reset — your call; resetting feels cleaner:
+    tap.percent_remaining = 0
+
+    db.session.commit()
+    flash("Beer removed from tap.", "success")
+    return redirect(url_for("beers_dashboard"))
+
+
+@app.route("/beers/taps/save", methods=["POST"])
+def save_tap_percents():
+    # expects inputs like percent_<tap_id>
+    taps = BeerTap.query.all()
+    updated = 0
+
+    for tap in taps:
+        key = f"percent_{tap.id}"
+        if key in request.form:
+            raw = request.form.get(key)
+            try:
+                val = int(raw)
+                val = max(0, min(100, val))
+                if tap.percent_remaining != val:
+                    tap.percent_remaining = val
+                    updated += 1
+            except:
+                pass
+
+    if updated:
+        db.session.commit()
+        flash("Saved changes.", "success")
+    else:
+        flash("No changes to save.", "info")
+
+    return redirect(url_for("beers_dashboard"))
+
+@app.route("/beers/bulk", methods=["GET", "POST"])
+def beers_bulk():
+    if request.method == "GET":
+        return render_template("beers_bulk_add.html")
+
+    payload = request.form.get("payload", "[]")
+    try:
+        beers = json.loads(payload)
+        if not isinstance(beers, list):
+            raise ValueError("payload must be list")
+    except Exception:
+        return "Invalid bulk payload", 400
+
+    created = 0
+    for b in beers:
+        name = (b.get("name") or "").strip()
+        if not name:
+            continue
+
+        beer = Beer(
+            name=name,
+            brewery=(b.get("brewery") or "").strip(),
+            style=(b.get("style") or "").strip(),
+            abv=b.get("abv"),
+            cost=b.get("cost"),
+            keg_size=(b.get("keg_size") or "half").lower() if (b.get("keg_size") or "").lower() in ("full", "half") else "half",
+            price=b.get("price"),
+            cups_per_keg=b.get("cups_per_keg")
+        )
+        db.session.add(beer)
+        created += 1
+
+    db.session.commit()
+    return redirect("/beers/dashboard")
+
+
+@app.get("/beers/bulk")
+def beers_bulk_get():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+    return render_template("beers_bulk_add.html")
+
+@app.post("/beers/bulk")
+def beers_bulk_post():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    payload = request.form.get("payload", "[]")
+    try:
+        rows = json.loads(payload)
+        if not isinstance(rows, list):
+            raise ValueError("payload must be list")
+    except Exception:
+        flash("Invalid bulk payload JSON.", "error")
+        return redirect("/beers/bulk")
+
+    created = 0
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        if not name:
+            continue
+
+        keg_size = (r.get("keg_size") or "").strip().lower()
+        if keg_size not in ("full", "half"):
+            keg_size = None
+
+        b = Beer(
+            name=name,
+            brewery=(r.get("brewery") or "").strip() or None,
+            style=(r.get("style") or "").strip() or None,
+            abv=_safe_float(r.get("abv")),
+            cost=_safe_float(r.get("cost")),
+            price=_safe_float(r.get("price")),
+            keg_size=keg_size,
+            cups_per_keg=_safe_int(r.get("cups_per_keg"), default=None),
+            on_hand_kegs=_safe_int(r.get("on_hand_kegs"), default=0),
+        )
+        db.session.add(b)
+        created += 1
+
+    db.session.commit()
+    flash(f"Bulk add complete. Added {created} beer(s).", "success")
+    return redirect("/beers/dashboard")
+
+@app.route("/beers", methods=["GET", "POST"])
+def beers_manage():
+    can_edit_inventory = True  # replace with your real permission logic if needed
+
+    if request.method == "POST":
+        if not can_edit_inventory:
+            flash("Manager/Admin only.", "error")
+            return redirect("/beers")
+
+        name = (request.form.get("name") or "").strip()
+        brewery = (request.form.get("brewery") or "").strip()
+        style = (request.form.get("style") or "").strip()
+
+        abv = request.form.get("abv")
+        cost = request.form.get("cost")
+        price = request.form.get("price")
+
+        keg_size = (request.form.get("keg_size") or "half").strip().lower()
+        cups_per_keg = request.form.get("cups_per_keg")
+        on_hand_kegs = request.form.get("on_hand_kegs")
+
+        if not name or not brewery:
+            flash("Name and brewery are required.", "error")
+            return redirect("/beers")
+
+        b = Beer(
+            name=name,
+            brewery=brewery,
+            style=style if style else None,
+            abv=float(abv) if abv else None,
+            cost=float(cost) if cost else None,
+            price=float(price) if price else None,
+            keg_size="full" if keg_size == "full" else "half",
+            cups_per_keg=int(cups_per_keg) if cups_per_keg else None,
+            on_hand_kegs=int(on_hand_kegs) if on_hand_kegs else 0
+        )
+        db.session.add(b)
+        db.session.commit()
+
+        flash("Beer added.", "success")
+        return redirect("/beers")
+
+    beers = Beer.query.order_by(Beer.name.asc()).all()
+    _ensure_taps_exist()
+    taps = BeerTap.query.order_by(BeerTap.bar_location.asc()).all()
+
+    return render_template("beers_manage.html", beers=beers, taps=taps, can_edit_inventory=can_edit_inventory)
+
+
+@app.route("/beers/taps/cups_preview", methods=["POST"])
+def taps_cups_preview():
+    """
+    Returns computed cups left for each tap row using:
+    cups_left = round((percent_left/100) * cups_per_keg)
+    cups_per_keg comes from the selected Beer record (or null if not set)
+    """
+    try:
+        data = request.get_json(force=True)
+        taps = data.get("taps", [])
+        if not isinstance(taps, list):
+            return jsonify(ok=False, error="Invalid payload"), 400
+    except Exception:
+        return jsonify(ok=False, error="Invalid JSON"), 400
+
+    out = {}
+    for t in taps:
+        tap_id = str(t.get("id"))
+        beer_id = t.get("beer_id")
+        percent_left = t.get("percent_left", 0)
+        try:
+            percent_left = float(percent_left)
+        except Exception:
+            percent_left = 0
+
+        if not beer_id:
+            out[tap_id] = None
+            continue
+
+        beer = Beer.query.get(int(beer_id))
+        if not beer or not beer.cups_per_keg:
+            out[tap_id] = None
+            continue
+
+        cups_left = round((max(0, min(100, percent_left)) / 100.0) * float(beer.cups_per_keg))
+        out[tap_id] = int(cups_left)
+
+    return jsonify(ok=True, cups_left=out)
+
+@app.route("/beers/<int:beer_id>/edit", methods=["GET", "POST"])
+def beers_edit(beer_id):
+    can_edit_inventory = True  # replace with your real permission logic if needed
+    b = Beer.query.get_or_404(beer_id)
+
+    def _clean(s):
+        return (s or "").strip()
+
+    def _to_int(val, default=None):
+        val = _clean(val)
+        if val == "":
+            return default
+        return int(val)
+
+    def _to_float(val, default=None):
+        val = _clean(val)
+        if val == "":
+            return default
+        return float(val)
+
+    if request.method == "POST":
+        if not can_edit_inventory:
+            flash("Manager/Admin only.", "error")
+            return redirect(url_for("beers_edit", beer_id=beer_id))
+
+        try:
+            # ---- text fields ----
+            b.name = _clean(request.form.get("name"))
+            b.brewery = _clean(request.form.get("brewery"))
+            b.style = _clean(request.form.get("style")) or None
+
+            if not b.name or not b.brewery:
+                flash("Name and brewery are required.", "error")
+                return redirect(url_for("beers_edit", beer_id=beer_id))
+
+            # ---- numeric fields ----
+            b.abv = _to_float(request.form.get("abv"), None)
+            b.cost = _to_float(request.form.get("cost"), None)
+            b.price = _to_float(request.form.get("price"), None)
+
+            keg_size = _clean(request.form.get("keg_size")).lower() or "half"
+            b.keg_size = "full" if keg_size == "full" else "half"
+
+            b.cups_per_keg = _to_int(request.form.get("cups_per_keg"), None)
+
+            # ---- ON HAND KEGS (accept many possible input names) ----
+            # We will look for the first one that exists in the POST.
+            possible_on_hand_names = [
+                "on_hand_kegs",          # most common
+                "kegs_on_hand",
+                "kegs_onhand",
+                "kegs_on_hand",
+                "onhand_kegs",
+                "on_hand",               # sometimes people shorten it
+            ]
+
+            possible_extra_names = [
+                "extra_kegs_on_hand",    # if you intended "add extra"
+                "extra_kegs",
+                "add_kegs",
+                "add_on_hand_kegs",
+            ]
+
+            posted_on_hand = None
+            for n in possible_on_hand_names:
+                if n in request.form:
+                    posted_on_hand = request.form.get(n)
+                    break
+
+            posted_extra = None
+            for n in possible_extra_names:
+                if n in request.form:
+                    posted_extra = request.form.get(n)
+                    break
+
+            current = int(b.on_hand_kegs or 0)
+
+            # If "extra" exists, ADD it. Otherwise SET absolute value if provided.
+            if posted_extra is not None and _clean(posted_extra) != "":
+                extra = _to_int(posted_extra, 0)
+                if extra < 0:
+                    extra = 0
+                b.on_hand_kegs = current + extra
+            elif posted_on_hand is not None and _clean(posted_on_hand) != "":
+                b.on_hand_kegs = _to_int(posted_on_hand, current)
+            else:
+                # Nothing came through -> do NOT pretend it updated
+                flash(
+                    "Kegs on hand was NOT received from the form. "
+                    "Fix beers_edit.html input name or make sure the input is inside the form.",
+                    "error",
+                )
+                # This tells you exactly what the server received
+                flash("POST keys received: " + ", ".join(sorted(request.form.keys())), "error")
+                return redirect(url_for("beers_edit", beer_id=beer_id))
+
+            db.session.add(b)
+            db.session.commit()
+
+            flash(
+                f"Beer updated. Kegs on hand is now {b.on_hand_kegs}.",
+                "success",
+            )
+            return redirect("/beers")
+
+        except ValueError:
+            db.session.rollback()
+            flash("Please enter valid numbers for ABV/cost/price/cups/kegs.", "error")
+            flash("POST keys received: " + ", ".join(sorted(request.form.keys())), "error")
+            return redirect(url_for("beers_edit", beer_id=beer_id))
+        except Exception as e:
+            db.session.rollback()
+            flash("Could not save changes (server error).", "error")
+            flash(f"Error: {e}", "error")
+            flash("POST keys received: " + ", ".join(sorted(request.form.keys())), "error")
+            return redirect(url_for("beers_edit", beer_id=beer_id))
+
+    return render_template("beers_edit.html", beer=b, can_edit_inventory=can_edit_inventory)
+
+
+
+@app.post("/beers/<int:beer_id>/delete")
+def beers_delete(beer_id: int):
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    b = Beer.query.get_or_404(beer_id)
+
+    # Block delete if on tap
+    on_tap = BeerTap.query.filter_by(beer_id=b.id).first()
+    if on_tap:
+        flash("This beer is currently on a tap. Clear the tap first.", "error")
+        return redirect("/beers/dashboard")
+
+    db.session.delete(b)
+    db.session.commit()
+    flash("Beer deleted.", "success")
+    return redirect("/beers/dashboard")
+
+@app.post("/beers/on-tap/add")
+def beers_on_tap_add():
+    beer_id = request.form.get("beer_id", type=int)
+    bar = request.form.get("bar")  # main / lower / both
+    tap_number = request.form.get("tap_number", type=int)
+    percent_full = request.form.get("percent_full", type=int)
+
+    if not beer_id or not bar or not tap_number:
+        flash("Please select a beer, bar, and tap number.", "error")
+        return redirect("/beers/dashboard")
+
+    if percent_full is None or percent_full == "":
+        percent_full = 100
+    percent_full = max(0, min(100, int(percent_full)))
+
+    def upsert(bar_name: str):
+        # if something is already on that bar/tap, overwrite it (editable behavior)
+        existing = BeerOnTap.query.filter_by(bar=bar_name, tap_number=tap_number).first()
+        if existing:
+            existing.beer_id = beer_id
+            existing.percent_full = percent_full
+            existing.updated_at = datetime.utcnow()
+        else:
+            r = BeerOnTap(
+                bar=bar_name,
+                tap_number=tap_number,
+                beer_id=beer_id,
+                percent_full=percent_full,
+                updated_at=datetime.utcnow(),
+            )
+            db.session.add(r)
+
+    if bar == "both":
+        upsert("main")
+        upsert("lower")
+    elif bar in ("main", "lower"):
+        upsert(bar)
+    else:
+        flash("Invalid bar selection.", "error")
+        return redirect("/beers/dashboard")
+
+    db.session.commit()
+    flash("Beer added to tap successfully.", "success")
+    return redirect("/beers/dashboard")
+
+
+@app.post("/beers/on-tap/save/main")
+def beers_on_tap_save_main():
+    rows = BeerOnTap.query.filter_by(bar="main").all()
+    for r in rows:
+        key = f"percent_full_{r.id}"
+        if key in request.form:
+            val = request.form.get(key, type=int)
+            if val is None:
+                continue
+            r.percent_full = max(0, min(100, int(val)))
+            r.updated_at = datetime.utcnow()
+    db.session.commit()
+    flash("Main Bar tap levels saved.", "success")
+    return redirect("/beers/dashboard")
+
+
+@app.post("/beers/on-tap/save/lower")
+def beers_on_tap_save_lower():
+    rows = BeerOnTap.query.filter_by(bar="lower").all()
+    for r in rows:
+        key = f"percent_full_{r.id}"
+        if key in request.form:
+            val = request.form.get(key, type=int)
+            if val is None:
+                continue
+            r.percent_full = max(0, min(100, int(val)))
+            r.updated_at = datetime.utcnow()
+    db.session.commit()
+    flash("Lower Bar tap levels saved.", "success")
+    return redirect("/beers/dashboard")
+
+
+@app.get("/beers/on-tap/<int:on_tap_id>/remove")
+def beers_on_tap_remove(on_tap_id):
+    r = BeerOnTap.query.get_or_404(on_tap_id)
+    db.session.delete(r)
+    db.session.commit()
+    flash("Removed from tap.", "success")
+    return redirect("/beers/dashboard")
+
+@app.route("/beers/receive", methods=["POST"])
+def beers_receive_kegs():
+    can_edit_inventory = True  # replace with your real permission logic if needed
+
+    if not can_edit_inventory:
+        flash("Manager/Admin only.", "error")
+        return redirect("/beers")
+
+    beer_id = request.form.get("beer_id")
+    qty = request.form.get("qty")
+
+    try:
+        beer_id = int(beer_id)
+        qty = int(qty)
+    except Exception:
+        flash("Invalid receive input.", "error")
+        return redirect("/beers")
+
+    if qty <= 0:
+        flash("Qty must be positive.", "error")
+        return redirect("/beers")
+
+    b = Beer.query.get_or_404(beer_id)
+    b.on_hand_kegs += qty
+    db.session.commit()
+
+    flash(f"Received {qty} keg(s) for {b.name}.", "success")
+    return redirect("/beers")
+
+@app.post("/beers/save_sheet")
+def beers_save_sheet():
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(ok=False, error="Not authorized"), 403
+
+    try:
+        data = request.get_json(force=True, silent=False)
+    except Exception as e:
+        print("❌ /beers/save_sheet invalid JSON:", e)
+        return jsonify(ok=False, error="Invalid JSON"), 400
+
+    print("✅ /beers/save_sheet RECEIVED:", data)
+
+    updated = 0
+    saved = []
+
+    beers_in = data.get("beers", [])
+    if not isinstance(beers_in, list):
+        beers_in = []
+
+    for row in beers_in:
+        bid = row.get("id")
+        if not bid:
+            print("⚠️  Missing beer id in row:", row)
+            continue
+
+        b = Beer.query.get(int(bid))
+        if not b:
+            print("⚠️  Beer not found id:", bid)
+            continue
+
+        # Accept multiple key names from frontend
+        raw_on_hand = None
+        for k in ("on_hand_kegs", "kegs_on_hand", "kegsOnHand", "onHandKegs", "on_hand"):
+            if k in row:
+                raw_on_hand = row.get(k)
+                break
+
+        if raw_on_hand is None:
+            print("⚠️  Missing kegs field for beer id:", bid, "row:", row)
+            continue
+
+        try:
+            b.on_hand_kegs = int(raw_on_hand or 0)
+        except Exception:
+            b.on_hand_kegs = 0
+
+        updated += 1
+
+    db.session.commit()
+
+    # Re-read saved values to confirm persistence
+    for row in beers_in:
+        bid = row.get("id")
+        if not bid:
+            continue
+        b = Beer.query.get(int(bid))
+        if b:
+            saved.append({"id": b.id, "name": b.name, "on_hand_kegs": b.on_hand_kegs})
+
+    print("✅ /beers/save_sheet UPDATED:", updated, "SAVED:", saved)
+    return jsonify(ok=True, updated=updated, saved=saved)
+
+
+@app.post("/beers/create")
+def beers_create():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        flash("Beer name is required.", "error")
+        return redirect("/beers/dashboard")
+
+    b = Beer(
+        name=name,
+        brewery=(request.form.get("brewery") or "").strip() or None,
+        style=(request.form.get("style") or "").strip() or None,
+        abv=_safe_float(request.form.get("abv")),
+        cost=_safe_float(request.form.get("cost")),
+        price=_safe_float(request.form.get("price")),
+        keg_size=((request.form.get("keg_size") or "").strip().lower() or None),
+        cups_per_keg=_safe_int(request.form.get("cups_per_keg"), default=None),
+        on_hand_kegs=_safe_int(request.form.get("on_hand_kegs"), default=0),
+    )
+    if b.keg_size not in (None, "full", "half"):
+        b.keg_size = None
+
+    db.session.add(b)
+    db.session.commit()
+
+    flash("Beer added.", "success")
+    return redirect("/beers/dashboard")
+
+
+
+
+
+@app.route("/beers/tap/set", methods=["POST"])
+def beers_set_tap():
+    can_edit_inventory = True  # replace with your real permission logic if needed
+    if not can_edit_inventory:
+        flash("Manager/Admin only.", "error")
+        return redirect("/beers/dashboard")
+
+    _ensure_taps_exist()
+
+    bar = (request.form.get("bar") or "").strip().lower()     # main / lower
+    beer_id = request.form.get("beer_id")
+    percent = request.form.get("percent_remaining")
+
+    if bar not in ("main", "lower"):
+        flash("Invalid bar.", "error")
+        return redirect("/beers/dashboard")
+
+    tap = BeerTap.query.filter_by(bar_location=bar).first()
+
+    # allow empty selection
+    if not beer_id:
+        tap.beer_id = None
+        tap.percent_remaining = 0
+        tap.tapped_on = None
+        tap.updated_at = datetime.utcnow()
+        db.session.commit()
+        flash("Tap cleared.", "success")
+        return redirect("/beers/dashboard")
+
+    try:
+        beer_id = int(beer_id)
+    except Exception:
+        flash("Invalid beer.", "error")
+        return redirect("/beers/dashboard")
+
+    tap.beer_id = beer_id
+    tap.percent_remaining = _clamp_percent(percent)
+    tap.tapped_on = date.today()
+    tap.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    flash("Tap updated.", "success")
+    return redirect("/beers/dashboard")
+
+@app.route("/beers/tap/percent", methods=["POST"])
+def beers_update_tap_percent():
+    can_edit_inventory = True  # replace with your real permission logic if needed
+    if not can_edit_inventory:
+        flash("Manager/Admin only.", "error")
+        return redirect("/beers/dashboard")
+
+    _ensure_taps_exist()
+    bar = (request.form.get("bar") or "").strip().lower()
+    percent = request.form.get("percent_remaining")
+
+    if bar not in ("main", "lower"):
+        flash("Invalid bar.", "error")
+        return redirect("/beers/dashboard")
+
+    tap = BeerTap.query.filter_by(bar_location=bar).first()
+    tap.percent_remaining = _clamp_percent(percent)
+    tap.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    flash("Tap percentage updated.", "success")
+    return redirect("/beers/dashboard")
+
+
+
+@app.route("/beers/taps/save", methods=["POST"])
+def save_beer_taps():
+    try:
+        data = request.get_json(force=True)
+        taps = data.get("taps", [])
+        if not isinstance(taps, list):
+            return jsonify(ok=False, error="Invalid taps payload"), 400
+    except Exception:
+        return jsonify(ok=False, error="Invalid JSON"), 400
+
+    for t in taps:
+        tap_id = t.get("id")
+        tap = BeerTap.query.get(int(tap_id)) if tap_id else None
+        if not tap:
+            continue
+
+        bar = (t.get("bar") or "").strip().lower()
+        if bar not in ("main", "lower"):
+            bar = tap.bar
+
+        percent_left = t.get("percent_left")
+        try:
+            percent_left = int(percent_left) if percent_left is not None else tap.percent_left
+        except Exception:
+            percent_left = tap.percent_left
+        percent_left = max(0, min(100, percent_left))
+
+        keg_size = (t.get("keg_size") or "half").lower()
+        if keg_size not in ("full", "half"):
+            keg_size = "half"
+
+        beer_id = t.get("beer_id")
+        if beer_id is not None:
+            # allow clearing
+            if beer_id:
+                beer = Beer.query.get(int(beer_id))
+                tap.beer_id = beer.id if beer else None
+            else:
+                tap.beer_id = None
+
+        price = t.get("price")
+        try:
+            price = float(price) if price is not None else None
+        except Exception:
+            price = None
+
+        tap.bar = bar
+        tap.keg_size = keg_size
+        tap.percent_left = percent_left
+        tap.price = price
+
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+
+@app.get("/beers/export")
+def beers_export():
+    # Export all beer + tap data in a single JSON blob
+    beers = Beer.query.order_by(Beer.id.asc()).all()
+    taps = BeerTap.query.order_by(BeerTap.id.asc()).all()
+
+    payload = {
+        "schema_version": 1,
+        "exported_at": datetime.utcnow().isoformat(),
+        "beers": [],
+        "beer_taps": []
+    }
+
+    for b in beers:
+        payload["beers"].append({
+            "id": b.id,
+            "name": b.name,
+            "brewery": b.brewery,
+            "style": b.style,
+            "abv": b.abv,
+            "cost": b.cost,
+            "price": b.price,
+            "keg_size": b.keg_size,
+            "cups_per_keg": b.cups_per_keg,
+
+            # ✅ Canonical export key (Option A)
+            "on_hand_kegs": b.on_hand_kegs,
+
+            "created_at": b.created_at.isoformat() if b.created_at else None
+        })
+
+    for t in taps:
+        payload["beer_taps"].append({
+            "id": t.id,
+            "bar_location": t.bar_location,
+            "beer_id": t.beer_id,
+            "percent_remaining": t.percent_remaining,
+            "tapped_on": t.tapped_on.isoformat() if t.tapped_on else None,
+            "notes": t.notes,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None
+        })
+
+    data = json.dumps(payload, indent=2)
+    mem = io.BytesIO(data.encode("utf-8"))
+    mem.seek(0)
+
+    return send_file(
+        mem,
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=f"beers_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+
+@app.post("/beers/import")
+def beers_import():
+    """
+    Accepts JSON file exported from /beers/export.
+
+    Supports older exports too:
+    - beers.on_hand_kegs -> beers.on_hand_kegs
+    - taps may have missing bar_location or use 'bar' -> map
+    """
+    file = request.files.get("file")
+    mode = request.form.get("mode", "replace")  # "replace" or "merge"
+
+    if not file:
+        flash("No file uploaded.", "error")
+        return redirect("/beers")
+
+    try:
+        raw = file.read().decode("utf-8")
+        payload = json.loads(raw)
+    except Exception as e:
+        flash(f"Import failed: invalid JSON ({e})", "error")
+        return redirect("/beers")
+
+    beers_in = payload.get("beers", [])
+    taps_in = payload.get("beer_taps", [])
+
+    try:
+        if mode == "replace":
+            # ✅ wipe only beer tables (safe: won’t touch other inventory tables)
+            BeerTap.query.delete()
+            Beer.query.delete()
+            db.session.commit()
+
+        # --- import beers ---
+        for row in beers_in:
+            beer_id = row.get("id")
+            if mode == "merge" and beer_id:
+                b = Beer.query.get(beer_id)
+            else:
+                b = None
+
+            if not b:
+                b = Beer()
+                if beer_id is not None:
+                    b.id = beer_id
+
+            b.name = (row.get("name") or "").strip()
+            b.brewery = (row.get("brewery") or "").strip() or None
+            b.style = (row.get("style") or "").strip() or None
+
+            b.abv = _safe_float(row.get("abv"))
+            b.cost = _safe_float(row.get("cost"))
+            b.price = _safe_float(row.get("price"))
+
+            b.keg_size = (row.get("keg_size") or "").strip() or None
+            b.cups_per_keg = _safe_int(row.get("cups_per_keg"), default=None)
+
+            # ✅ OPTION A canonical column, but accept legacy key "kegs_on_hand"
+            on_hand = row.get("on_hand_kegs", None)
+            if on_hand is None:
+                on_hand = row.get("kegs_on_hand", None)  # legacy key
+            b.on_hand_kegs = _safe_int(on_hand, default=0)
+
+            # created_at is optional; don’t crash if missing
+            ca = row.get("created_at")
+            if ca:
+                try:
+                    b.created_at = datetime.fromisoformat(ca)
+                except Exception:
+                    pass
+
+            db.session.add(b)
+
+        db.session.commit()
+
+        # --- import taps ---
+        for row in taps_in:
+            tap_id = row.get("id")
+            if mode == "merge" and tap_id:
+                t = BeerTap.query.get(tap_id)
+            else:
+                t = None
+
+            if not t:
+                t = BeerTap()
+                if tap_id is not None:
+                    t.id = tap_id
+
+            # ✅ Canonical key: bar_location
+            bar_loc = row.get("bar_location")
+            if not bar_loc:
+                bar_loc = row.get("bar")  # legacy key support
+            bar_loc = (bar_loc or "main").strip().lower()
+            if bar_loc not in ("main", "lower"):
+                bar_loc = "main"
+            t.bar_location = bar_loc
+
+            t.beer_id = row.get("beer_id", None)
+
+            pr = row.get("percent_remaining", 100)
+            t.percent_remaining = max(0, min(100, _safe_int(pr, 100)))
+
+            t.tapped_on = _safe_date(row.get("tapped_on"))
+            t.notes = row.get("notes")
+
+            ua = row.get("updated_at")
+            if ua:
+                try:
+                    t.updated_at = datetime.fromisoformat(ua)
+                except Exception:
+                    pass
+
+            db.session.add(t)
+
+        db.session.commit()
+
+        flash(f"Import complete ({mode}).", "success")
+        return redirect("/beers")
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Import failed: {e}", "error")
+        return redirect("/beers")
+    
+@app.get("/beers")
+def beers_page():
+    return render_template("beers.html")
+
+
+@app.route("/beers/dashboard/add-to-tap", methods=["POST"])
+def add_beer_to_tap():
+    bar_choice = request.form.get("bar_choice")   # main / lower / both
+    beer_id = request.form.get("beer_id", type=int)
+
+    tap_main_id = request.form.get("tap_main_id", type=int)
+    tap_lower_id = request.form.get("tap_lower_id", type=int)
+
+    tapped_on_raw = request.form.get("tapped_on")
+    notes = request.form.get("notes", "").strip()
+
+    if not beer_id:
+        flash("You must select a beer.", "error")
+        return redirect(url_for("beers_dashboard"))
+
+    tapped_on = None
+    if tapped_on_raw:
+        try:
+            tapped_on = datetime.strptime(tapped_on_raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    def assign(tap_id):
+        if not tap_id:
+            return False
+        tap = BeerTap.query.get(tap_id)
+        if not tap:
+            return False
+
+        tap.beer_id = beer_id
+        tap.percent_remaining = 100
+        tap.tapped_on = tapped_on
+        tap.notes = notes or None
+        tap.updated_at = datetime.utcnow()
+        return True
+
+    success = False
+
+    if bar_choice == "main":
+        success = assign(tap_main_id)
+    elif bar_choice == "lower":
+        success = assign(tap_lower_id)
+    elif bar_choice == "both":
+        ok1 = assign(tap_main_id)
+        ok2 = assign(tap_lower_id)
+        success = ok1 or ok2
+
+    if not success:
+        flash("Please select the correct tap for the chosen bar.", "error")
+        return redirect(url_for("beers_dashboard"))
+
+    db.session.commit()
+    flash("Beer added to tap successfully.", "success")
+    return redirect(url_for("beers_dashboard"))
+
+
+@app.route("/beers/dashboard/add-to-tap", methods=["POST"])
+def beers_add_to_tap():
+    # if "user_id" not in session: return redirect("/login")
+
+    ensure_default_beer_taps()
+
+    beer_id = request.form.get("beer_id", type=int)
+    bar_choice = request.form.get("bar_choice", "").strip()
+
+    tap_main_id = request.form.get("tap_main_id", type=int)
+    tap_lower_id = request.form.get("tap_lower_id", type=int)
+
+    tapped_on_raw = request.form.get("tapped_on", "").strip()
+    notes = request.form.get("notes", "").strip()
+
+    if not beer_id:
+        flash("Select a beer first.", "error")
+        return redirect("/beers/dashboard")
+
+    beer = Beer.query.get(beer_id)
+    if not beer:
+        flash("That beer was not found.", "error")
+        return redirect("/beers/dashboard")
+
+    tapped_on = None
+    if tapped_on_raw:
+        try:
+            tapped_on = datetime.strptime(tapped_on_raw, "%Y-%m-%d").date()
+        except ValueError:
+            flash("Tapped On date is invalid.", "error")
+            return redirect("/beers/dashboard")
+
+    def assign_to_tap(tap_id, expected_bar):
+        if not tap_id:
+            return False, f"Select a {expected_bar} bar tap."
+
+        tap = BeerTap.query.get(tap_id)
+        if not tap:
+            return False, "Tap not found."
+        if tap.bar_location != expected_bar:
+            return False, "Selected tap does not match the bar."
+
+        tap.beer_id = beer.id
+        tap.percent_remaining = 100  # default full when assigned
+        tap.tapped_on = tapped_on
+        tap.notes = notes if notes else None
+        return True, None
+
+    if bar_choice == "main":
+        ok, err = assign_to_tap(tap_main_id, "main")
+        if not ok:
+            flash(err, "error")
+            return redirect("/beers/dashboard")
+
+    elif bar_choice == "lower":
+        ok, err = assign_to_tap(tap_lower_id, "lower")
+        if not ok:
+            flash(err, "error")
+            return redirect("/beers/dashboard")
+
+    elif bar_choice == "both":
+        ok1, err1 = assign_to_tap(tap_main_id, "main")
+        ok2, err2 = assign_to_tap(tap_lower_id, "lower")
+        if not ok1 or not ok2:
+            flash(err1 or err2 or "Select both taps.", "error")
+            return redirect("/beers/dashboard")
+
+    else:
+        flash("Choose Main Bar, Lower Bar, or Both Bars.", "error")
+        return redirect("/beers/dashboard")
+
+    db.session.commit()
+    flash("Beer assigned to tap(s).", "success")
+    return redirect("/beers/dashboard")
+
+
+@app.post("/beer-taps/assign")
+def beer_taps_assign():
+    beer_id = request.form.get("beer_id", type=int)
+    assign_where = request.form.get("assign_where", default="main")
+    default_percent = request.form.get("default_percent", type=int)
+
+    main_tap_id = request.form.get("main_tap_id", type=int)
+    lower_tap_id = request.form.get("lower_tap_id", type=int)
+
+    if not beer_id:
+        flash("Select a beer.", "error")
+        return redirect("/beers/dashboard")
+
+    if default_percent is None:
+        default_percent = 100
+    default_percent = max(0, min(100, default_percent))
+
+    # Helper to assign a beer to a specific tap
+    def assign_to_tap(tap_id):
+        if not tap_id:
+            return False, "Select a tap."
+        tap = BeerTap.query.get(tap_id)
+        if not tap:
+            return False, "Tap not found."
+
+        tap.beer_id = beer_id
+        tap.percent_remaining = default_percent
+        tap.tapped_on = datetime.utcnow().date()
+        tap.updated_at = datetime.utcnow()
+        return True, None
+
+    # Assign based on selection
+    if assign_where == "main":
+        ok, err = assign_to_tap(main_tap_id)
+        if not ok:
+            flash(err, "error")
+            return redirect("/beers/dashboard")
+
+    elif assign_where == "lower":
+        ok, err = assign_to_tap(lower_tap_id)
+        if not ok:
+            flash(err, "error")
+            return redirect("/beers/dashboard")
+
+    elif assign_where == "both":
+        ok1, err1 = assign_to_tap(main_tap_id)
+        ok2, err2 = assign_to_tap(lower_tap_id)
+        if not ok1 or not ok2:
+            flash(err1 or err2 or "Select taps for both bars.", "error")
+            return redirect("/beers/dashboard")
+
+    else:
+        flash("Invalid bar selection.", "error")
+        return redirect("/beers/dashboard")
+
+    db.session.commit()
+    flash("Beer assigned to tap successfully.", "success")
+    return redirect("/beers/dashboard")
+
+
+@app.post("/beer-taps/bulk-update")
+def beer_taps_bulk_update():
+    # Expects inputs like name="percent_<tap_id>"
+    taps = BeerTap.query.all()
+    updated = 0
+
+    for tap in taps:
+        key = f"percent_{tap.id}"
+        if key not in request.form:
+            continue
+
+        # Only update if tap currently has a beer
+        if not tap.beer_id:
+            continue
+
+        val = request.form.get(key, type=int)
+        if val is None:
+            continue
+
+        val = max(0, min(100, val))
+        tap.percent_remaining = val
+        tap.updated_at = datetime.utcnow()
+        updated += 1
+
+    db.session.commit()
+    flash(f"Saved changes for {updated} tap(s).", "success")
+    return redirect("/beers/dashboard")
+
+
+@app.post("/beer-taps/<int:tap_id>/clear")
+def beer_taps_clear(tap_id):
+    tap = BeerTap.query.get_or_404(tap_id)
+
+    # hard clear
+    tap.beer_id = None
+    tap.percent_remaining = 0
+    tap.tapped_on = None
+    tap.notes = None
+    tap.updated_at = datetime.utcnow()
+
+    db.session.add(tap)
+    db.session.commit()
+
+    # ensure next request cannot reuse a cached relationship/object
+    db.session.expire_all()
+
+    flash("Beer removed from tap.", "success")
+    return redirect("/beers/dashboard")
+
+@app.route("/beers/dashboard/save-levels", methods=["POST"])
+def beers_save_levels():
+    # if "user_id" not in session: return redirect("/login")
+
+    ensure_default_beer_taps()
+
+    # Inputs come in as percent_<tap_id>=##
+    updated = 0
+    for key, val in request.form.items():
+        if not key.startswith("percent_"):
+            continue
+
+        try:
+            tap_id = int(key.replace("percent_", ""))
+        except ValueError:
+            continue
+
+        tap = BeerTap.query.get(tap_id)
+        if not tap:
+            continue
+
+        try:
+            pct = int(val)
+        except (ValueError, TypeError):
+            pct = tap.percent_remaining
+
+        if pct < 0:
+            pct = 0
+        if pct > 100:
+            pct = 100
+
+        if tap.percent_remaining != pct:
+            tap.percent_remaining = pct
+            updated += 1
+
+    if updated:
+        db.session.commit()
+        flash("Saved changes.", "success")
+    else:
+        flash("No changes to save.", "info")
+
+    return redirect("/beers/dashboard")
+
+
+@app.post("/beer-taps/<int:tap_id>/clear")
+def clear_beer_tap(tap_id):
+    tap = BeerTap.query.get_or_404(tap_id)
+
+    # Clear what’s on the tap
+    tap.beer_id = None
+    tap.percent_remaining = 0          # optional: set to 0 when empty
+    tap.tapped_on = None
+    tap.notes = None
+    tap.updated_at = datetime.utcnow()
+
+    db.session.commit()
+    flash("Tap cleared.", "success")
+    return redirect(url_for("beers_dashboard"))
 
 # ============================================================
 # DASHBOARD + CATEGORIES
 # ============================================================
-CATEGORY_ORDER = ["Food", "Alcohol", "NA Beverages", "Paper/Disposables", "Cleaning", "Retail/Misc"]
+CATEGORY_ORDER = ["Food", "Alcohol", "NA Beverages"]
 
 @app.get("/dashboard")
 def dashboard_alias():

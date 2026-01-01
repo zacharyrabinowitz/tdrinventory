@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# =========================
+   QUICK ANALYTICS (JINJA)
+   ========================= #}
+{% set ns = namespace(total_on_tap=0, low_percent=0, empty_taps=0, low_kegs=0) %}
+
+{% for t in main_taps %}
+  {% if t.beer %}
+    {% set ns.total_on_tap = ns.total_on_tap + 1 %}
+    {% if (t.percent_remaining or 0) <= 20 %}{% set ns.low_percent = ns.low_percent + 1 %}{% endif %}
+    {% if (t.beer.on_hand_kegs or 0) <= 1 %}{% set ns.low_kegs = ns.low_kegs + 1 %}{% endif %}
+  {% else %}
+    {% set ns.empty_taps = ns.empty_taps + 1 %}
+  {% endif %}
+{% endfor %}
+
+{% for t in lower_taps %}
+  {% if t.beer %}
+    {% set ns.total_on_tap = ns.total_on_tap + 1 %}
+    {% if (t.percent_remaining or 0) <= 20 %}{% set ns.low_percent = ns.low_percent + 1 %}{% endif %}
+    {% if (t.beer.on_hand_kegs or 0) <= 1 %}{% set ns.low_kegs = ns.low_kegs + 1 %}{% endif %}
+  {% else %}
+    {% set ns.empty_taps = ns.empty_taps + 1 %}
+  {% endif %}
+{% endfor %}
+
+<div class="container-fluid py-3 beer-page">
+
+  <!-- HEADER / ACTIONS -->
+  <div class="beer-header mb-3">
+    <div>
+      <h1 class="beer-title">Beer Dashboard</h1>
+      <div class="beer-subtitle">Main Bar + Lower Bar taps. Update % full and save.</div>
+    </div>
+    <div class="beer-actions">
+      <a class="btn btn-outline-secondary" href="/beers">
+        <i class="fa-solid fa-beer-mug-empty me-1"></i> Manage Beers
+      </a>
+      <button class="btn btn-primary" type="submit" form="tapsSaveForm">
+        <i class="fa-solid fa-floppy-disk me-1"></i> Save Changes
+      </button>
+    </div>
+  </div>
+
+  <!-- ANALYTICS GRID -->
+  <div class="beer-analytics mb-3">
+    <div class="beer-card">
+      <div class="beer-card-body">
+        <div class="beer-stat">
+          <div>
+            <div class="beer-stat-label">Beers on Tap</div>
+            <div class="beer-stat-value">{{ ns.total_on_tap }}</div>
+          </div>
+          <div class="beer-stat-icon text-primary"><i class="fa-solid fa-tap"></i></div>
+        </div>
+        <div class="beer-stat-foot">Across Main + Lower.</div>
+      </div>
+    </div>
+
+    <div class="beer-card">
+      <div class="beer-card-body">
+        <div class="beer-stat">
+          <div>
+            <div class="beer-stat-label">Low % Full</div>
+            <div class="beer-stat-value">{{ ns.low_percent }}</div>
+          </div>
+          <div class="beer-stat-icon text-warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        </div>
+        <div class="beer-stat-foot">20% or less.</div>
+      </div>
+    </div>
+
+    <div class="beer-card">
+      <div class="beer-card-body">
+        <div class="beer-stat">
+          <div>
+            <div class="beer-stat-label">Empty Taps</div>
+            <div class="beer-stat-value">{{ ns.empty_taps }}</div>
+          </div>
+          <div class="beer-stat-icon text-secondary"><i class="fa-solid fa-circle-minus"></i></div>
+        </div>
+        <div class="beer-stat-foot">No beer assigned.</div>
+      </div>
+    </div>
+
+    <div class="beer-card">
+      <div class="beer-card-body">
+        <div class="beer-stat">
+          <div>
+            <div class="beer-stat-label">Low Kegs</div>
+            <div class="beer-stat-value">{{ ns.low_kegs }}</div>
+          </div>
+          <div class="beer-stat-icon text-danger"><i class="fa-solid fa-box-open"></i></div>
+        </div>
+        <div class="beer-stat-foot">1 keg or less.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD TO TAP -->
+  <div class="beer-card mb-3">
+    <div class="beer-card-head">
+      <div>
+        <div class="beer-card-title">Add Beer to Tap</div>
+        <div class="beer-card-subtitle">Pick bar + tap, choose beer, optionally set % full. “Both bars” mirrors the same tap #.</div>
+      </div>
+    </div>
+
+    <div class="beer-card-body">
+      <form method="POST" action="{{ url_for('assign_beer_to_tap') }}" id="assignForm">
+
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-md-4 col-xl-2">
+            <label class="form-label">Bar</label>
+            <select name="bar_pick" id="bar_pick" class="form-select" required>
+              <option value="main">Main Bar</option>
+              <option value="lower">Lower Bar</option>
+            </select>
+          </div>
+
+          <div class="col-12 col-md-4 col-xl-2">
+            <label class="form-label">Tap</label>
+            <select name="tap_id" id="tap_id" class="form-select" required></select>
+            <div class="form-text">Tap numbers are 1–25.</div>
+          </div>
+
+          <div class="col-12 col-md-4 col-xl-8">
+            <label class="form-label">Beer</label>
+            <select name="beer_id" class="form-select" required>
+              <option value="">— Select Beer —</option>
+              {% for b in beers %}
+                <option value="{{ b.id }}">
+                  {{ (b.brewery ~ " • " if b.brewery) ~ b.name }}
+                  {% if b.style %} • {{ b.style }}{% endif %}
+                  {% if b.abv %} • {{ '%.1f'|format(b.abv) }}%{% endif %}
+                  {% if b.keg_size %} • {{ b.keg_size|capitalize }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="row g-3 align-items-end mt-0">
+          <div class="col-12 col-md-4 col-xl-2">
+            <label class="form-label">% Full (optional)</label>
+            <input type="number" class="form-control" name="set_percent" min="0" max="100" placeholder="100">
+          </div>
+
+          <div class="col-12 col-md-4 col-xl-2">
+            <label class="form-label">Tapped On (optional)</label>
+            <input type="date" class="form-control" name="tapped_on">
+          </div>
+
+          <div class="col-12 col-md-8 col-xl-5">
+            <label class="form-label">Notes (optional)</label>
+            <input type="text" class="form-control" name="notes" placeholder="e.g., new keg, swapped line, promo">
+          </div>
+
+          <div class="col-12 col-md-6 col-xl-2">
+            <div class="form-check beer-check">
+              <input class="form-check-input" type="checkbox" id="both_bars">
+              <label class="form-check-label" for="both_bars">Both bars</label>
+            </div>
+          </div>
+
+          <div class="col-12 col-md-6 col-xl-1">
+            <button class="btn btn-success w-100" type="submit">
+              <i class="fa-solid fa-plus me-1"></i> Add
+            </button>
+          </div>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- SAVE FORM (GLOBAL) -->
+  <form id="tapsSaveForm" method="POST" action="{{ url_for('save_tap_percents') }}"></form>
+
+  <!-- TWO WINDOWS SIDE-BY-SIDE -->
+  <div class="beer-panels">
+
+    <!-- MAIN BAR -->
+    <div class="beer-card">
+      <div class="beer-card-head beer-card-head-tight">
+        <div>
+          <div class="beer-card-title">Main Bar</div>
+          <div class="beer-card-subtitle">Taps 1–25</div>
+        </div>
+        <span class="beer-pill">Main</span>
+      </div>
+
+      <div class="beer-table-wrap">
+        <table class="table table-hover align-middle beer-table mb-0">
+          <thead>
+            <tr>
+              <th class="col-tap">Tap</th>
+              <th class="col-beer">Beer</th>
+              <th class="col-percent">% Full</th>
+              <th class="col-kegs">Kegs</th>
+              <th class="col-action">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in main_taps %}
+              <tr>
+                <td class="col-tap fw-semibold">{{ loop.index }}</td>
+
+                <td class="col-beer">
+                  {% if t.beer %}
+                    <div class="fw-semibold">{{ t.beer.name }}</div>
+                    <div class="text-muted small">
+                      {% if t.beer.brewery %}{{ t.beer.brewery }}{% endif %}
+                      {% if t.beer.style %}{% if t.beer.brewery %} • {% endif %}{{ t.beer.style }}{% endif %}
+                      {% if t.beer.abv %}{% if t.beer.brewery or t.beer.style %} • {% endif %}{{ '%.1f'|format(t.beer.abv) }}%{% endif %}
+                    </div>
+                  {% else %}
+                    <span class="text-muted">— Empty —</span>
+                  {% endif %}
+                </td>
+
+                <td class="col-percent">
+                  <div class="beer-percent">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      class="form-control form-control-sm beer-percent-input"
+                      name="percent_{{ t.id }}"
+                      value="{{ t.percent_remaining }}"
+                      form="tapsSaveForm"
+                    >
+                    {% if t.beer and (t.percent_remaining or 0) <= 20 %}
+                      <span class="badge text-bg-warning">Low</span>
+                    {% endif %}
+                  </div>
+                  {% if t.beer %}
+                    <div class="progress beer-progress">
+                      <div class="progress-bar" role="progressbar" style="width: {{ t.percent_remaining }}%;"></div>
+                    </div>
+                  {% endif %}
+                </td>
+
+                <td class="col-kegs">
+                  {% if t.beer %}
+                    {% if (t.beer.on_hand_kegs or 0) <= 1 %}
+                      <span class="badge text-bg-danger">{{ t.beer.on_hand_kegs }}</span>
+                    {% else %}
+                      <span class="badge text-bg-secondary">{{ t.beer.on_hand_kegs }}</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+
+                <td class="col-action">
+                  {% if t.beer %}
+                    <form method="POST" action="{{ url_for('remove_beer_from_tap') }}" class="m-0">
+                      <input type="hidden" name="tap_id" value="{{ t.id }}">
+                      <button class="btn btn-outline-danger btn-sm" type="submit">
+                        <i class="fa-solid fa-xmark me-1"></i> Take Off
+                      </button>
+                    </form>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- LOWER BAR -->
+    <div class="beer-card">
+      <div class="beer-card-head beer-card-head-tight">
+        <div>
+          <div class="beer-card-title">Lower Bar</div>
+          <div class="beer-card-subtitle">Taps 1–25</div>
+        </div>
+        <span class="beer-pill">Lower</span>
+      </div>
+
+      <div class="beer-table-wrap">
+        <table class="table table-hover align-middle beer-table mb-0">
+          <thead>
+            <tr>
+              <th class="col-tap">Tap</th>
+              <th class="col-beer">Beer</th>
+              <th class="col-percent">% Full</th>
+              <th class="col-kegs">Kegs</th>
+              <th class="col-action">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in lower_taps %}
+              <tr>
+                <td class="col-tap fw-semibold">{{ loop.index }}</td>
+
+                <td class="col-beer">
+                  {% if t.beer %}
+                    <div class="fw-semibold">{{ t.beer.name }}</div>
+                    <div class="text-muted small">
+                      {% if t.beer.brewery %}{{ t.beer.brewery }}{% endif %}
+                      {% if t.beer.style %}{% if t.beer.brewery %} • {% endif %}{{ t.beer.style }}{% endif %}
+                      {% if t.beer.abv %}{% if t.beer.brewery or t.beer.style %} • {% endif %}{{ '%.1f'|format(t.beer.abv) }}%{% endif %}
+                    </div>
+                  {% else %}
+                    <span class="text-muted">— Empty —</span>
+                  {% endif %}
+                </td>
+
+                <td class="col-percent">
+                  <div class="beer-percent">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      class="form-control form-control-sm beer-percent-input"
+                      name="percent_{{ t.id }}"
+                      value="{{ t.percent_remaining }}"
+                      form="tapsSaveForm"
+                    >
+                    {% if t.beer and (t.percent_remaining or 0) <= 20 %}
+                      <span class="badge text-bg-warning">Low</span>
+                    {% endif %}
+                  </div>
+                  {% if t.beer %}
+                    <div class="progress beer-progress">
+                      <div class="progress-bar" role="progressbar" style="width: {{ t.percent_remaining }}%;"></div>
+                    </div>
+                  {% endif %}
+                </td>
+
+                <td class="col-kegs">
+                  {% if t.beer %}
+                    {% if (t.beer.on_hand_kegs or 0) <= 1 %}
+                      <span class="badge text-bg-danger">{{ t.beer.on_hand_kegs }}</span>
+                    {% else %}
+                      <span class="badge text-bg-secondary">{{ t.beer.on_hand_kegs }}</span>
+                    {% endif %}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+
+                <td class="col-action">
+                  {% if t.beer %}
+                    <form method="POST" action="{{ url_for('remove_beer_from_tap') }}" class="m-0">
+                      <input type="hidden" name="tap_id" value="{{ t.id }}">
+                      <button class="btn btn-outline-danger btn-sm" type="submit">
+                        <i class="fa-solid fa-xmark me-1"></i> Take Off
+                      </button>
+                    </form>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const mainTapIds = [{% for t in main_taps %}{{ t.id }}{% if not loop.last %},{% endif %}{% endfor %}];
+  const lowerTapIds = [{% for t in lower_taps %}{{ t.id }}{% if not loop.last %},{% endif %}{% endfor %}];
+
+  const barPick = document.getElementById("bar_pick");
+  const tapSelect = document.getElementById("tap_id");
+  const bothBars = document.getElementById("both_bars");
+  const assignForm = document.getElementById("assignForm");
+
+  function fillTaps(bar) {
+    tapSelect.innerHTML = "";
+    const ids = (bar === "main") ? mainTapIds : lowerTapIds;
+    ids.forEach((id, idx) => {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = (idx + 1).toString();
+      tapSelect.appendChild(opt);
+    });
+  }
+
+  barPick.addEventListener("change", () => fillTaps(barPick.value));
+  fillTaps(barPick.value);
+
+  assignForm.addEventListener("submit", async (e) => {
+    if (!bothBars.checked) return;
+
+    e.preventDefault();
+
+    const fd1 = new FormData(assignForm);
+    const selectedBar = fd1.get("bar_pick");
+    const tapId = parseInt(fd1.get("tap_id"), 10);
+
+    const ids = (selectedBar === "main") ? mainTapIds : lowerTapIds;
+    const idx = ids.indexOf(tapId);
+    if (idx === -1) { assignForm.submit(); return; }
+
+    const otherIds = (selectedBar === "main") ? lowerTapIds : mainTapIds;
+    const otherTapId = otherIds[idx];
+
+    await fetch(assignForm.action, { method: "POST", body: fd1 });
+
+    const fd2 = new FormData(assignForm);
+    fd2.set("tap_id", otherTapId);
+    await fetch(assignForm.action, { method: "POST", body: fd2 });
+
+    window.location.reload();
+  });
+</script>
+
+{% endblock %}
