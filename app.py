@@ -140,6 +140,64 @@ def _import_db_from_dict(payload):
         # Re-enable FK checks
         db.session.execute(text("PRAGMA foreign_keys=ON"))
 
+def fifo_apply_actual_left(selected_lots_oldest_first, actual_left):
+    """
+    FIFO consumption means oldest is used first,
+    so whatever is left should end up in NEWEST lots.
+    """
+    actual_left = max(0, int(actual_left))
+
+    # allocate leftover into newest lots first
+    remaining = actual_left
+    new_units = {}
+
+    for lot in reversed(selected_lots_oldest_first):
+        cap = int(lot.count_units or 0)
+        keep = min(cap, remaining)
+        new_units[lot.id] = keep
+        remaining -= keep
+
+    # everything older becomes 0 if not holding leftover
+    for lot in selected_lots_oldest_first:
+        if lot.id not in new_units:
+            new_units[lot.id] = 0
+
+    return new_units, remaining
+
+
+def _safe_int(v, default=0):
+    try:
+        return int(v)
+    except Exception:
+        return default
+
+
+def fifo_allocate_remaining(selected_lots_oldest_first, total_remaining):
+    """
+    FIFO consumption means oldest is consumed first.
+    Therefore leftover inventory ends up in NEWEST lots.
+    We allocate remaining from newest -> oldest, capped by each lot's original units.
+    Returns dict {lot_id: new_units}.
+    """
+    remaining = max(0, int(total_remaining))
+    new_units_by_id = {}
+
+    # We allocate remaining into newest lots first
+    for lot in reversed(selected_lots_oldest_first):
+        cap = _safe_int(getattr(lot, "count_units", 0), 0)
+        keep = min(cap, remaining)
+        new_units_by_id[lot.id] = keep
+        remaining -= keep
+
+    # Any lots not assigned above should be 0
+    for lot in selected_lots_oldest_first:
+        if lot.id not in new_units_by_id:
+            new_units_by_id[lot.id] = 0
+
+    # If remaining > 0 here, user entered more "left" than exists in selected lots
+    return new_units_by_id, remaining
+
+
 @app.template_filter("fmt_dt")
 def fmt_dt(dt: Optional[datetime], fmt: str = "%b %d, %Y %I:%M %p") -> str:
     d = to_local(dt)
@@ -3876,6 +3934,21 @@ def reconcile_home(item_id: int):
         history=history,
         rec=None,
     )
+
+
+@app.route("/items/<int:item_id>/reconcile/history")
+def reconcile_history(item_id):
+    # whatever auth check pattern you already use in your app.py goes here
+
+    item = Item.query.get_or_404(item_id)
+
+    # IMPORTANT:
+    # Replace ReconcileModelName with the SAME model class used in your existing reconcile routes.
+    reconciles = ReconcileRecord.query.filter_by(item_id=item_id).order_by(ReconcileRecord.id.desc()).all()
+
+    return render_template("reconcile_history.html", item=item, reconciles=reconciles)
+
+
 
 @app.post("/items/<int:item_id>/reconcile")
 def reconcile_create(item_id: int):

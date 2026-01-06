@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Reconcile History • {{ item.name }}</h1>
+      <span class="muted">Review past counts/reconciles for this item. Open any record to see details.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
+      <a class="btn" href="/items/{{ item.id }}/reconcile">New Reconcile</a>
+      <a class="btn" href="/items/{{ item.id }}/lots">View Boxes</a>
+    </div>
+  </div>
+
+  {% if reconciles and reconciles|length > 0 %}
+    <div class="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width: 160px;">Date</th>
+            <th style="width: 120px;">Mode</th>
+            <th>Notes</th>
+            <th style="width: 140px; text-align:right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in reconciles %}
+            <tr>
+              <td>
+                {% if r.created_at %}
+                  {{ r.created_at.strftime("%b %d, %Y %I:%M %p") }}
+                {% elif r.reconcile_date %}
+                  {{ r.reconcile_date.strftime("%b %d, %Y") }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td>
+                <span class="pill">
+                  {% if r.mode %}{{ r.mode }}{% else %}reconcile{% endif %}
+                </span>
+              </td>
+
+              <td class="muted">
+                {% if r.notes and r.notes|trim %}
+                  {{ r.notes }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td style="text-align:right;">
+                <a class="btn small" href="/items/{{ item.id }}/reconcile/{{ r.id }}/edit">Open</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  {% else %}
+    <div class="empty">
+      <h3>No reconcile history yet</h3>
+      <p class="muted">Once you run your first count/reconcile, it will show up here.</p>
+      <a class="btn" href="/items/{{ item.id }}/reconcile">Run First Reconcile</a>
+    </div>
+  {% endif %}
+</section>
+
+{% endblock %}

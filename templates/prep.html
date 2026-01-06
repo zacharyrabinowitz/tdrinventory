@@ -6,7 +6,7 @@
     <div>
       <h1>Prep • {{ item.name }}</h1>
       <span class="muted">
-        Select raw boxes used, enter produced units, and the system creates a prepped lot + expiration.
+        Choose raw boxes, enter produced units, and the system creates a new prepped lot with expiration.
       </span>
     </div>
     <div class="actions">
@@ -43,33 +43,42 @@
 
     <div style="height:10px;"></div>
 
-    <div class="grid2">
-      <div class="field">
-        <label>Mode</label>
-        <select class="input" name="mode" id="mode">
-          <option value="first_n" selected>Use first N boxes (FIFO)</option>
-          <option value="selected">Select boxes</option>
-        </select>
+    <div class="card" style="background: rgba(255,255,255,0.03);">
+      <div class="cardhead" style="padding: 12px 14px;">
+        <div>
+          <h2 style="margin:0;">How are you choosing boxes?</h2>
+          <div class="muted smalltxt">
+            FIFO uses the oldest boxes first. “Select boxes” lets you pick manually.
+          </div>
+        </div>
       </div>
 
-      <div class="field" id="firstNWrap">
-        <label>Boxes used (first N)</label>
-        <input class="input" type="number" min="1" name="first_n" id="firstNInput" placeholder="e.g. 3">
-        <div class="muted smalltxt">Oldest boxes are used first.</div>
+      <div class="grid2" style="padding: 12px 14px;">
+        <div class="field">
+          <label>Mode</label>
+          <select class="input" name="mode" id="mode">
+            <option value="first_n" selected>Use first N boxes (FIFO)</option>
+            <option value="selected">Select boxes</option>
+          </select>
+        </div>
+
+        <div class="field" id="firstNWrap">
+          <label>Boxes used (first N)</label>
+          <input class="input" type="number" min="1" name="first_n" id="firstNInput" placeholder="e.g. 3">
+          <div class="muted smalltxt">Oldest boxes are used first.</div>
+        </div>
       </div>
-    </div>
 
-    <div style="height:10px;"></div>
+      <div class="field" style="padding: 0 14px 14px;">
+        <label>Produced Units</label>
+        <input class="input" type="number" min="1" name="produced_units" required placeholder="Example: Wings prepped = 840">
+        <div class="muted smalltxt">This is the usable units created after prep.</div>
+      </div>
 
-    <div class="field">
-      <label>Produced Units</label>
-      <input class="input" type="number" min="1" name="produced_units" required placeholder="Example: Wings prepped = 840">
-      <div class="muted smalltxt">Generic: this is how many usable units you now have after prep.</div>
-    </div>
-
-    <div class="field">
-      <label>Notes (optional)</label>
-      <input class="input" name="notes" placeholder="Anything helpful about this prep batch">
+      <div class="field" style="padding: 0 14px 14px;">
+        <label>Notes (optional)</label>
+        <input class="input" name="notes" placeholder="Anything helpful about this prep batch">
+      </div>
     </div>
 
     <div style="height:12px;"></div>
@@ -148,7 +157,8 @@
           </div>
           <div class="row-actions">
             <form method="POST" action="/prep/{{ b.id }}/delete" class="inline">
-              <button class="btn danger small" type="submit" onclick="return confirm('Delete this prep batch? This will undo the consumption + delete the created prepped lot.')">Delete</button>
+              <button class="btn danger small" type="submit"
+                      onclick="return confirm('Delete this prep batch? This will undo the consumption + delete the created prepped lot.')">Delete</button>
             </form>
           </div>
         </div>
@@ -179,7 +189,6 @@
   }
   mode.addEventListener("change", syncMode);
 
-  // auto switch to selected when clicking checkboxes
   document.querySelectorAll(".lotCheck").forEach(cb=>{
     cb.addEventListener("click", ()=>{
       mode.value = "selected";
