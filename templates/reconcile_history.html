@@ -19,10 +19,10 @@
       <table class="table">
         <thead>
           <tr>
-            <th style="width: 160px;">Date</th>
+            <th style="width: 190px;">Date</th>
             <th style="width: 120px;">Mode</th>
             <th>Notes</th>
-            <th style="width: 140px; text-align:right;">Action</th>
+            <th style="width: 240px; text-align:right;">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -31,6 +31,8 @@
               <td>
                 {% if r.created_at %}
                   {{ r.created_at.strftime("%b %d, %Y %I:%M %p") }}
+                {% elif r.event_date %}
+                  {{ r.event_date.strftime("%b %d, %Y") }}
                 {% elif r.reconcile_date %}
                   {{ r.reconcile_date.strftime("%b %d, %Y") }}
                 {% else %}
@@ -54,6 +56,14 @@
 
               <td style="text-align:right;">
                 <a class="btn small" href="/items/{{ item.id }}/reconcile/{{ r.id }}/edit">Open</a>
+
+                <form method="POST"
+                      action="/reconcile/{{ r.id }}/delete"
+                      class="inline"
+                      style="display:inline-block; margin-left:8px;"
+                      onsubmit="return confirm('Delete this reconcile record? This cannot be undone.');">
+                  <button class="btn danger small" type="submit">Delete</button>
+                </form>
               </td>
             </tr>
           {% endfor %}
