@@ -445,6 +445,27 @@ body.sidebar-collapsed-state .main-content {
   border-color: var(--primary);
 }
 
+.logout-btn {
+  background: none;
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.logout-btn:hover {
+  background-color: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
+
 .topbar-brand {
   flex: 1;
 }
