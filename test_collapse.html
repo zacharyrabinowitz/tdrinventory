@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sidebar Collapse Test</title>
+  <style>
+    :root {
+      --sidebar-width: 280px;
+      --sidebar-width-collapsed: 70px;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      display: flex;
+    }
+
+    .sidebar {
+      width: var(--sidebar-width);
+      height: 100vh;
+      background: #0f1a36;
+      transition: width 0.3s ease;
+      position: fixed;
+      left: 0;
+      top: 0;
+      display: flex;
+      flex-direction: column;
+      color: white;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .sidebar.collapsed {
+      width: var(--sidebar-width-collapsed);
+    }
+
+    .sidebar-toggle {
+      padding: 10px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+
+    .sidebar-toggle:hover {
+      background: #1d4ed8;
+    }
+
+    .sidebar.collapsed .nav-text {
+      display: none;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      margin: 5px 0;
+      background: #1b2a57;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .nav-item:hover {
+      background: #22356b;
+    }
+
+    .nav-icon {
+      width: 20px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .main-content {
+      margin-left: var(--sidebar-width);
+      flex: 1;
+      padding: 20px;
+      transition: margin-left 0.3s ease;
+    }
+
+    body.sidebar-collapsed-state .main-content {
+      margin-left: var(--sidebar-width-collapsed);
+    }
+
+    h1 {
+      margin: 0 0 20px 0;
+    }
+
+    .status {
+      background: #f0f2f5;
+      color: #1f2937;
+      padding: 15px;
+      border-radius: 5px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <button class="sidebar-toggle" id="sidebarToggle">Collapse</button>
+    <div class="nav-item">
+      <span class="nav-icon">📦</span>
+      <span class="nav-text">Dashboard</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">📋</span>
+      <span class="nav-text">Items</span>
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">🍺</span>
+      <span class="nav-text">Beers</span>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <h1>Sidebar Collapse Test</h1>
+    <div class="status">
+      <div>Sidebar State: <strong id="state">Expanded</strong></div>
+      <div>Body Class: <strong id="bodyClass">none</strong></div>
+      <div>localStorage: <strong id="storage">not set</strong></div>
+    </div>
+  </main>
+
+  <script>
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('sidebar');
+    const body = document.body;
+
+    function updateStatus() {
+      const isCollapsed = sidebar.classList.contains('collapsed');
+      document.getElementById('state').textContent = isCollapsed ? 'Collapsed' : 'Expanded';
+      document.getElementById('bodyClass').textContent = body.className;
+      document.getElementById('storage').textContent = localStorage.getItem('sidebarCollapsed') || 'not set';
+    }
+
+    function loadSidebarState() {
+      const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+      if (isCollapsed) {
+        sidebar.classList.add('collapsed');
+        body.classList.add('sidebar-collapsed-state');
+        sidebarToggle.textContent = 'Expand';
+      }
+      updateStatus();
+    }
+
+    sidebarToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('collapsed');
+      body.classList.toggle('sidebar-collapsed-state');
+      localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+      sidebarToggle.textContent = sidebar.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+      updateStatus();
+    });
+
+    loadSidebarState();
+  </script>
+</body>
+</html>

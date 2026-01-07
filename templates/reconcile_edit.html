@@ -86,7 +86,7 @@
       <div class="grid2" style="margin-bottom:16px;">
         <div class="field">
           <label>Items per Order</label>
-          <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(255, 255, 255, 0.08); border-color: rgba(59, 130, 246, 0.4);">
+          <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(37, 99, 235, 0.1); border-color: var(--primary);">
         </div>
 
         <div class="field">
@@ -104,7 +104,7 @@
 
         <div class="field">
           <label>Items Sold (Auto)</label>
-          <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="{{ rec.sales_units }}" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default; color: rgba(255, 255, 255, 0.7);">
+          <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="{{ rec.sales_units }}" readonly style="background: rgba(255, 255, 255, 0.06); cursor: default; color: var(--text-muted);">
         </div>
       </div>
 

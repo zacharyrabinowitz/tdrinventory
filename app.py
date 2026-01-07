@@ -1657,6 +1657,87 @@ def beers_bulk_post():
     flash(f"Bulk add complete. Added {created} beer(s).", "success")
     return redirect("/beers/dashboard")
 
+@app.get("/beers/bulk-edit")
+def beers_bulk_edit():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    beers = Beer.query.order_by(Beer.name.asc()).all()
+    return render_template("beers_bulk_edit.html", beers=beers)
+
+@app.post("/beers/bulk-edit-save")
+def beers_bulk_edit_save():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    data = request.get_json()
+    if not data or "beers" not in data:
+        return {"error": "No beers data"}, 400
+
+    try:
+        for beer_data in data["beers"]:
+            beer_id = beer_data.get("id")
+            beer = Beer.query.get(beer_id)
+            if not beer:
+                continue
+
+            # Update basic fields
+            if "name" in beer_data:
+                beer.name = beer_data["name"].strip()
+            if "brewery" in beer_data:
+                beer.brewery = beer_data["brewery"].strip() or None
+            if "style" in beer_data:
+                beer.style = beer_data["style"].strip() or None
+
+            # Update numeric fields
+            if "abv" in beer_data:
+                try:
+                    beer.abv = float(beer_data["abv"]) if beer_data["abv"] else None
+                except (ValueError, TypeError):
+                    pass
+
+            if "cost" in beer_data:
+                try:
+                    beer.cost = float(beer_data["cost"]) if beer_data["cost"] else None
+                except (ValueError, TypeError):
+                    pass
+
+            if "price" in beer_data:
+                try:
+                    beer.price = float(beer_data["price"]) if beer_data["price"] else None
+                except (ValueError, TypeError):
+                    pass
+
+            if "keg_size" in beer_data:
+                keg_size = beer_data["keg_size"].strip().lower() if beer_data["keg_size"] else None
+                if keg_size in ("full", "half"):
+                    beer.keg_size = keg_size
+                else:
+                    beer.keg_size = None
+
+            if "cups_per_keg" in beer_data:
+                try:
+                    beer.cups_per_keg = int(beer_data["cups_per_keg"]) if beer_data["cups_per_keg"] else None
+                except (ValueError, TypeError):
+                    pass
+
+            if "on_hand_kegs" in beer_data:
+                try:
+                    beer.on_hand_kegs = int(beer_data["on_hand_kegs"])
+                except (ValueError, TypeError):
+                    pass
+
+        db.session.commit()
+        return {"success": True, "message": f"Updated {len(data['beers'])} beers"}
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error bulk saving beers: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
+
 @app.route("/beers", methods=["GET", "POST"])
 def beers_manage():
     can_edit_inventory = True  # replace with your real permission logic if needed
@@ -2697,7 +2778,14 @@ def category_view(category_name: str):
         query = query.filter(Item.name.ilike(f"%{q}%"))
     items = query.order_by(Item.name.asc()).all()
 
-    return render_template("category.html", category_name=category_name, items=items, q=q)
+    # Get all categories for sidebar
+    counts = db.session.query(Item.category, func.count(Item.id)).group_by(Item.category).all()
+    counts_map = {c: int(n) for (c, n) in counts}
+    all_categories = [cat for cat in CATEGORY_ORDER if counts_map.get(cat, 0) > 0]
+    extras = sorted([c for c in counts_map.keys() if c not in CATEGORY_ORDER and counts_map.get(c, 0) > 0])
+    all_categories.extend(extras)
+
+    return render_template("category.html", category_name=category_name, items=items, q=q, all_categories=all_categories)
 
 
 # ============================================================
@@ -2722,6 +2810,91 @@ def items_all():
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
 
     return render_template("items.html", items=items, suppliers=suppliers, q=q)
+
+@app.get("/items/bulk")
+def items_bulk():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    items = Item.query.order_by(Item.category.asc(), Item.name.asc()).all()
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    
+    return render_template("items_bulk.html", items=items, suppliers=suppliers)
+
+@app.post("/items/bulk-save")
+def items_bulk_save():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    data = request.get_json()
+    if not data or "items" not in data:
+        return {"error": "No items data"}, 400
+
+    try:
+        for item_data in data["items"]:
+            item_id = item_data.get("id")
+            item = Item.query.get(item_id)
+            if not item:
+                continue
+
+            # Update basic fields
+            if "name" in item_data:
+                item.name = item_data["name"].strip()
+            if "category" in item_data:
+                item.category = item_data["category"].strip()
+            if "unit" in item_data:
+                item.unit = item_data["unit"].strip()
+            if "supplier_id" in item_data:
+                supplier_id = item_data["supplier_id"]
+                item.supplier_id = int(supplier_id) if supplier_id and str(supplier_id).isdigit() else None
+
+            # Update items-specific fields
+            if "on_hand_count" in item_data:
+                try:
+                    item.on_hand_count = int(item_data["on_hand_count"])
+                except (ValueError, TypeError):
+                    pass
+
+            # Update generic-specific fields
+            if "default_units_per_box" in item_data:
+                try:
+                    item.default_units_per_box = int(item_data["default_units_per_box"])
+                except (ValueError, TypeError):
+                    pass
+
+            if "multiplier" in item_data:
+                try:
+                    item.multiplier = float(item_data["multiplier"])
+                except (ValueError, TypeError):
+                    pass
+
+            # Update shelf-life fields
+            if "raw_freezer_days" in item_data:
+                try:
+                    item.raw_freezer_days = int(item_data["raw_freezer_days"]) if item_data["raw_freezer_days"] else None
+                except (ValueError, TypeError):
+                    pass
+            if "raw_cooler_days" in item_data:
+                try:
+                    item.raw_cooler_days = int(item_data["raw_cooler_days"]) if item_data["raw_cooler_days"] else None
+                except (ValueError, TypeError):
+                    pass
+            if "raw_out_days" in item_data:
+                try:
+                    item.raw_out_days = int(item_data["raw_out_days"]) if item_data["raw_out_days"] else None
+                except (ValueError, TypeError):
+                    pass
+
+        db.session.commit()
+        return {"success": True, "message": f"Updated {len(data['items'])} items"}
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error bulk saving items: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
 
 @app.get("/items/new")
 def item_new():
@@ -2838,7 +3011,7 @@ def item_new_post():
     try:
         db.session.commit()
         flash("Item created.", "success")
-        return redirect("/items")
+        return redirect(f"/items/{item.id}")
     except Exception as e:
         db.session.rollback()
         print(f"Error creating item: {e}")
@@ -2978,7 +3151,7 @@ def item_edit_post(item_id: int):
     try:
         db.session.commit()
         flash("Item updated.", "success")
-        return redirect("/items")
+        return redirect(f"/items/{item.id}")
     except Exception as e:
         db.session.rollback()
         print(f"Error updating item: {e}")

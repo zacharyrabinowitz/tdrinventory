@@ -226,7 +226,7 @@
             <div class="grid2" style="margin-bottom:16px;">
               <div class="field">
                 <label>Items per Order</label>
-                <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(255, 255, 255, 0.08); border-color: rgba(59, 130, 246, 0.4);">
+                <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(37, 99, 235, 0.1); border-color: var(--primary);">
               </div>
 
               <div class="field">
@@ -244,7 +244,7 @@
 
               <div class="field">
                 <label>Items Sold (Auto)</label>
-                <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="0" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default; color: rgba(255, 255, 255, 0.7);">
+                <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="0" readonly style="background: rgba(255, 255, 255, 0.06); cursor: default; color: var(--text-muted);">
               </div>
             </div>
 
@@ -594,7 +594,7 @@
                   {% if can_edit_inventory %}
                     <a class="btn" href="/reconcile/{{ rec.id }}/edit" style="font-size:11px; padding:4px 8px;">Edit</a>
                     <form method="POST" action="/reconcile/{{ rec.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this count record?');">
-                      <button class="btn" type="submit" style="font-size:11px; padding:4px 8px; background:#ef4444;">Delete</button>
+                      <button class="btn" type="submit" style="font-size:11px; padding:4px 8px; background: var(--danger);">Delete</button>
                     </form>
                   {% endif %}
                 </td>

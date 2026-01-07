@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Bulk Edit Items</h1>
+      <span class="muted">Edit multiple items at once in a spreadsheet view</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/items">Back to Items</a>
+      <button class="btn primary" onclick="saveBulkEdit()">✓ Save All Changes</button>
+    </div>
+  </div>
+
+  <div style="overflow-x: auto; margin-top: 16px;">
+    <table class="bulk-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Unit</th>
+          <th>Supplier</th>
+          <th>Units/Box</th>
+          <th>Multiplier</th>
+          <th>Stock</th>
+          <th>Raw Freezer Days</th>
+          <th>Raw Cooler Days</th>
+          <th>Raw Out Days</th>
+        </tr>
+      </thead>
+      <tbody id="items-table-body">
+        {% for item in items %}
+        <tr data-item-id="{{ item.id }}">
+          <td>
+            <input class="bulk-input" type="text" data-field="name" value="{{ item.name }}">
+          </td>
+          <td>
+            <input class="bulk-input" type="text" data-field="category" value="{{ item.category }}">
+          </td>
+          <td>
+            <input class="bulk-input" type="text" data-field="unit" value="{{ item.unit or '' }}">
+          </td>
+          <td>
+            <select class="bulk-input" data-field="supplier_id">
+              <option value="">-- None --</option>
+              {% for supplier in suppliers %}
+              <option value="{{ supplier.id }}" {% if item.supplier_id == supplier.id %}selected{% endif %}>
+                {{ supplier.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <input class="bulk-input" type="number" data-field="default_units_per_box" 
+                   value="{{ item.default_units_per_box or '' }}">
+          </td>
+          <td>
+            <input class="bulk-input" type="number" step="0.01" data-field="multiplier" 
+                   value="{{ item.multiplier or '' }}">
+          </td>
+          <td>
+            <input class="bulk-input" type="number" data-field="on_hand_count" 
+                   value="{{ item.on_hand_count or 0 }}">
+          </td>
+          <td>
+            <input class="bulk-input" type="number" data-field="raw_freezer_days" 
+                   value="{{ item.raw_freezer_days or '' }}">
+          </td>
+          <td>
+            <input class="bulk-input" type="number" data-field="raw_cooler_days" 
+                   value="{{ item.raw_cooler_days or '' }}">
+          </td>
+          <td>
+            <input class="bulk-input" type="number" data-field="raw_out_days" 
+                   value="{{ item.raw_out_days or '' }}">
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="actions" style="margin-top: 16px;">
+    <a class="btn" href="/items">Back to Items</a>
+    <button class="btn primary" onclick="saveBulkEdit()">✓ Save All Changes</button>
+  </div>
+</section>
+
+<style>
+.bulk-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.bulk-table thead {
+  background: var(--card2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.bulk-table th {
+  padding: 14px 16px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--stroke);
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.bulk-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.bulk-table tbody tr:hover {
+  background: var(--card2);
+}
+
+.bulk-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1.5px solid var(--stroke);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.bulk-input:hover {
+  border-color: #cbd5e1;
+}
+
+.bulk-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.bulk-input[type="number"] {
+  text-align: right;
+}
+
+/* Select dropdown styling */
+select.bulk-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 28px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #2563eb 50%),
+    linear-gradient(135deg, #2563eb 50%, transparent 50%);
+  background-position:
+    calc(100% - 8px) 50%,
+    calc(100% - 4px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+select.bulk-input option {
+  background: var(--card);
+  color: var(--text);
+  padding: 4px 8px;
+}
+
+select.bulk-input option:hover {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+select.bulk-input optgroup {
+  background: var(--card);
+  color: var(--text);
+}
+
+.saving {
+  opacity: 0.6;
+  pointer-events: none;
+}
+</style>
+
+<script>
+async function saveBulkEdit() {
+  const table = document.getElementById("items-table-body");
+  const rows = table.querySelectorAll("tr");
+  
+  const items = [];
+  
+  rows.forEach(row => {
+    const itemId = parseInt(row.dataset.itemId);
+    const inputs = row.querySelectorAll(".bulk-input");
+    
+    const itemData = { id: itemId };
+    
+    inputs.forEach(input => {
+      const field = input.dataset.field;
+      let value = input.value.trim();
+      
+      // Handle empty values
+      if (value === "") {
+        itemData[field] = null;
+      } else {
+        itemData[field] = value;
+      }
+    });
+    
+    items.push(itemData);
+  });
+
+  // Disable all inputs while saving
+  document.querySelectorAll(".bulk-input").forEach(el => el.disabled = true);
+  
+  try {
+    const response = await fetch("/items/bulk-save", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ items })
+    });
+
+    const result = await response.json();
+    
+    if (response.ok) {
+      alert(`Success! ${result.message}`);
+      window.location.href = "/items";
+    } else {
+      alert(`Error: ${result.error || "Unknown error"}`);
+      document.querySelectorAll(".bulk-input").forEach(el => el.disabled = false);
+    }
+  } catch (error) {
+    console.error("Error:", error);
+    alert(`Error saving items: ${error.message}`);
+    document.querySelectorAll(".bulk-input").forEach(el => el.disabled = false);
+  }
+}
+</script>
+
+{% endblock %}

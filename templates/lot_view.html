@@ -5,8 +5,8 @@
   <div class="cardhead">
     <h1>Lot Details</h1>
     <div class="actions">
-      <a class="btn ghost" href="/lots">Back</a>
-      <a class="btn primary" href="/lots/{{ lot.id }}/edit">Edit</a>
+      <a class="btn" href="/lots">Back to Lots</a>
+      <a class="btn primary" href="/lots/{{ lot.id }}/edit">Edit Lot</a>
       <form method="POST" action="/lots/{{ lot.id }}/delete" class="inline">
         <button class="btn danger" type="submit" onclick="return confirm('Delete this lot?')">Delete</button>
       </form>

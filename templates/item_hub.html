@@ -22,8 +22,11 @@
 
     <div class="actions">
       <a class="btn" href="/items">Back to All Items</a>
-      <a class="btn" href="/category/{{ item.category }}">Back to {{ item.category }}</a>
-      <a class="btn" href="/items/{{ item.id }}/history">📊 Full History</a>
+      <a class="btn" href="/category/{{ item.category }}">View {{ item.category }}</a>
+      {% if can_edit_inventory %}
+        <a class="btn" href="/items/{{ item.id }}/edit">Edit Item</a>
+      {% endif %}
+      <a class="btn" href="/items/{{ item.id }}/history">View History</a>
     </div>
   </div>
 

@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container-fluid py-3 beers-page">
+
+  <!-- HEADER -->
+  <div class="beers-header mb-3">
+    <div>
+      <h1 class="beers-title">Bulk Edit Beers</h1>
+      <div class="beers-subtitle">Edit multiple beers at once in a spreadsheet view</div>
+    </div>
+
+    <div class="beers-actions">
+      <a class="btn btn-outline-secondary" href="/beers/manage">
+        <i class="fa-solid fa-arrow-left me-1"></i> Back to Manage Beers
+      </a>
+      <button class="btn btn-success" onclick="saveBulkEditBeers()">
+        <i class="fa-solid fa-floppy-disk me-1"></i> ✓ Save All Changes
+      </button>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="beers-card">
+    <div style="overflow-x: auto;">
+      <table class="bulk-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Brewery</th>
+            <th>Style</th>
+            <th>ABV (%)</th>
+            <th>Keg Size</th>
+            <th>Cups/Keg</th>
+            <th>Cost</th>
+            <th>Price</th>
+            <th>Kegs On Hand</th>
+          </tr>
+        </thead>
+        <tbody id="beers-table-body">
+          {% for beer in beers %}
+          <tr data-beer-id="{{ beer.id }}">
+            <td>
+              <input class="bulk-input" type="text" data-field="name" value="{{ beer.name }}">
+            </td>
+            <td>
+              <input class="bulk-input" type="text" data-field="brewery" value="{{ beer.brewery or '' }}">
+            </td>
+            <td>
+              <input class="bulk-input" type="text" data-field="style" value="{{ beer.style or '' }}">
+            </td>
+            <td>
+              <input class="bulk-input" type="number" step="0.1" min="0" max="30" data-field="abv" 
+                     value="{{ beer.abv or '' }}">
+            </td>
+            <td>
+              <select class="bulk-input" data-field="keg_size">
+                <option value="">-- None --</option>
+                <option value="half" {% if beer.keg_size == 'half' %}selected{% endif %}>Half</option>
+                <option value="full" {% if beer.keg_size == 'full' %}selected{% endif %}>Full</option>
+              </select>
+            </td>
+            <td>
+              <input class="bulk-input" type="number" step="1" min="0" data-field="cups_per_keg" 
+                     value="{{ beer.cups_per_keg or '' }}">
+            </td>
+            <td>
+              <input class="bulk-input" type="number" step="0.01" min="0" data-field="cost" 
+                     value="{{ beer.cost or '' }}">
+            </td>
+            <td>
+              <input class="bulk-input" type="number" step="0.01" min="0" data-field="price" 
+                     value="{{ beer.price or '' }}">
+            </td>
+            <td>
+              <input class="bulk-input" type="number" step="1" min="0" data-field="on_hand_kegs" 
+                     value="{{ beer.on_hand_kegs or 0 }}">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="beers-actions" style="margin-top:16px;">
+    <a class="btn btn-outline-secondary" href="/beers/manage">Back to Manage Beers</a>
+    <button class="btn btn-success" onclick="saveBulkEditBeers()">
+      <i class="fa-solid fa-floppy-disk me-1"></i> ✓ Save All Changes
+    </button>
+  </div>
+
+</div>
+
+<style>
+.bulk-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.bulk-table thead {
+  background: var(--card2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.bulk-table th {
+  padding: 14px 16px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--stroke);
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.bulk-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.bulk-table tbody tr:hover {
+  background: var(--card2);
+}
+
+.bulk-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1.5px solid var(--stroke);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.bulk-input:hover {
+  border-color: #cbd5e1;
+}
+
+.bulk-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.bulk-input[type="number"] {
+  text-align: right;
+}
+
+/* Select dropdown styling */
+select.bulk-input {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 28px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #2563eb 50%),
+    linear-gradient(135deg, #2563eb 50%, transparent 50%);
+  background-position:
+    calc(100% - 8px) 50%,
+    calc(100% - 4px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+select.bulk-input option {
+  background: var(--card);
+  color: var(--text);
+  padding: 4px 8px;
+}
+
+select.bulk-input option:hover {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+select.bulk-input optgroup {
+  background: var(--card);
+  color: var(--text);
+}
+
+.beers-actions {
+  display: flex;
+  gap: 8px;
+}
+</style>
+
+<script>
+async function saveBulkEditBeers() {
+  const table = document.getElementById("beers-table-body");
+  const rows = table.querySelectorAll("tr");
+  
+  const beers = [];
+  
+  rows.forEach(row => {
+    const beerId = parseInt(row.dataset.beerId);
+    const inputs = row.querySelectorAll(".bulk-input");
+    
+    const beerData = { id: beerId };
+    
+    inputs.forEach(input => {
+      const field = input.dataset.field;
+      let value = input.value.trim();
+      
+      // Handle empty values
+      if (value === "") {
+        beerData[field] = null;
+      } else {
+        beerData[field] = value;
+      }
+    });
+    
+    beers.push(beerData);
+  });
+
+  // Disable all inputs while saving
+  document.querySelectorAll(".bulk-input").forEach(el => el.disabled = true);
+  
+  try {
+    const response = await fetch("/beers/bulk-edit-save", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ beers })
+    });
+
+    const result = await response.json();
+    
+    if (response.ok) {
+      alert(`Success! ${result.message}`);
+      window.location.href = "/beers/manage";
+    } else {
+      alert(`Error: ${result.error || "Unknown error"}`);
+      document.querySelectorAll(".bulk-input").forEach(el => el.disabled = false);
+    }
+  } catch (error) {
+    console.error("Error:", error);
+    alert(`Error saving beers: ${error.message}`);
+    document.querySelectorAll(".bulk-input").forEach(el => el.disabled = false);
+  }
+}
+</script>
+
+{% endblock %}
