@@ -1,22 +1,158 @@
 {% extends "base.html" %}
 {% block content %}
 
+{% set prep_type_lower = (item.prep_type or '')|lower %}
+{% set is_generic = (prep_type_lower == 'generic') %}
+{% set is_generic_food = (prep_type_lower == 'generic_food') %}
+{% set is_wings = (prep_type_lower == 'wings') %}
+
 <section class="card">
   <div class="cardhead">
     <div>
-      <h1>Count / Reconcile • {{ item.name }}</h1>
+      <h1>Edit Count Record • {{ item.name }}</h1>
       <span class="muted">
-        This will subtract sales using FIFO (oldest inventory first), then update your selected lots so the remaining units are correct.
+        {% if is_generic_food %}
+          Update units counted and orders sold
+        {% else %}
+          Update sales and actual count for prepped items
+        {% endif %}
       </span>
     </div>
     <div class="actions">
       <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
-      <a class="btn" href="/items/{{ item.id }}/lots">View Boxes</a>
-      <a class="btn" href="/items/{{ item.id }}/prep">Prep</a>
+      <a class="btn" href="/items/{{ item.id }}/reconcile">Back to Reconcile</a>
     </div>
   </div>
 
-  <form method="POST" action="/items/{{ item.id }}/reconcile" class="form" id="reconForm">
+  {% if is_generic_food %}
+    <!-- ✅ GENERIC_FOOD: Simple edit form -->
+    <form method="POST" action="/reconcile/{{ rec.id }}/edit" class="form">
+      
+      <!-- Step 1: Select Boxes (FIFO) -->
+      {% if available_lots_for_selection and available_lots_for_selection|length > 0 %}
+        <div class="card" style="background: rgba(255,255,255,0.03); margin-bottom:14px;">
+          <div class="cardhead" style="padding: 12px 14px;">
+            <div>
+              <h2 style="margin:0;">Step 1 — Select Boxes (FIFO)</h2>
+              <div class="muted smalltxt">Choose which boxes you're counting from.</div>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn" id="selectAllBoxes_edit">Select All</button>
+              <button type="button" class="btn" id="clearAllBoxes_edit">Clear</button>
+            </div>
+          </div>
+
+          <div class="table">
+            <div class="row head" style="grid-template-columns:.35fr .9fr .7fr .6fr;">
+              <div></div>
+              <div>Received Date</div>
+              <div>Location</div>
+              <div>Units in Box</div>
+            </div>
+
+            {% set current_lot_ids = current_selected_lot_ids %}
+            {% for lot in available_lots_for_selection %}
+              {% set units_in_box = ((lot.quantity or 1) * (item.default_units_per_box or 1)) | round | int %}
+              {% set is_selected = lot.id in current_lot_ids %}
+              <div class="row" style="grid-template-columns:.35fr .9fr .7fr .6fr;">
+                <div>
+                  <input type="checkbox" class="boxCheck_edit" name="generic_lot_ids" value="{{ lot.id }}"
+                         data-units="{{ units_in_box }}"
+                         {% if is_selected %}checked{% endif %}>
+                </div>
+                <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+                <div class="muted">{{ lot.storage }}</div>
+                <div class="strong">{{ units_in_box }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- Step 2: Date + Boxes on Hand -->
+      <div class="grid2" style="margin-bottom:16px;">
+        <div class="field">
+          <label>Date</label>
+          <input class="input" type="date" name="event_date" value="{{ rec.event_date.strftime('%Y-%m-%d') if rec.event_date else today }}" required>
+        </div>
+
+        <div class="field">
+          <label>Boxes on Hand (Start)</label>
+          <input class="input" type="number" min="0" step="1" name="starting_units" value="{{ current_units_on_hand }}" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default;">
+        </div>
+      </div>
+
+      <!-- Step 3: Multiplier + Units Counted -->
+      <div class="grid2" style="margin-bottom:16px;">
+        <div class="field">
+          <label>Items per Order</label>
+          <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(255, 255, 255, 0.08); border-color: rgba(59, 130, 246, 0.4);">
+        </div>
+
+        <div class="field">
+          <label>Units Counted Left</label>
+          <input class="input" type="number" min="0" step="1" name="actual_units" value="{{ rec.actual_units }}" required>
+        </div>
+      </div>
+
+      <!-- Step 4: Orders Sold + Items Sold (auto) -->
+      <div class="grid2" style="margin-bottom:16px;">
+        <div class="field">
+          <label>Orders Sold</label>
+          <input class="input" type="number" min="0" step="1" id="orders_sold_input" name="orders_sold" value="{{ rec.sales_units / (item.multiplier or 1) }}" required>
+        </div>
+
+        <div class="field">
+          <label>Items Sold (Auto)</label>
+          <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="{{ rec.sales_units }}" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default; color: rgba(255, 255, 255, 0.7);">
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:14px;">
+        <label>Notes (optional)</label>
+        <textarea class="input" name="notes" style="height:60px;" placeholder="Any notes about this count...">{{ rec.notes or '' }}</textarea>
+      </div>
+
+      <div class="actions" style="justify-content:flex-end;">
+        <button class="btn primary" type="submit">Update Count</button>
+      </div>
+    </form>
+
+    <script>
+      (function() {
+        const selectAllBtn = document.getElementById('selectAllBoxes_edit');
+        const clearAllBtn = document.getElementById('clearAllBoxes_edit');
+
+        if(selectAllBtn) {
+          selectAllBtn.addEventListener('click', () => {
+            document.querySelectorAll(".boxCheck_edit").forEach(cb => cb.checked = true);
+          });
+        }
+
+        if(clearAllBtn) {
+          clearAllBtn.addEventListener('click', () => {
+            document.querySelectorAll(".boxCheck_edit").forEach(cb => cb.checked = false);
+          });
+        }
+      })();
+
+      function updateUnitsSold() {
+        const ordersSold = parseFloat(document.getElementById('orders_sold_input').value) || 0;
+        const multiplier = parseFloat(document.getElementById('multiplier_input').value) || 1;
+        const unitsSold = ordersSold * multiplier;
+        document.getElementById('units_sold_display').value = unitsSold.toFixed(1);
+      }
+
+      document.getElementById('orders_sold_input').addEventListener('input', updateUnitsSold);
+      document.getElementById('multiplier_input').addEventListener('input', updateUnitsSold);
+      
+      // Initialize on page load
+      updateUnitsSold();
+    </script>
+
+  {% else %}
+    <!-- ✅ PREPPED ITEMS: Complex edit form -->
+    <form method="POST" action="/reconcile/{{ rec.id }}/edit" class="form" id="reconForm">
 
     <!-- STEP 0 -->
     <div class="grid2">
@@ -306,5 +442,8 @@
   calcSales();
 })();
 </script>
+
+  {% endif %}
+</section>
 
 {% endblock %}

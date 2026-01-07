@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>{{ item.name }} • Full History</h1>
+      <span class="muted">All reconciles, boxes, and movements</span>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div style="padding: 14px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.1);">
+    <form method="GET" class="form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: flex-end;">
+      <div class="field">
+        <label>View</label>
+        <select name="type" class="input">
+          <option value="all" {% if filter_type == 'all' %}selected{% endif %}>All (Reconciles & Lots)</option>
+          <option value="reconciles" {% if filter_type == 'reconciles' %}selected{% endif %}>Reconciles Only</option>
+          <option value="lots" {% if filter_type == 'lots' %}selected{% endif %}>Lots Only</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Storage Location</label>
+        <select name="location" class="input">
+          <option value="">All Locations</option>
+          {% for loc in storage_locations %}
+            <option value="{{ loc }}" {% if filter_location == loc %}selected{% endif %}>{{ loc }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Lot State</label>
+        <select name="state" class="input">
+          <option value="">All States</option>
+          {% for s in states %}
+            <option value="{{ s }}" {% if filter_state == s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="actions" style="justify-content: flex-start;">
+        <button type="submit" class="btn primary">Filter</button>
+        <a href="/items/{{ item.id }}/history" class="btn">Reset</a>
+      </div>
+    </form>
+  </div>
+
+  <!-- Tabs/Section Headers -->
+  <div style="padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+    <div class="muted smalltxt">
+      📊 Showing {{ reconciles|length }} reconciles • 📦 {{ lot_details|length }} lots
+    </div>
+  </div>
+
+  <!-- RECONCILES Section -->
+  {% if filter_type in ['all', 'reconciles'] %}
+    <div style="padding: 14px;">
+      <div class="strong" style="margin-bottom: 12px;">Reconcile History ({{ reconciles|length }})</div>
+      
+      {% if reconciles|length > 0 %}
+        <div class="table">
+          <div class="row head" style="grid-template-columns: 1fr .8fr .8fr .8fr .6fr 1fr;">
+            <div>Date</div>
+            <div>Starting</div>
+            <div>Sold</div>
+            <div>Counted</div>
+            <div>Missing</div>
+            <div>Actions</div>
+          </div>
+
+          {% for rec in reconciles %}
+            <div class="row" style="grid-template-columns: 1fr .8fr .8fr .8fr .6fr 1fr;">
+              <div class="strong">{{ rec.event_date.strftime("%b %d, %Y") }}</div>
+              <div class="muted">{{ rec.starting_units }}</div>
+              <div class="muted">{{ rec.sales_units }}</div>
+              <div class="muted">{{ rec.actual_units }}</div>
+              <div class="{% if rec.missing_units > 0 %}strong{% else %}muted{% endif %}">
+                {{ rec.missing_units }}
+              </div>
+              <div>
+                <a href="/items/{{ item.id }}/reconcile/{{ rec.id }}/edit" class="btn small">Edit</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">No reconciles found</div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <!-- LOTS Section -->
+  {% if filter_type in ['all', 'lots'] %}
+    <div style="padding: 14px; border-top: 1px solid rgba(255,255,255,0.1);">
+      <div class="strong" style="margin-bottom: 12px;">Box/Lot History ({{ lot_details|length }})</div>
+      
+      {% if lot_details|length > 0 %}
+        <div class="table">
+          <div class="row head" style="grid-template-columns: .6fr 1.2fr 1fr .6fr .8fr 1.2fr;">
+            <div>State</div>
+            <div>Received</div>
+            <div>Location</div>
+            <div>Units</div>
+            <div>Expires</div>
+            <div>Status</div>
+          </div>
+
+          {% for detail in lot_details %}
+            {% set lot = detail.lot %}
+            {% set is_consumed = lot.is_consumed %}
+            <div class="row" style="grid-template-columns: .6fr 1.2fr 1fr .6fr .8fr 1.2fr; opacity: {% if is_consumed %}0.6{% else %}1{% endif %};">
+              <div>
+                <span class="badge" style="padding: 2px 6px; border-radius: 3px; font-size: 11px;
+                  {% if lot.state == 'prepped' %}background: rgba(34, 197, 94, 0.2); color: #22c55e;
+                  {% elif lot.state == 'raw' %}background: rgba(59, 130, 246, 0.2); color: #3b82f6;
+                  {% else %}background: rgba(168, 85, 247, 0.2); color: #a855f7;{% endif %}">
+                  {{ lot.state }}
+                </span>
+              </div>
+              <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+              <div class="muted">{{ lot.storage }}</div>
+              <div>{{ detail.units }}</div>
+              <div class="muted">
+                {% if detail.expires_on %}
+                  {{ detail.expires_on.strftime("%b %d") }}
+                  {% if detail.days_left is not none %}
+                    <span class="smalltxt">
+                      {% if detail.days_left < 0 %}(EXPIRED){% elif detail.days_left == 0 %}(today){% else %}({{ detail.days_left }}d){% endif %}
+                    </span>
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </div>
+              <div>
+                {% if is_consumed %}
+                  <span class="badge" style="padding: 2px 6px; border-radius: 3px; font-size: 11px; background: rgba(239, 68, 68, 0.2); color: #ef4444;">CONSUMED</span>
+                {% else %}
+                  <span class="badge" style="padding: 2px 6px; border-radius: 3px; font-size: 11px; background: rgba(34, 197, 94, 0.2); color: #22c55e;">ACTIVE</span>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">No lots found matching filters</div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+</section>
+
+{% endblock %}

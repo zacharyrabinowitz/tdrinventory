@@ -12,25 +12,35 @@
     </div>
   </div>
 
+  <!-- CREATE USER -->
   <div class="card" style="margin-bottom:14px;">
-    <h2 style="margin-bottom:10px;">Create User</h2>
-    <form class="form" method="POST" action="/users/create">
-      <div class="grid3">
+    <div class="cardhead" style="align-items:flex-start;">
+      <div>
+        <h2 style="margin:0 0 6px 0;">Create User</h2>
+        <span class="muted smalltxt">Create a new login for staff, managers, or admins.</span>
+      </div>
+    </div>
+
+    <form class="form" method="POST" action="/users/create" autocomplete="off">
+      <div class="grid3 mobile-grid1">
         <div class="field">
           <label>Username</label>
-          <input class="input" name="username" placeholder="e.g. john" required>
+          <input class="input" name="username" placeholder="e.g. john" required autocapitalize="none" autocomplete="off">
+          <div class="muted smalltxt">Lowercase recommended. No spaces.</div>
         </div>
+
         <div class="field">
           <label>First Name</label>
-          <input class="input" name="first_name" placeholder="optional">
+          <input class="input" name="first_name" placeholder="optional" autocomplete="given-name">
         </div>
+
         <div class="field">
           <label>Last Name</label>
-          <input class="input" name="last_name" placeholder="optional">
+          <input class="input" name="last_name" placeholder="optional" autocomplete="family-name">
         </div>
       </div>
 
-      <div class="grid2">
+      <div class="grid2 mobile-grid1">
         <div class="field">
           <label>Role</label>
           <select class="input" name="role">
@@ -42,22 +52,23 @@
 
         <div class="field">
           <label>Password</label>
-          <input class="input" name="password" type="password" placeholder="min 6 chars" required>
+          <input class="input" name="password" type="password" placeholder="min 6 chars" required autocomplete="new-password">
           <div class="muted smalltxt">They can log in with this. You can reset anytime.</div>
         </div>
       </div>
 
-      <div class="actions">
+      <div class="actions mobile-actions">
         <button class="btn primary" type="submit">Create User</button>
       </div>
     </form>
   </div>
 
+  <!-- ALL USERS -->
   <h2 style="margin-bottom:10px;">All Users</h2>
 
   {% if users and users|length > 0 %}
-    <div class="table">
-      <div class="row head" style="grid-template-columns: 1.1fr .9fr .6fr .6fr 1fr;">
+    <div class="table users-table">
+      <div class="row head users-head">
         <div>User</div>
         <div>Role</div>
         <div>Status</div>
@@ -66,7 +77,8 @@
       </div>
 
       {% for u in users %}
-        <div class="row" style="grid-template-columns: 1.1fr .9fr .6fr .6fr 1fr;">
+        <!-- Desktop row -->
+        <div class="row users-row users-row-desktop">
           <div>
             <div class="strong">{{ u.display_name() }}</div>
             <div class="muted smalltxt">@{{ u.username }}</div>
@@ -84,7 +96,7 @@
 
           <div class="muted">{{ u.created_at.strftime("%b %d, %Y") }}</div>
 
-          <div class="row-actions">
+          <div class="row-actions users-actions">
             <form method="POST" action="/users/{{ u.id }}/toggle_active" class="inline">
               {% if u.is_active %}
                 <button class="btn small danger" type="submit"
@@ -95,9 +107,9 @@
               {% endif %}
             </form>
 
-            <form method="POST" action="/users/{{ u.id }}/reset_password" class="inline"
+            <form method="POST" action="/users/{{ u.id }}/reset_password" class="inline users-reset"
                   onsubmit="return confirm('Reset password for {{ u.username }}?');">
-              <input class="input" style="width:170px;" name="new_password" type="password" placeholder="New password" required>
+              <input class="input users-reset-input" name="new_password" type="password" placeholder="New password" required autocomplete="new-password">
               <button class="btn small" type="submit">Reset</button>
             </form>
 
@@ -107,8 +119,156 @@
             </form>
           </div>
         </div>
+
+        <!-- Mobile card row -->
+        <div class="user-card">
+          <div class="user-card-top">
+            <div>
+              <div class="strong" style="font-size:16px; line-height:1.2;">{{ u.display_name() }}</div>
+              <div class="muted smalltxt">@{{ u.username }}</div>
+            </div>
+
+            <div class="pill" style="text-transform:lowercase;">{{ u.role }}</div>
+          </div>
+
+          <div class="user-card-meta">
+            <div class="meta">
+              <div class="muted smalltxt">Status</div>
+              <div class="strong">
+                {% if u.is_active %}
+                  <span style="color: rgba(34,197,94,0.95);">active</span>
+                {% else %}
+                  <span style="color: rgba(239,68,68,0.95);">inactive</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="meta">
+              <div class="muted smalltxt">Created</div>
+              <div class="muted">{{ u.created_at.strftime("%b %d, %Y") }}</div>
+            </div>
+          </div>
+
+          <div class="user-card-actions">
+            <form method="POST" action="/users/{{ u.id }}/toggle_active">
+              {% if u.is_active %}
+                <button class="btn danger full" type="submit"
+                        onclick="return confirm('Deactivate this user?')">Deactivate</button>
+              {% else %}
+                <button class="btn full" type="submit"
+                        onclick="return confirm('Reactivate this user?')">Reactivate</button>
+              {% endif %}
+            </form>
+
+            <form method="POST" action="/users/{{ u.id }}/reset_password"
+                  onsubmit="return confirm('Reset password for {{ u.username }}?');">
+              <div class="stack">
+                <input class="input" name="new_password" type="password" placeholder="New password" required autocomplete="new-password">
+                <button class="btn full" type="submit">Reset Password</button>
+              </div>
+            </form>
+
+            <form method="POST" action="/users/{{ u.id }}/delete">
+              <button class="btn danger full" type="submit"
+                      onclick="return confirm('Delete this user? This cannot be undone.');">Delete User</button>
+            </form>
+          </div>
+        </div>
       {% endfor %}
     </div>
+
+    <style>
+      /* Mobile helpers (scoped to this page) */
+      .mobile-grid1 { }
+      .mobile-actions { }
+      .users-head, .users-row { grid-template-columns: 1.1fr .9fr .6fr .6fr 1fr; }
+      .users-reset-input { width:170px; }
+
+      .user-card { display:none; }
+
+      .btn.full { width:100%; justify-content:center; }
+      .stack { display:flex; flex-direction:column; gap:10px; }
+
+      .user-card-top {
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:12px;
+        margin-bottom:10px;
+      }
+
+      .user-card-meta {
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        gap:10px;
+        margin-bottom:12px;
+      }
+
+      .meta {
+        padding:10px;
+        border-radius:12px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.06);
+      }
+
+      .user-card-actions {
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+      }
+
+      /* iPhone sizing */
+      @media (max-width: 420px) {
+        .grid3.mobile-grid1,
+        .grid2.mobile-grid1 {
+          grid-template-columns: 1fr !important;
+        }
+
+        .cardhead {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 10px;
+        }
+
+        .actions {
+          width: 100%;
+          flex-wrap: wrap;
+        }
+
+        .mobile-actions {
+          width: 100%;
+        }
+
+        .mobile-actions .btn {
+          width: 100%;
+          justify-content: center;
+        }
+
+        /* Hide desktop table rows and show mobile cards */
+        .users-head,
+        .users-row-desktop {
+          display: none !important;
+        }
+
+        .user-card {
+          display: block;
+          padding: 14px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
+          margin-bottom: 12px;
+        }
+
+        /* Make inputs/button tap-friendly */
+        .input, .btn {
+          min-height: 44px;
+        }
+
+        /* Prevent password reset row from forcing horizontal scroll */
+        .users-reset, .users-reset-input { width: 100% !important; }
+      }
+    </style>
+
   {% else %}
     <div class="empty">No users found.</div>
   {% endif %}

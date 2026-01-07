@@ -1,32 +1,23 @@
 from __future__ import annotations
 
 import json
+import os
+import io
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta, timezone
 from typing import Optional, Any, Iterable, cast
 
-from flask import Flask, flash, redirect, render_template, request, session, abort
+from flask import Flask, flash, redirect, render_template, request, session, abort, url_for, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, text
 from werkzeug.security import generate_password_hash, check_password_hash
-import json
-from datetime import datetime
-from flask import send_file, request, redirect, flash, url_for
 from io import BytesIO
 from sqlalchemy import text
-from datetime import datetime, date
 try:
     # Python 3.9+
     from zoneinfo import ZoneInfo
 except Exception:
     ZoneInfo = None  # type: ignore
-import json
-from flask import request, render_template, redirect, jsonify
-from datetime import datetime, date
-from flask import Flask, render_template, request, redirect, flash, send_file
-from flask_sqlalchemy import SQLAlchemy
-import io, json
-from flask import redirect, flash
 
 
 # ============================================================
@@ -99,104 +90,362 @@ def _export_db_to_dict():
     return payload
 
 def _import_db_from_dict(payload):
-    # Basic validation
-    if not isinstance(payload, dict) or "tables" not in payload:
-        raise ValueError("Invalid backup file (missing tables).")
-
-    tables = payload.get("tables", {})
-    if not isinstance(tables, dict):
-        raise ValueError("Invalid backup file (tables not a dict).")
-
-    # Safety: wrap in transaction
-    with db.session.begin():
-        # Disable FK checks during import (SQLite)
-        db.session.execute(text("PRAGMA foreign_keys=OFF"))
-
-        # Clear existing data (delete in reverse order usually helps FK chains)
-        existing_tables = _db_tables()
-        for t in reversed(existing_tables):
-            db.session.execute(text(f"DELETE FROM {t}"))
-
-        # Insert rows table-by-table
-        for t, block in tables.items():
-            if t not in existing_tables:
-                # Ignore tables not present in this code version
-                continue
-
-            columns = block.get("columns", [])
-            rows = block.get("rows", [])
-
-            if not columns or not isinstance(rows, list):
-                continue
-
-            placeholders = ", ".join([f":c{i}" for i in range(len(columns))])
-            col_sql = ", ".join([f'"{c}"' for c in columns])
-            stmt = text(f'INSERT INTO "{t}" ({col_sql}) VALUES ({placeholders})')
-
-            for row in rows:
-                params = {f"c{i}": row[i] if i < len(row) else None for i in range(len(columns))}
-                db.session.execute(stmt, params)
-
-        # Re-enable FK checks
-        db.session.execute(text("PRAGMA foreign_keys=ON"))
-
-def fifo_apply_actual_left(selected_lots_oldest_first, actual_left):
     """
-    FIFO consumption means oldest is used first,
-    so whatever is left should end up in NEWEST lots.
+    Import a JSON backup into the CURRENT database using an isolated engine transaction
+    (avoids: "A transaction is already begun on this Session.").
+
+    Supports:
+      A) New format:
+        {"meta": {...}, "tables": {"items": {"columns": [...], "rows": [[...], ...]}, ...}}
+
+      B) Legacy format:
+        {"items": [ {col: val, ...}, ... ], "inventory_lots": [...], ...}
+
+    Notes:
+      - This function intentionally does NOT use db.session.begin().
+      - It runs everything through db.engine.begin() to avoid session transaction conflicts.
     """
-    actual_left = max(0, int(actual_left))
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid backup file (payload is not a JSON object).")
 
-    # allocate leftover into newest lots first
-    remaining = actual_left
-    new_units = {}
-
-    for lot in reversed(selected_lots_oldest_first):
-        cap = int(lot.count_units or 0)
-        keep = min(cap, remaining)
-        new_units[lot.id] = keep
-        remaining -= keep
-
-    # everything older becomes 0 if not holding leftover
-    for lot in selected_lots_oldest_first:
-        if lot.id not in new_units:
-            new_units[lot.id] = 0
-
-    return new_units, remaining
-
-
-def _safe_int(v, default=0):
+    # If the request handler already started a session transaction, make sure
+    # we aren't carrying a broken/partial state into later ORM work.
     try:
-        return int(v)
+        db.session.rollback()
     except Exception:
-        return default
+        pass
 
+    existing_tables = _db_tables()  # your helper that returns current sqlite tables (excluding sqlite_*)
 
-def fifo_allocate_remaining(selected_lots_oldest_first, total_remaining):
+    # --- helpers ---
+    def _pragma_table_cols(conn, table_name):
+        rows = conn.exec_driver_sql(f'PRAGMA table_info("{table_name}")').fetchall()
+        # (cid, name, type, notnull, dflt_value, pk)
+        return [r[1] for r in rows]
+
+    # ---------------------------
+    # Case A: New format (tables)
+    # ---------------------------
+    if isinstance(payload.get("tables"), dict):
+        tables = payload["tables"]
+
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+
+            # Clear existing data (reverse order helps FK chains)
+            for t in reversed(existing_tables):
+                conn.exec_driver_sql(f'DELETE FROM "{t}"')
+
+            # Insert rows table-by-table
+            for t, block in tables.items():
+                if t not in existing_tables:
+                    # ignore tables not present in this code version
+                    continue
+                if not isinstance(block, dict):
+                    continue
+
+                columns = block.get("columns", [])
+                rows = block.get("rows", [])
+
+                if not isinstance(columns, list) or not columns:
+                    continue
+                if not isinstance(rows, list):
+                    continue
+
+                col_sql = ", ".join([f'"{c}"' for c in columns])
+                placeholders = ", ".join([f":c{i}" for i in range(len(columns))])
+                sql = f'INSERT INTO "{t}" ({col_sql}) VALUES ({placeholders})'
+
+                for row in rows:
+                    if not isinstance(row, (list, tuple)):
+                        continue
+                    params = {f"c{i}": (row[i] if i < len(row) else None) for i in range(len(columns))}
+                    conn.execute(text(sql), params)
+
+            conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+        # Clear ORM identity map so subsequent ORM reads reflect imported data
+        try:
+            db.session.expire_all()
+        except Exception:
+            pass
+
+        return
+
+    # --------------------------------
+    # Case B: Legacy format (list rows)
+    # --------------------------------
+    legacy_table_blocks = {
+        k: v for k, v in payload.items()
+        if isinstance(k, str) and k in existing_tables and isinstance(v, list)
+    }
+
+    if not legacy_table_blocks:
+        raise ValueError("Invalid backup file (missing 'tables' and no recognizable legacy table lists).")
+
+    with db.engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+
+        # Clear existing data
+        for t in reversed(existing_tables):
+            conn.exec_driver_sql(f'DELETE FROM "{t}"')
+
+        # Insert legacy rows
+        for t, rows in legacy_table_blocks.items():
+            db_cols = _pragma_table_cols(conn, t)
+            if not db_cols:
+                continue
+
+            col_sql = ", ".join([f'"{c}"' for c in db_cols])
+            placeholders = ", ".join([f":{c}" for c in db_cols])
+            sql = f'INSERT INTO "{t}" ({col_sql}) VALUES ({placeholders})'
+
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                params = {c: r.get(c, None) for c in db_cols}
+                conn.execute(text(sql), params)
+
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+    try:
+        db.session.expire_all()
+    except Exception:
+        pass
+
+def _import_db_from_dict(payload):
     """
-    FIFO consumption means oldest is consumed first.
-    Therefore leftover inventory ends up in NEWEST lots.
-    We allocate remaining from newest -> oldest, capped by each lot's original units.
-    Returns dict {lot_id: new_units}.
+    Import a JSON backup into the CURRENT database using an isolated engine transaction.
+
+    Fixes:
+      - Avoids: "A transaction is already begun on this Session."
+      - Avoids: NOT NULL constraint failures when the backup is missing newer NOT NULL columns
+               (e.g., items.main_bar_on_hand) by auto-filling safe defaults.
+
+    Supports:
+      A) New format:
+        {"meta": {...}, "tables": {"items": {"columns": [...], "rows": [[...], ...]}, ...}}
+
+      B) Legacy format:
+        {"items": [ {col: val, ...}, ... ], "inventory_lots": [...], ...}
     """
-    remaining = max(0, int(total_remaining))
-    new_units_by_id = {}
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid backup file (payload is not a JSON object).")
 
-    # We allocate remaining into newest lots first
-    for lot in reversed(selected_lots_oldest_first):
-        cap = _safe_int(getattr(lot, "count_units", 0), 0)
-        keep = min(cap, remaining)
-        new_units_by_id[lot.id] = keep
-        remaining -= keep
+    # Ensure the ORM session isn't left mid-transaction from earlier work in the request
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
 
-    # Any lots not assigned above should be 0
-    for lot in selected_lots_oldest_first:
-        if lot.id not in new_units_by_id:
-            new_units_by_id[lot.id] = 0
+    existing_tables = _db_tables()  # your helper that returns current sqlite tables (excluding sqlite_*)
 
-    # If remaining > 0 here, user entered more "left" than exists in selected lots
-    return new_units_by_id, remaining
+    def _pragma_table_info(conn, table_name):
+        # returns list of dicts: name, type, notnull, dflt_value, pk
+        rows = conn.exec_driver_sql(f'PRAGMA table_info("{table_name}")').fetchall()
+        out = []
+        for r in rows:
+            out.append({
+                "name": r[1],
+                "type": (r[2] or "").upper(),
+                "notnull": int(r[3] or 0),
+                "dflt_value": r[4],  # can be None
+                "pk": int(r[5] or 0),
+            })
+        return out
 
+    def _default_for_col(colinfo):
+        """
+        Pick a safe default for a missing NOT NULL col with no DB default.
+        We keep this conservative to satisfy constraints without guessing business logic.
+        """
+        t = (colinfo.get("type") or "").upper()
+
+        # Common numeric types
+        if "INT" in t or "REAL" in t or "FLOA" in t or "DOUB" in t or "NUM" in t or "DEC" in t:
+            return 0
+
+        # Boolean-ish stored as integer in sqlite often
+        if "BOOL" in t:
+            return 0
+
+        # Dates/timestamps: allow empty string (better than NULL if NOT NULL)
+        if "DATE" in t or "TIME" in t:
+            return ""
+
+        # Text-like
+        return ""
+
+    def _compute_insert_plan(conn, table_name, backup_cols):
+        """
+        Determine:
+          - columns to insert (backup_cols that exist in DB + any required missing cols)
+          - required missing cols that must be filled to satisfy NOT NULL constraints
+        """
+        tinfo = _pragma_table_info(conn, table_name)
+        db_cols = [c["name"] for c in tinfo]
+
+        # Only keep backup columns that exist in the current DB
+        base_cols = [c for c in backup_cols if c in db_cols]
+
+        # Missing required cols: NOT NULL and no default and not present in base_cols
+        required_fill = []
+        for c in tinfo:
+            if c["name"] in base_cols:
+                continue
+            if c["notnull"] == 1 and c["dflt_value"] is None:
+                required_fill.append(c)
+
+        # Insert columns = base + required_fill names (required_fill appended so we can fill)
+        insert_cols = base_cols + [c["name"] for c in required_fill]
+        return insert_cols, required_fill
+
+    # ---------------------------
+    # Case A: New format (tables)
+    # ---------------------------
+    if isinstance(payload.get("tables"), dict):
+        tables = payload["tables"]
+
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+
+            # Clear existing data
+            for t in reversed(existing_tables):
+                conn.exec_driver_sql(f'DELETE FROM "{t}"')
+
+            # Insert
+            for t, block in tables.items():
+                if t not in existing_tables:
+                    continue
+                if not isinstance(block, dict):
+                    continue
+
+                backup_cols = block.get("columns", [])
+                rows = block.get("rows", [])
+
+                if not isinstance(backup_cols, list) or not backup_cols:
+                    continue
+                if not isinstance(rows, list):
+                    continue
+
+                insert_cols, required_fill = _compute_insert_plan(conn, t, backup_cols)
+                if not insert_cols:
+                    continue
+
+                col_sql = ", ".join([f'"{c}"' for c in insert_cols])
+                placeholders = ", ".join([f":{c}" for c in insert_cols])
+                sql = f'INSERT INTO "{t}" ({col_sql}) VALUES ({placeholders})'
+
+                # Map backup column index positions for quick lookup
+                idx = {name: i for i, name in enumerate(backup_cols)}
+
+                for row in rows:
+                    if not isinstance(row, (list, tuple)):
+                        continue
+
+                    params = {}
+
+                    # Fill from backup where available
+                    for c in insert_cols:
+                        if c in idx:
+                            i = idx[c]
+                            params[c] = row[i] if i < len(row) else None
+
+                    # Fill required missing NOT NULL cols when missing/None
+                    for cinfo in required_fill:
+                        name = cinfo["name"]
+                        if name not in params or params[name] is None:
+                            params[name] = _default_for_col(cinfo)
+
+                    conn.execute(text(sql), params)
+
+            conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+        try:
+            db.session.expire_all()
+        except Exception:
+            pass
+        return
+
+    # --------------------------------
+    # Case B: Legacy format (list rows)
+    # --------------------------------
+    legacy_table_blocks = {
+        k: v for k, v in payload.items()
+        if isinstance(k, str) and k in existing_tables and isinstance(v, list)
+    }
+
+    if not legacy_table_blocks:
+        raise ValueError("Invalid backup file (missing 'tables' and no recognizable legacy table lists).")
+
+    with db.engine.begin() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+
+        # Clear existing data
+        for t in reversed(existing_tables):
+            conn.exec_driver_sql(f'DELETE FROM "{t}"')
+
+        for t, rows in legacy_table_blocks.items():
+            if not isinstance(rows, list):
+                continue
+
+            # Determine columns based on DB + backup keys
+            # Use union of all backup keys (filtered to DB columns) plus required fills
+            # so we don't miss fields spread across records.
+            backup_keys = set()
+            for r in rows:
+                if isinstance(r, dict):
+                    backup_keys.update(r.keys())
+
+            insert_cols, required_fill = _compute_insert_plan(conn, t, list(backup_keys))
+            if not insert_cols:
+                continue
+
+            col_sql = ", ".join([f'"{c}"' for c in insert_cols])
+            placeholders = ", ".join([f":{c}" for c in insert_cols])
+            sql = f'INSERT INTO "{t}" ({col_sql}) VALUES ({placeholders})'
+
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+
+                params = {c: r.get(c, None) for c in insert_cols}
+
+                for cinfo in required_fill:
+                    name = cinfo["name"]
+                    if params.get(name) is None:
+                        params[name] = _default_for_col(cinfo)
+
+                conn.execute(text(sql), params)
+
+        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+
+    try:
+        db.session.expire_all()
+    except Exception:
+        pass
+
+
+@app.post("/items/<int:item_id>/on-hand/save")
+def save_on_hand(item_id):
+    item = db.session.get(Item, item_id)
+    if not item:
+        flash("Item not found.", "error")
+        return redirect("/items")
+
+    def to_float(v):
+        try:
+            return float(v)
+        except Exception:
+            return 0.0
+
+    # These field names must match your form input names:
+    item.main_bar_on_hand = to_float(request.form.get("main_bar_on_hand"))
+    item.low_bar_on_hand = to_float(request.form.get("low_bar_on_hand"))
+
+    db.session.commit()
+    flash("On-hand saved.", "success")
+    return redirect(f"/items/{item_id}")
 
 @app.template_filter("fmt_dt")
 def fmt_dt(dt: Optional[datetime], fmt: str = "%b %d, %Y %I:%M %p") -> str:
@@ -282,6 +531,7 @@ def require_admin():
         flash("Admin required.", "error")
         return redirect("/")
     return None
+
 def _load_reconcile_or_404(rec_id: int) -> tuple["ReconcileRecord", "Item"]:
     rec = ReconcileRecord.query.get_or_404(rec_id)
     item = Item.query.get_or_404(rec.item_id)
@@ -291,6 +541,7 @@ def require_beer_edit():
     # Hook into your real permission logic
     guard = require_inventory_edit()
     return guard
+
 @app.context_processor
 def inject_user():
     u = current_user()
@@ -381,7 +632,8 @@ class Supplier(db.Model):
     notes = db.Column(db.String(400), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
-    items = db.relationship("Item", backref="supplier")
+    # ✅ FIX: no backref here
+    items = db.relationship("Item", back_populates="supplier", lazy=True)
 
 
 class AuditLog(db.Model):
@@ -411,17 +663,24 @@ class AuditLog(db.Model):
 
 class Item(db.Model):
     __tablename__ = "items"
+
     id = db.Column(db.Integer, primary_key=True)
 
-    name = db.Column(db.String(200), nullable=False, unique=True)
-
-    category = db.Column(db.String(80), nullable=False, default="Food")
-    prep_type = db.Column(db.String(40), nullable=False, default="generic")
+    name = db.Column(db.String(200), nullable=False)
+    category = db.Column(db.String(120), nullable=False)
+    prep_type = db.Column(db.String(50), nullable=False, default="generic")
 
     supplier_id = db.Column(db.Integer, db.ForeignKey("suppliers.id"), nullable=True)
+    supplier = db.relationship("Supplier", back_populates="items")
 
-    unit = db.Column(db.String(30), nullable=False, default="each")
 
+    unit = db.Column(db.String(50), nullable=True)
+    default_units_per_box = db.Column(
+    db.Integer,
+    nullable=True,
+)
+    multiplier = db.Column(db.Float, nullable=True)
+    
     raw_freezer_days = db.Column(db.Integer, nullable=True)
     raw_cooler_days = db.Column(db.Integer, nullable=True)
     raw_out_days = db.Column(db.Integer, nullable=True)
@@ -430,20 +689,40 @@ class Item(db.Model):
     prepped_cooler_days = db.Column(db.Integer, nullable=True)
     prepped_out_days = db.Column(db.Integer, nullable=True)
 
-    sales_mode = db.Column(db.String(30), nullable=False, default="simple")
+    sales_mode = db.Column(db.String(40), nullable=True)
 
-    pack1_label = db.Column(db.String(80), nullable=True, default="Single (10)")
-    pack1_mult = db.Column(db.Integer, nullable=True, default=10)
-    pack2_label = db.Column(db.String(80), nullable=True, default="Double (20)")
-    pack2_mult = db.Column(db.Integer, nullable=True, default=20)
-    pack3_label = db.Column(db.String(80), nullable=True, default="Room 120 Single (10)")
-    pack3_mult = db.Column(db.Integer, nullable=True, default=10)
-    pack4_label = db.Column(db.String(80), nullable=True, default="Room 120 Double (20)")
-    pack4_mult = db.Column(db.Integer, nullable=True, default=20)
+    pack1_label = db.Column(db.String(80), nullable=True)
+    pack1_mult  = db.Column(db.Integer, nullable=True)
+    pack2_label = db.Column(db.String(80), nullable=True)
+    pack2_mult  = db.Column(db.Integer, nullable=True)
+    pack3_label = db.Column(db.String(80), nullable=True)
+    pack3_mult  = db.Column(db.Integer, nullable=True)
+    pack4_label = db.Column(db.String(80), nullable=True)
+    pack4_mult  = db.Column(db.Integer, nullable=True)
 
-    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    # ✅ ADD THESE (generic bar on-hand)
+    main_bar_on_hand = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default=db.text("0"),
+    )
 
-    lots = db.relationship("InventoryLot", backref="item", cascade="all, delete-orphan")
+    low_bar_on_hand = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default=db.text("0"),
+    )
+
+    on_hand_count = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default=db.text("0"),
+    )
+
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 
 class InventoryLot(db.Model):
@@ -824,8 +1103,8 @@ def _apply_reconcile_inventory(item_id: int, selected_lot_ids: list[int], actual
 
 def _undo_reconcile_inventory(snapshot: dict[str, dict[str, int]]):
     """
-    Restores lots to the 'before' units in snapshot.
-    Also fixes is_consumed flag accordingly.
+    Restores lots to the 'before' state in snapshot.
+    Handles both prepped items (count_units) and generic_food (quantity + is_consumed).
     """
     before = snapshot.get("before") or {}
     if not isinstance(before, dict):
@@ -844,7 +1123,7 @@ def _undo_reconcile_inventory(snapshot: dict[str, dict[str, int]]):
     lots = InventoryLot.query.filter(InventoryLot.id.in_(lot_ids)).all()
     lot_map = {l.id: l for l in lots}
 
-    for k, units in before.items():
+    for k, state_data in before.items():
         try:
             lid = int(k)
         except Exception:
@@ -854,9 +1133,21 @@ def _undo_reconcile_inventory(snapshot: dict[str, dict[str, int]]):
         if not l:
             continue
 
-        u = int(units or 0)
-        l.count_units = u
-        l.is_consumed = True if u <= 0 else False
+        # Handle both prepped items (count_units) and generic_food (quantity)
+        if isinstance(state_data, dict):
+            # generic_food: restore quantity and is_consumed
+            if "quantity" in state_data:
+                l.quantity = float(state_data.get("quantity", 1.0))
+            if "is_consumed" in state_data:
+                l.is_consumed = bool(state_data.get("is_consumed", False))
+            # Also restore count_units if present (for prepped items)
+            if "count_units" in state_data:
+                l.count_units = int(state_data.get("count_units", 0))
+        else:
+            # Legacy: just a number (count_units)
+            u = int(state_data or 0)
+            l.count_units = u
+            l.is_consumed = True if u <= 0 else False
 
 
 # -------------------------
@@ -959,6 +1250,14 @@ def sqlite_table_exists(table_name: str) -> bool:
     ).fetchone()
     return row is not None
 
+
+def _get(d, key, default=None):
+    try:
+        v = d.get(key, default)
+        return default if v is None else v
+    except Exception:
+        return default
+
 def sqlite_table_columns(table_name: str) -> set[str]:
     rows = db.session.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
     return {r[1] for r in rows}
@@ -988,7 +1287,7 @@ def run_migrations():
     sqlite_add_column_if_missing("reconcile_records", "applied_at", "DATETIME")
     sqlite_add_column_if_missing("reconcile_records", "applied_lot_units", "TEXT")
 
-
+    sqlite_add_column_if_missing("items", "on_hand_count", "INTEGER NOT NULL DEFAULT 0")
 
     sqlite_add_column_if_missing("inventory_lots", "count_units", "INTEGER")
     sqlite_add_column_if_missing("inventory_lots", "lot_label", "VARCHAR(60)")
@@ -1156,8 +1455,9 @@ def logout():
     return redirect("/login")
 
 # -------------------------
-# Routes
-# -------------------------
+# ============================================================
+# BEERS ROUTES
+# ============================================================
 @app.route("/beers/dashboard", methods=["GET"])
 def beers_dashboard():
     ensure_beer_taps()
@@ -1585,55 +1885,12 @@ def beers_delete(beer_id: int):
     flash("Beer deleted.", "success")
     return redirect("/beers/dashboard")
 
-@app.post("/beers/on-tap/add")
-def beers_on_tap_add():
-    beer_id = request.form.get("beer_id", type=int)
-    bar = request.form.get("bar")  # main / lower / both
-    tap_number = request.form.get("tap_number", type=int)
-    percent_full = request.form.get("percent_full", type=int)
 
-    if not beer_id or not bar or not tap_number:
-        flash("Please select a beer, bar, and tap number.", "error")
-        return redirect("/beers/dashboard")
-
-    if percent_full is None or percent_full == "":
-        percent_full = 100
-    percent_full = max(0, min(100, int(percent_full)))
-
-    def upsert(bar_name: str):
-        # if something is already on that bar/tap, overwrite it (editable behavior)
-        existing = BeerOnTap.query.filter_by(bar=bar_name, tap_number=tap_number).first()
-        if existing:
-            existing.beer_id = beer_id
-            existing.percent_full = percent_full
-            existing.updated_at = datetime.utcnow()
-        else:
-            r = BeerOnTap(
-                bar=bar_name,
-                tap_number=tap_number,
-                beer_id=beer_id,
-                percent_full=percent_full,
-                updated_at=datetime.utcnow(),
-            )
-            db.session.add(r)
-
-    if bar == "both":
-        upsert("main")
-        upsert("lower")
-    elif bar in ("main", "lower"):
-        upsert(bar)
-    else:
-        flash("Invalid bar selection.", "error")
-        return redirect("/beers/dashboard")
-
-    db.session.commit()
-    flash("Beer added to tap successfully.", "success")
-    return redirect("/beers/dashboard")
 
 
 @app.post("/beers/on-tap/save/main")
 def beers_on_tap_save_main():
-    rows = BeerOnTap.query.filter_by(bar="main").all()
+    rows = BeerTap.query.filter_by(bar="main").all()
     for r in rows:
         key = f"percent_full_{r.id}"
         if key in request.form:
@@ -1649,7 +1906,7 @@ def beers_on_tap_save_main():
 
 @app.post("/beers/on-tap/save/lower")
 def beers_on_tap_save_lower():
-    rows = BeerOnTap.query.filter_by(bar="lower").all()
+    rows = BeerTap.query.filter_by(bar="lower").all()
     for r in rows:
         key = f"percent_full_{r.id}"
         if key in request.form:
@@ -1665,7 +1922,7 @@ def beers_on_tap_save_lower():
 
 @app.get("/beers/on-tap/<int:on_tap_id>/remove")
 def beers_on_tap_remove(on_tap_id):
-    r = BeerOnTap.query.get_or_404(on_tap_id)
+    r = BeerTap.query.get_or_404(on_tap_id)
     db.session.delete(r)
     db.session.commit()
     flash("Removed from tap.", "success")
@@ -1763,6 +2020,94 @@ def beers_save_sheet():
 
     print("✅ /beers/save_sheet UPDATED:", updated, "SAVED:", saved)
     return jsonify(ok=True, updated=updated, saved=saved)
+
+@app.post("/items/<int:item_id>/generic_on_hand")
+def item_generic_on_hand(item_id: int):
+    # --- auth/permissions (match your existing pattern) ---
+    if not can_edit_inventory:
+        flash("Manager/Admin only.", "error")
+        return redirect(f"/items/{item_id}")
+
+    item = Item.query.get_or_404(item_id)
+
+    # Only for generic items
+    if (item.prep_type or "").lower() != "generic":
+        flash("On-hand entry is only for generic items.", "error")
+        return redirect(f"/items/{item_id}")
+
+    # Parse + sanitize
+    def _to_int(val, default=0):
+        try:
+            n = int(val)
+            return n if n >= 0 else 0
+        except Exception:
+            return default
+
+    main_val = _to_int(request.form.get("main_bar_on_hand", 0), 0)
+
+    # ✅ accept either key (supports older templates)
+    low_raw = request.form.get("low_bar_on_hand", None)
+    if low_raw is None:
+        low_raw = request.form.get("lower_bar_on_hand", 0)
+
+    low_val = _to_int(low_raw, 0)
+
+    item.main_bar_on_hand = main_val
+    item.low_bar_on_hand = low_val
+
+    db.session.commit()
+
+    flash("On-hand counts saved.", "success")
+    return redirect(f"/items/{item_id}")
+
+@app.route("/items/<int:item_id>/on_hand", methods=["POST"])
+def update_item_on_hand(item_id):
+    # ----- permission check (match your existing pattern) -----
+    role = (session.get("role") or "").lower()
+    if role not in ("admin", "manager", "breakglass"):
+        abort(403)
+
+    item = Item.query.get_or_404(item_id)
+
+    # Only allowed for generic items
+    if (item.prep_type or "").lower() != "generic":
+        abort(400, "On-hand counts only apply to generic items.")
+
+    def _to_int_strict(val):
+        # strict int parsing (keeps your existing behavior)
+        return int(val)
+
+    try:
+        main_bar = _to_int_strict(request.form.get("main_bar_on_hand", 0))
+
+        # ✅ accept either key
+        low_raw = request.form.get("low_bar_on_hand", None)
+        if low_raw is None:
+            low_raw = request.form.get("lower_bar_on_hand", 0)
+
+        low_bar = _to_int_strict(low_raw)
+
+    except ValueError:
+        flash("On-hand values must be whole numbers.", "error")
+        return redirect(request.referrer or url_for("item_hub", item_id=item.id))
+
+    if main_bar < 0 or low_bar < 0:
+        flash("On-hand values cannot be negative.", "error")
+        return redirect(request.referrer or url_for("item_hub", item_id=item.id))
+
+    item.main_bar_on_hand = main_bar
+    item.low_bar_on_hand = low_bar
+
+    db.session.commit()
+    flash("On-hand counts updated.", "success")
+
+    return redirect(url_for("item_hub", item_id=item.id))
+
+
+
+
+
+
 
 
 @app.post("/beers/create")
@@ -1869,7 +2214,7 @@ def beers_update_tap_percent():
 
 
 
-@app.route("/beers/taps/save", methods=["POST"])
+@app.route("/beers/taps/save_json", methods=["POST"])
 def save_beer_taps():
     try:
         data = request.get_json(force=True)
@@ -2108,62 +2453,6 @@ def beers_page():
 
 
 @app.route("/beers/dashboard/add-to-tap", methods=["POST"])
-def add_beer_to_tap():
-    bar_choice = request.form.get("bar_choice")   # main / lower / both
-    beer_id = request.form.get("beer_id", type=int)
-
-    tap_main_id = request.form.get("tap_main_id", type=int)
-    tap_lower_id = request.form.get("tap_lower_id", type=int)
-
-    tapped_on_raw = request.form.get("tapped_on")
-    notes = request.form.get("notes", "").strip()
-
-    if not beer_id:
-        flash("You must select a beer.", "error")
-        return redirect(url_for("beers_dashboard"))
-
-    tapped_on = None
-    if tapped_on_raw:
-        try:
-            tapped_on = datetime.strptime(tapped_on_raw, "%Y-%m-%d").date()
-        except ValueError:
-            pass
-
-    def assign(tap_id):
-        if not tap_id:
-            return False
-        tap = BeerTap.query.get(tap_id)
-        if not tap:
-            return False
-
-        tap.beer_id = beer_id
-        tap.percent_remaining = 100
-        tap.tapped_on = tapped_on
-        tap.notes = notes or None
-        tap.updated_at = datetime.utcnow()
-        return True
-
-    success = False
-
-    if bar_choice == "main":
-        success = assign(tap_main_id)
-    elif bar_choice == "lower":
-        success = assign(tap_lower_id)
-    elif bar_choice == "both":
-        ok1 = assign(tap_main_id)
-        ok2 = assign(tap_lower_id)
-        success = ok1 or ok2
-
-    if not success:
-        flash("Please select the correct tap for the chosen bar.", "error")
-        return redirect(url_for("beers_dashboard"))
-
-    db.session.commit()
-    flash("Beer added to tap successfully.", "success")
-    return redirect(url_for("beers_dashboard"))
-
-
-@app.route("/beers/dashboard/add-to-tap", methods=["POST"])
 def beers_add_to_tap():
     # if "user_id" not in session: return redirect("/login")
 
@@ -2348,50 +2637,6 @@ def beer_taps_clear(tap_id):
     flash("Beer removed from tap.", "success")
     return redirect("/beers/dashboard")
 
-@app.route("/beers/dashboard/save-levels", methods=["POST"])
-def beers_save_levels():
-    # if "user_id" not in session: return redirect("/login")
-
-    ensure_default_beer_taps()
-
-    # Inputs come in as percent_<tap_id>=##
-    updated = 0
-    for key, val in request.form.items():
-        if not key.startswith("percent_"):
-            continue
-
-        try:
-            tap_id = int(key.replace("percent_", ""))
-        except ValueError:
-            continue
-
-        tap = BeerTap.query.get(tap_id)
-        if not tap:
-            continue
-
-        try:
-            pct = int(val)
-        except (ValueError, TypeError):
-            pct = tap.percent_remaining
-
-        if pct < 0:
-            pct = 0
-        if pct > 100:
-            pct = 100
-
-        if tap.percent_remaining != pct:
-            tap.percent_remaining = pct
-            updated += 1
-
-    if updated:
-        db.session.commit()
-        flash("Saved changes.", "success")
-    else:
-        flash("No changes to save.", "info")
-
-    return redirect("/beers/dashboard")
-
-
 @app.post("/beer-taps/<int:tap_id>/clear")
 def clear_beer_tap(tap_id):
     tap = BeerTap.query.get_or_404(tap_id)
@@ -2412,6 +2657,9 @@ def clear_beer_tap(tap_id):
 # ============================================================
 CATEGORY_ORDER = ["Food", "Alcohol", "NA Beverages"]
 
+# ============================================================
+# DASHBOARD + CATEGORIES
+# ============================================================
 @app.get("/dashboard")
 def dashboard_alias():
     return redirect("/")
@@ -2455,6 +2703,9 @@ def category_view(category_name: str):
 # ============================================================
 # ITEMS (single /items route only - fixes your duplicate)
 # ============================================================
+# ============================================================
+# ITEMS ROUTES
+# ============================================================
 @app.get("/items")
 def items_all():
     guard = require_view_access()
@@ -2496,6 +2747,23 @@ def item_new_post():
     supplier_id_raw = (request.form.get("supplier_id") or "").strip()
     supplier_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
 
+    # ✅ NEW: default units per box (used to autofill Receive/Boxes)
+    default_units_per_box = to_int(request.form.get("default_units_per_box"), 0)
+    if default_units_per_box is None or default_units_per_box < 0:
+        default_units_per_box = 0
+
+    # ✅ NEW: multiplier for reconcile calculations - safe conversion
+    multiplier_val = request.form.get("multiplier", "").strip()
+    multiplier = None
+    if multiplier_val:
+        try:
+            multiplier = float(multiplier_val)
+        except (ValueError, TypeError):
+            multiplier = None
+    
+    # ✅ NEW: on_hand_count for items prep type
+    on_hand_count = to_int(request.form.get("on_hand_count"), 0)
+
     if not name:
         flash("Item name is required.", "error")
         return redirect("/items/new")
@@ -2529,6 +2797,12 @@ def item_new_post():
         prep_type=prep_type,
         sales_mode=sales_mode,
         supplier_id=supplier_id,
+
+        # ✅ NEW FIELDS SAVED HERE
+        default_units_per_box=default_units_per_box,
+        multiplier=multiplier,
+        on_hand_count=on_hand_count,
+
         raw_freezer_days=raw_freezer_days,
         raw_cooler_days=raw_cooler_days,
         raw_out_days=raw_out_days,
@@ -2553,12 +2827,26 @@ def item_new_post():
         entity_type="Item",
         entity_id=item.id,
         message="Item created",
-        details={"name": item.name, "category": item.category, "supplier_id": item.supplier_id}
+        details={
+            "name": item.name,
+            "category": item.category,
+            "supplier_id": item.supplier_id,
+            "default_units_per_box": item.default_units_per_box,
+        }
     )
 
-    db.session.commit()
-    flash("Item created.", "success")
-    return redirect("/items")
+    try:
+        db.session.commit()
+        flash("Item created.", "success")
+        return redirect("/items")
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error creating item: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f"Error creating item: {str(e)}", "error")
+        return redirect("/items/new")
+
 
 @app.get("/items/<int:item_id>/edit")
 def item_edit(item_id: int):
@@ -2594,6 +2882,9 @@ def item_edit_post(item_id: int):
         "pack2_label": item.pack2_label, "pack2_mult": item.pack2_mult,
         "pack3_label": item.pack3_label, "pack3_mult": item.pack3_mult,
         "pack4_label": item.pack4_label, "pack4_mult": item.pack4_mult,
+        "default_units_per_box": item.default_units_per_box,
+        "multiplier": item.multiplier,
+        "on_hand_count": item.on_hand_count,
     }
 
     name = (request.form.get("name") or "").strip()
@@ -2638,6 +2929,22 @@ def item_edit_post(item_id: int):
     item.pack4_label = (request.form.get("pack4_label") or "Room 120 Double (20)").strip()
     item.pack4_mult = to_int(request.form.get("pack4_mult"), 20)
 
+    # ✅ GENERIC BOX SETTINGS
+    item.default_units_per_box = to_int(request.form.get("default_units_per_box"), 0) or None
+    
+    # Safe multiplier conversion
+    multiplier_val = request.form.get("multiplier", "").strip()
+    if multiplier_val:
+        try:
+            item.multiplier = float(multiplier_val)
+        except (ValueError, TypeError):
+            item.multiplier = None
+    else:
+        item.multiplier = None
+    
+    # ✅ ITEMS SETTINGS
+    item.on_hand_count = to_int(request.form.get("on_hand_count"), 0)
+
     after = {
         "name": item.name,
         "category": item.category,
@@ -2655,6 +2962,9 @@ def item_edit_post(item_id: int):
         "pack2_label": item.pack2_label, "pack2_mult": item.pack2_mult,
         "pack3_label": item.pack3_label, "pack3_mult": item.pack3_mult,
         "pack4_label": item.pack4_label, "pack4_mult": item.pack4_mult,
+        "default_units_per_box": item.default_units_per_box,
+        "multiplier": item.multiplier,
+        "on_hand_count": item.on_hand_count,
     }
 
     audit_log(
@@ -2665,9 +2975,17 @@ def item_edit_post(item_id: int):
         details={"before": before, "after": after}
     )
 
-    db.session.commit()
-    flash("Item updated.", "success")
-    return redirect("/items")
+    try:
+        db.session.commit()
+        flash("Item updated.", "success")
+        return redirect("/items")
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating item: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f"Error saving item: {str(e)}", "error")
+        return redirect(f"/items/{item.id}/edit")
 
 @app.post("/items/<int:item_id>/delete")
 def item_delete(item_id: int):
@@ -2705,6 +3023,9 @@ def item_delete(item_id: int):
 # ============================================================
 # ITEM HUB (adds LIVE inventory counters)
 # ============================================================
+# ============================================================
+# ITEM HUB
+# ============================================================
 @app.get("/items/<int:item_id>")
 def item_hub(item_id: int):
     guard = require_view_access()
@@ -2712,6 +3033,53 @@ def item_hub(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+
+    # ✅ Get all non-consumed lots for calculations
+    all_lots = (
+        InventoryLot.query
+        .filter(
+            InventoryLot.item_id == item.id,
+            InventoryLot.is_consumed == False
+        )
+        .all()
+    )
+
+    # ✅ Calculate totals by storage location
+    totals = {
+        "freezer_boxes": 0,
+        "cooler_boxes": 0,
+        "out_boxes": 0,
+        "freezer_units": 0,
+        "cooler_units": 0,
+        "out_units": 0,
+    }
+
+    units_per_box = int(item.default_units_per_box or 1)
+
+    for lot in all_lots:
+        # Use actual quantity without rounding (preserves fractional boxes = fractional units)
+        lot_quantity = lot.quantity or 1.0
+        
+        # For display: box_count for box totals
+        box_count = int(round(lot_quantity))
+        if box_count < 1:
+            box_count = 1
+        
+        # For units: calculate from actual quantity (don't round quantity first)
+        lot_units = int(round(lot_quantity * units_per_box))
+        
+        if lot.storage == "freezer":
+            totals["freezer_boxes"] += box_count
+            totals["freezer_units"] += lot_units
+        elif lot.storage == "cooler":
+            totals["cooler_boxes"] += box_count
+            totals["cooler_units"] += lot_units
+        else:
+            totals["out_boxes"] += box_count
+            totals["out_units"] += lot_units
+
+    cooler_boxes_available = totals["cooler_boxes"]
+    cooler_units_available = totals["cooler_units"]
 
     # ✅ Units available = total prepped units not consumed (what you can sell from)
     prepped_units_available = (
@@ -2762,11 +3130,59 @@ def item_hub(item_id: int):
         "item_hub.html",
         item=item,
         prepped_units_available=prepped_units_available,
+        cooler_boxes_available=cooler_boxes_available,
+        cooler_units_available=cooler_units_available,
+        totals=totals,
         expiring_soon=expiring_soon,
         expiring_soon_count=expiring_soon_count
     )
 
 
+# ============================================================
+# ITEMS STOCK ADJUSTMENT (for "items" prep type)
+# ============================================================
+@app.post("/items/<int:item_id>/adjust-stock")
+def adjust_item_stock(item_id: int):
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    item = Item.query.get_or_404(item_id)
+    
+    # Check if this is an "items" prep type
+    if (item.prep_type or "").lower() != "items":
+        flash("Stock adjustment only available for 'items' prep type.", "error")
+        return redirect(f"/items/{item_id}")
+    
+    adjustment = to_int(request.form.get("adjustment"), 0)
+    notes = (request.form.get("notes") or "").strip() or None
+    
+    old_count = item.on_hand_count or 0
+    new_count = max(0, old_count + adjustment)
+    item.on_hand_count = new_count
+    
+    audit_log(
+        action="stock_adjust",
+        entity_type="Item",
+        entity_id=item.id,
+        message=f"Stock adjusted for {item.name}",
+        details={
+            "item_id": item.id,
+            "old_count": old_count,
+            "adjustment": adjustment,
+            "new_count": new_count,
+            "notes": notes,
+        }
+    )
+    
+    db.session.commit()
+    flash(f"Stock updated: {old_count} → {new_count}", "success")
+    return redirect(f"/items/{item_id}")
+
+
+# ============================================================
+# ADMIN BACKUP
+# ============================================================
 @app.route("/admin/backup/download", methods=["POST"])
 def admin_backup_download():
     # TODO: Apply your admin check here (same pattern you use elsewhere)
@@ -2810,6 +3226,9 @@ def admin_backup_import():
 
 # ============================================================
 # SUPPLIERS
+# ============================================================
+# ============================================================
+# SUPPLIERS ROUTES
 # ============================================================
 @app.get("/suppliers")
 def suppliers():
@@ -2949,6 +3368,9 @@ def supplier_delete(supplier_id: int):
 # ============================================================
 # USERS
 # ============================================================
+# ============================================================
+# USERS ROUTES
+# ============================================================
 @app.get("/users")
 def users_page():
     guard = require_admin()
@@ -3086,6 +3508,9 @@ def users_delete(user_id: int):
     return redirect("/users")
 
 
+# ============================================================
+# MOVE BOXES
+# ============================================================
 # ============================================================
 # MOVE BOXES
 # ============================================================
@@ -3236,6 +3661,9 @@ def item_move_boxes_post(item_id: int):
 # ============================================================
 # LOTS LIST / RECEIVE / EDIT / DELETE / BULK DELETE SELECTED
 # ============================================================
+# ============================================================
+# LOTS LIST / RECEIVE / EDIT / DELETE / BULK DELETE SELECTED
+# ============================================================
 @app.get("/items/<int:item_id>/lots")
 def item_lots(item_id: int):
     guard = require_view_access()
@@ -3290,6 +3718,13 @@ def item_lots(item_id: int):
     start_num = next_lot_number(item.id)
     return render_template("item_lots.html", item=item, rows=rows, totals=totals, start_num=start_num)
 
+
+
+
+
+
+
+
 @app.get("/items/<int:item_id>/lots/new")
 def lot_new(item_id: int):
     guard = require_inventory_edit()
@@ -3304,6 +3739,7 @@ def lot_new(item_id: int):
         suggested_num=next_lot_number(item.id),
     )
 
+@app.post("/items/<int:item_id>/lots/receive")
 @app.post("/items/<int:item_id>/lots/new")
 def lot_new_post(item_id: int):
     guard = require_inventory_edit()
@@ -3649,6 +4085,9 @@ def lots_bulk_delete(item_id: int):
 # ============================================================
 # PREP + RECONCILE
 # ============================================================
+# ============================================================
+# PREP + RECONCILE
+# ============================================================
 @app.get("/items/<int:item_id>/prep")
 def prep_home(item_id: int):
     guard = require_view_access()
@@ -3897,6 +4336,60 @@ def reconcile_home(item_id: int):
 
     item = Item.query.get_or_404(item_id)
 
+    # ✅ Get all non-consumed lots for calculations
+    all_lots = (
+        InventoryLot.query
+        .filter(
+            InventoryLot.item_id == item.id,
+            InventoryLot.is_consumed == False
+        )
+        .all()
+    )
+
+    # ✅ Calculate totals by storage location
+    totals = {
+        "freezer_boxes": 0,
+        "cooler_boxes": 0,
+        "out_boxes": 0,
+        "freezer_units": 0,
+        "cooler_units": 0,
+        "out_units": 0,
+        "starting_units": 0,
+    }
+
+    units_per_box = int(item.default_units_per_box or 1)
+
+    for lot in all_lots:
+        # Skip lots with 0 or negative quantity
+        lot_quantity = lot.quantity or 1.0
+        box_count = int(round(lot_quantity))
+        
+        if box_count < 1:
+            # Mark very small quantities as consumed if not already
+            if lot_quantity <= 0 and not lot.is_consumed:
+                lot.is_consumed = True
+            continue
+        
+        # Calculate units from actual quantity (don't round quantity first)
+        lot_units = int(round(lot_quantity * units_per_box))
+        
+        # Track total units for generic_food reconcile
+        totals["starting_units"] += lot_units
+        
+        if lot.storage == "freezer":
+            totals["freezer_boxes"] += box_count
+            totals["freezer_units"] += lot_units
+        elif lot.storage == "cooler":
+            totals["cooler_boxes"] += box_count
+            totals["cooler_units"] += lot_units
+        else:
+            totals["out_boxes"] += box_count
+            totals["out_units"] += lot_units
+
+    cooler_boxes_available = totals["cooler_boxes"]
+    cooler_units_available = totals["cooler_units"]
+
+    # ✅ For generic_food: starting units already in totals
     prepped_lots = (
         InventoryLot.query
         .filter(
@@ -3918,6 +4411,33 @@ def reconcile_home(item_id: int):
             "units": int(lot.count_units or 0)
         })
 
+    # ✅ Expiring soon = cooler lots that have an expiration within next 0-4 days
+    cooler_lots = (
+        InventoryLot.query
+        .filter(
+            InventoryLot.item_id == item.id,
+            InventoryLot.storage == "cooler",
+            InventoryLot.is_consumed == False
+        )
+        .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
+        .all()
+    )
+
+    expiring_soon = []
+    for lot in cooler_lots:
+        exp = compute_lot_expiration(item, lot)
+        left = days_left(exp)
+        if exp and left is not None and 0 <= left <= 4:
+            expiring_soon.append({
+                "lot": lot,
+                "expires_on": exp,
+                "days_left": left,
+                "units": int(lot.count_units or 0)
+            })
+
+    expiring_soon = sorted(expiring_soon, key=lambda r: (r["days_left"], r["lot"].id))[:8]
+    expiring_soon_count = len(expiring_soon)
+
     history = (
         ReconcileRecord.query
         .filter(ReconcileRecord.item_id == item.id)
@@ -3926,12 +4446,31 @@ def reconcile_home(item_id: int):
         .all()
     )
 
+    # ✅ For generic_food: provide available lots for box selection
+    available_lots_for_selection = []
+    if (item.prep_type or "").lower() == "generic_food":
+        available_lots_for_selection = (
+            InventoryLot.query
+            .filter(
+                InventoryLot.item_id == item.id,
+                InventoryLot.is_consumed == False
+            )
+            .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
+            .all()
+        )
+
     return render_template(
         "reconcile.html",
         item=item,
         today=date.today().strftime("%Y-%m-%d"),
         prepped_rows=prepped_rows,
+        cooler_boxes_available=cooler_boxes_available,
+        cooler_units_available=cooler_units_available,
+        totals=totals,
+        expiring_soon=expiring_soon,
+        expiring_soon_count=expiring_soon_count,
         history=history,
+        available_lots_for_selection=available_lots_for_selection,
         rec=None,
     )
 
@@ -3949,7 +4488,70 @@ def reconcile_history(item_id):
     return render_template("reconcile_history.html", item=item, reconciles=reconciles)
 
 
+@app.route("/items/<int:item_id>/history")
+def item_history(item_id: int):
+    """Comprehensive item history showing all reconciles, lots, and movements."""
+    guard = require_view_access()
+    if guard:
+        return guard
 
+    item = Item.query.get_or_404(item_id)
+
+    # Get filter parameters from query string
+    filter_type = request.args.get("type", "all")  # all, reconciles, lots
+    filter_location = request.args.get("location", "")
+    filter_state = request.args.get("state", "")
+
+    # Get all reconcile records
+    reconciles_query = ReconcileRecord.query.filter(ReconcileRecord.item_id == item.id)
+    reconciles = reconciles_query.order_by(ReconcileRecord.event_date.desc(), ReconcileRecord.id.desc()).all()
+
+    # Get all lots (including consumed)
+    lots_query = InventoryLot.query.filter(InventoryLot.item_id == item.id)
+    
+    if filter_location:
+        lots_query = lots_query.filter(InventoryLot.storage == filter_location)
+    if filter_state:
+        lots_query = lots_query.filter(InventoryLot.state == filter_state)
+    
+    all_lots = lots_query.order_by(InventoryLot.received_date.desc(), InventoryLot.id.desc()).all()
+
+    # Build lot details with expiration info
+    lot_details = []
+    for lot in all_lots:
+        exp = compute_lot_expiration(item, lot)
+        lot_details.append({
+            "lot": lot,
+            "expires_on": exp,
+            "days_left": days_left(exp),
+            "units": int(lot.count_units or 0) if lot.state == "prepped" else int(round(lot.quantity or 1.0)),
+        })
+
+    # Get unique storage locations for filter dropdown
+    storage_locations = db.session.execute(
+        text("SELECT DISTINCT storage FROM inventory_lots WHERE item_id = :item_id ORDER BY storage"),
+        {"item_id": item.id}
+    ).fetchall()
+    storage_list = [row[0] for row in storage_locations if row[0]]
+
+    # Get unique states for filter dropdown
+    states = db.session.execute(
+        text("SELECT DISTINCT state FROM inventory_lots WHERE item_id = :item_id ORDER BY state"),
+        {"item_id": item.id}
+    ).fetchall()
+    state_list = [row[0] for row in states if row[0]]
+
+    return render_template(
+        "item_history.html",
+        item=item,
+        reconciles=reconciles,
+        lot_details=lot_details,
+        storage_locations=storage_list,
+        states=state_list,
+        filter_type=filter_type,
+        filter_location=filter_location,
+        filter_state=filter_state,
+    )
 @app.post("/items/<int:item_id>/reconcile")
 def reconcile_create(item_id: int):
     guard = require_inventory_edit()
@@ -3959,6 +4561,116 @@ def reconcile_create(item_id: int):
     item = Item.query.get_or_404(item_id)
     event_date = parse_required_date(request.form.get("event_date"), date.today())
 
+    # ✅ GENERIC_FOOD: Simple reconcile (no prep required)
+    if (item.prep_type or "").lower() == "generic_food":
+        actual_units = to_int(request.form.get("actual_units"), 0)
+        orders_sold = to_int(request.form.get("orders_sold"), 0)
+        notes = (request.form.get("notes") or "").strip() or None
+
+        # Use multiplier from form (user can edit it) or fall back to item multiplier
+        multiplier = float(request.form.get("multiplier") or item.multiplier or 1.0)
+        units_sold = orders_sold * multiplier
+        
+        # ✅ Get selected lots for generic_food (FIFO selection)
+        lot_ids_list = request.form.getlist("generic_lot_ids") or []
+        selected_ids = [int(x) for x in lot_ids_list if x.strip().isdigit()]
+        
+        # If no lots selected, use all non-consumed lots
+        if not selected_ids:
+            all_lots = InventoryLot.query.filter(
+                InventoryLot.item_id == item.id,
+                InventoryLot.is_consumed == False
+            ).order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc()).all()
+        else:
+            all_lots = InventoryLot.query.filter(
+                InventoryLot.item_id == item.id,
+                InventoryLot.is_consumed == False,
+                InventoryLot.id.in_(selected_ids)
+            ).order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc()).all()
+        
+        # Calculate starting units: boxes × units per box
+        units_per_box = int(item.default_units_per_box or 1)
+        starting_units = sum(int(round(l.quantity or 1.0)) * units_per_box for l in all_lots)
+        missing_units = starting_units - units_sold - actual_units
+
+        # 📸 SNAPSHOT: Capture BEFORE state for undo
+        snapshot_before = {}
+        for l in all_lots:
+            snapshot_before[str(l.id)] = {
+                "quantity": float(l.quantity or 1.0),
+                "is_consumed": bool(l.is_consumed)
+            }
+
+        # Update inventory: FIFO - consume oldest lots first, keep the last lot with remaining units
+        units_remaining = actual_units
+        
+        for lot in all_lots:
+            lot_units = int(round(lot.quantity or 1.0)) * units_per_box
+            if units_remaining >= lot_units:
+                # This lot is fully consumed (counted as on-hand but we counted past it)
+                lot.is_consumed = True
+                units_remaining -= lot_units
+            elif units_remaining > 0:
+                # Partial lot - update quantity to reflect remaining units (converted back to boxes)
+                new_quantity = units_remaining / units_per_box
+                if new_quantity <= 0:
+                    # If quantity would be 0 or negative, mark as consumed instead
+                    lot.is_consumed = True
+                else:
+                    lot.quantity = new_quantity
+                units_remaining = 0
+            else:
+                # No more units left, mark as consumed
+                lot.is_consumed = True
+
+        # 📸 SNAPSHOT: Capture AFTER state
+        snapshot_after = {}
+        for l in all_lots:
+            snapshot_after[str(l.id)] = {
+                "quantity": float(l.quantity or 1.0),
+                "is_consumed": bool(l.is_consumed)
+            }
+
+        # Create reconcile record
+        rec = ReconcileRecord(
+            item_id=item.id,
+            event_date=event_date,
+            starting_units=starting_units,
+            sales_units=int(units_sold),
+            actual_units=actual_units,
+            missing_units=int(missing_units),
+            notes=notes,
+            source_prepped_lot_ids=",".join(str(i) for i in selected_ids) if selected_ids else None,
+        )
+        db.session.add(rec)
+        db.session.flush()
+
+        # Save snapshot for undo
+        snapshot = {"before": snapshot_before, "after": snapshot_after}
+        rec.applied_lot_units = json.dumps(snapshot, ensure_ascii=False)
+
+        audit_log(
+            action="reconcile",
+            entity_type="ReconcileRecord",
+            entity_id=rec.id,
+            message=f"Reconcile saved for {item.name} (generic_food)",
+            details={
+                "item_id": item.id,
+                "event_date": event_date.strftime("%Y-%m-%d"),
+                "starting_units": starting_units,
+                "actual_units": actual_units,
+                "orders_sold": orders_sold,
+                "units_sold": units_sold,
+                "missing_units": missing_units,
+                "inventory_snapshot": snapshot,
+            },
+        )
+
+        db.session.commit()
+        flash("Reconcile saved and inventory updated.", "success")
+        return redirect(f"/items/{item.id}/reconcile")
+
+    # ✅ OTHER PREP TYPES: Prepped lot reconcile
     # Selected prepped lots (required for inventory updates)
     selected_ids = unique_ints(request.form.getlist("prepped_lot_ids"))
 
@@ -4186,11 +4898,36 @@ def reconcile_edit(rec_id: int, item_id: int | None = None):
             "selected": lot.id in set(selected_ids)
         })
 
+    # ✅ For generic_food: provide available lots for box selection during edit
+    available_lots_for_selection = []
+    current_selected_lot_ids = []
+    current_units_on_hand = 0
+    if (item.prep_type or "").lower() == "generic_food":
+        available_lots_for_selection = (
+            InventoryLot.query
+            .filter(
+                InventoryLot.item_id == item.id,
+                InventoryLot.is_consumed == False
+            )
+            .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
+            .all()
+        )
+        current_selected_lot_ids = parse_csv_ints(rec.source_prepped_lot_ids)
+        # Calculate current units on hand from all unconsumed lots
+        units_per_box = item.default_units_per_box or 1
+        for lot in available_lots_for_selection:
+            lot_units = int(round((lot.quantity or 1) * units_per_box))
+            current_units_on_hand += lot_units
+
     return render_template(
         "reconcile_edit.html",
         item=item,
         rec=rec,
-        prepped_rows=prepped_rows
+        prepped_rows=prepped_rows,
+        available_lots_for_selection=available_lots_for_selection,
+        current_selected_lot_ids=current_selected_lot_ids,
+        current_units_on_hand=current_units_on_hand,
+        today=date.today().strftime("%Y-%m-%d"),
     )
 
 
@@ -4203,18 +4940,115 @@ def reconcile_edit_post(rec_id: int):
     rec = ReconcileRecord.query.get_or_404(rec_id)
     item = Item.query.get_or_404(rec.item_id)
 
-    # ✅ Undo old inventory effect first (so edits are safe)
-    if rec.applied_lot_units:
-        try:
-            snapshot_old = json.loads(rec.applied_lot_units)
-            if isinstance(snapshot_old, dict):
-                _undo_reconcile_inventory(snapshot_old)
-        except Exception:
-            pass
-
     event_date = parse_required_date(request.form.get("event_date"), rec.event_date or date.today())
 
-    selected_ids = unique_ints(request.form.getlist("prepped_lot_ids"))
+    # ✅ GENERIC_FOOD: Simple reconcile edit
+    if (item.prep_type or "").lower() == "generic_food":
+        # Undo old inventory effect first
+        if rec.applied_lot_units:
+            try:
+                snapshot_old = json.loads(rec.applied_lot_units)
+                if isinstance(snapshot_old, dict):
+                    _undo_reconcile_inventory(snapshot_old)
+            except Exception:
+                pass
+
+        actual_units = to_int(request.form.get("actual_units"), 0)
+        orders_sold = to_int(request.form.get("orders_sold"), 0)
+        notes = (request.form.get("notes") or "").strip() or None
+
+        # Use multiplier from form or fall back to item multiplier
+        multiplier = float(request.form.get("multiplier") or item.multiplier or 1.0)
+        units_sold = orders_sold * multiplier
+        
+        # ✅ Get selected lots for generic_food (FIFO selection)
+        lot_ids_list = request.form.getlist("generic_lot_ids") or []
+        selected_ids = [int(x) for x in lot_ids_list if x.strip().isdigit()]
+        
+        # Preserve the original starting_units (don't recalculate on edit)
+        starting_units = rec.starting_units
+        missing_units = starting_units - units_sold - actual_units
+
+        # Get selected lots for inventory update, or all if none selected
+        if not selected_ids:
+            all_lots = InventoryLot.query.filter(
+                InventoryLot.item_id == item.id,
+                InventoryLot.is_consumed == False
+            ).order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc()).all()
+        else:
+            all_lots = InventoryLot.query.filter(
+                InventoryLot.item_id == item.id,
+                InventoryLot.is_consumed == False,
+                InventoryLot.id.in_(selected_ids)
+            ).order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc()).all()
+
+        # 📸 SNAPSHOT: Capture BEFORE state for undo
+        snapshot_before = {}
+        for l in all_lots:
+            snapshot_before[str(l.id)] = {
+                "quantity": float(l.quantity or 1.0),
+                "is_consumed": bool(l.is_consumed)
+            }
+
+        # Update inventory: distribute actual_units across lots (FIFO)
+        units_remaining = actual_units
+        
+        for lot in all_lots:
+            lot_units = int(round(lot.quantity or 1.0)) * int(item.default_units_per_box or 1)
+            if units_remaining >= lot_units:
+                # This lot is fully consumed
+                lot.is_consumed = True
+                units_remaining -= lot_units
+            elif units_remaining > 0:
+                lot.quantity = units_remaining / int(item.default_units_per_box or 1)
+                units_remaining = 0
+            else:
+                lot.is_consumed = True
+
+        # 📸 SNAPSHOT: Capture AFTER state
+        snapshot_after = {}
+        for l in all_lots:
+            snapshot_after[str(l.id)] = {
+                "quantity": float(l.quantity or 1.0),
+                "is_consumed": bool(l.is_consumed)
+            }
+
+        # Update record
+        rec.event_date = event_date
+        rec.sales_units = int(units_sold)
+        rec.actual_units = actual_units
+        rec.missing_units = int(missing_units)
+        rec.notes = notes
+        rec.source_prepped_lot_ids = ",".join(str(i) for i in selected_ids) if selected_ids else None
+        
+        # Save snapshot for undo
+        snapshot = {"before": snapshot_before, "after": snapshot_after}
+        rec.applied_lot_units = json.dumps(snapshot, ensure_ascii=False)
+
+        audit_log(
+            action="update",
+            entity_type="ReconcileRecord",
+            entity_id=rec.id,
+            message=f"Reconcile edited for {item.name} (generic_food)",
+            details={
+                "item_id": item.id,
+                "event_date": event_date.strftime("%Y-%m-%d"),
+                "starting_units": starting_units,
+                "actual_units": actual_units,
+                "orders_sold": orders_sold,
+                "units_sold": units_sold,
+                "missing_units": missing_units,
+                "inventory_snapshot": snapshot,
+            }
+        )
+
+        db.session.commit()
+        flash("Count record updated.", "success")
+        return redirect(f"/items/{item.id}/reconcile")
+
+    # ✅ OTHER PREP TYPES: Prepped lot reconcile edit
+    lot_ids_list = request.form.getlist("prepped_lot_ids") or []
+    selected_ids = [int(x) for x in lot_ids_list if x.strip().isdigit()]
     selected_lots = []
     if selected_ids:
         selected_lots = (
@@ -4316,21 +5150,77 @@ def reconcile_delete(rec_id: int):
 
     rec = ReconcileRecord.query.get_or_404(rec_id)
     item_id = rec.item_id
+    item = Item.query.get_or_404(item_id)
 
-    # ✅ Undo inventory changes from this reconcile
-    if rec.applied_lot_units:
-        try:
-            snapshot = json.loads(rec.applied_lot_units)
-            if isinstance(snapshot, dict):
+    # 📸 For generic_food: Restore to BEFORE state, then re-apply remaining reconciles
+    if (item.prep_type or "").lower() == "generic_food":
+        # Step 1: Restore lots to their state BEFORE this reconcile was applied
+        if rec.applied_lot_units:
+            try:
+                snapshot = json.loads(rec.applied_lot_units)
                 _undo_reconcile_inventory(snapshot)
-        except Exception:
-            pass
+                print(f"DEBUG DELETE: Restored to BEFORE state using snapshot")
+            except Exception as e:
+                print(f"Error restoring BEFORE state for reconcile {rec_id}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Step 2: Re-apply all remaining reconciles in chronological order
+        remaining_reconciles = ReconcileRecord.query.filter(
+            ReconcileRecord.item_id == item_id,
+            ReconcileRecord.id != rec_id
+        ).order_by(ReconcileRecord.event_date.asc(), ReconcileRecord.id.asc()).all()
+        
+        print(f"DEBUG DELETE: Re-applying {len(remaining_reconciles)} remaining reconciles")
+        
+        for remaining_rec in remaining_reconciles:
+            lot_ids = parse_csv_ints(remaining_rec.source_prepped_lot_ids)
+            if lot_ids:
+                # Get the lots in FIFO order
+                all_lots = InventoryLot.query.filter(InventoryLot.item_id == item_id).all()
+                fifo_lots = [l for l in all_lots if l.id in lot_ids]
+                fifo_lots.sort(key=lambda x: (x.received_date, x.id))
+                
+                # Re-apply this reconcile
+                units_per_box = int(item.default_units_per_box or 1)
+                actual_units = remaining_rec.actual_units or 0
+                units_remaining = actual_units
+                
+                for lot in fifo_lots:
+                    lot_units = int(round(lot.quantity or 1.0)) * units_per_box
+                    if units_remaining >= lot_units:
+                        lot.is_consumed = True
+                        units_remaining -= lot_units
+                    elif units_remaining > 0:
+                        new_quantity = units_remaining / units_per_box
+                        lot.quantity = max(0, new_quantity)
+                        if new_quantity <= 0:
+                            lot.is_consumed = True
+                        units_remaining = 0
+                    else:
+                        lot.is_consumed = True
+                
+                print(f"DEBUG DELETE: Re-applied reconcile {remaining_rec.id}")
+        
+        print(f"DEBUG DELETE: Inventory recalculated for item {item_id}")
+    else:
+        # For prepped items: use the snapshot undo mechanism
+        if rec.applied_lot_units:
+            try:
+                snapshot = json.loads(rec.applied_lot_units)
+                if isinstance(snapshot, dict):
+                    _undo_reconcile_inventory(snapshot)
+            except Exception as e:
+                print(f"Error undoing reconcile {rec_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                flash(f"Warning: Error restoring inventory: {e}", "warning")
 
     audit_log(
         action="reconcile_delete",
         entity_type="ReconcileRecord",
         entity_id=rec.id,
-        message="Reconcile deleted (inventory restored)",
+        message="Reconcile deleted (inventory recalculated)",
         details={
             "item_id": item_id,
             "event_date": rec.event_date.strftime("%Y-%m-%d") if rec.event_date else None,
@@ -4350,6 +5240,9 @@ def reconcile_delete(rec_id: int):
 
 # ============================================================
 # AUDIT HISTORY PAGE (your filter/search kept + made stable)
+# ============================================================
+# ============================================================
+# AUDIT HISTORY PAGE
 # ============================================================
 @app.get("/audit")
 def audit_history():

@@ -64,8 +64,10 @@
       <div class="field">
         <label>Prep Type</label>
         {% set pt = (item.prep_type if is_edit and item.prep_type else 'generic') %}
-        <select class="input" name="prep_type">
+        <select class="input" name="prep_type" id="prep_type">
           <option value="generic" {% if pt == "generic" %}selected{% endif %}>generic</option>
+          <option value="generic_food" {% if pt == "generic_food" %}selected{% endif %}>generic_food</option>
+          <option value="items" {% if pt == "items" %}selected{% endif %}>items</option>
           <option value="wings" {% if pt == "wings" %}selected{% endif %}>wings</option>
           <option value="raw_protein" {% if pt == "raw_protein" %}selected{% endif %}>raw_protein</option>
           <option value="portion_pack" {% if pt == "portion_pack" %}selected{% endif %}>portion_pack</option>
@@ -84,29 +86,75 @@
 
     <div style="height:8px;"></div>
 
-    {# -------- RAW SHELF LIFE -------- #}
-    <h2>Raw Shelf-Life (days)</h2>
-    <div class="muted smalltxt">Leave blank if no rule is enforced.</div>
+    {# -------- GENERIC BOX SETTINGS (generic only) -------- #}
+    <div id="generic_box_wrap" style="display:none;">
+      <h2>Generic Box Settings</h2>
+      <div class="muted smalltxt">For generic items, set how many units come in one box/case (optional).</div>
 
-    <div class="grid3">
-      <div class="field">
-        <label>Raw • Freezer</label>
-        <input class="input" type="number" min="0" name="raw_freezer_days"
-               value="{{ item.raw_freezer_days if is_edit and item.raw_freezer_days is not none else '' }}">
+      <div class="grid2">
+        <div class="field">
+          <label>Units Per Box (optional)</label>
+          <input class="input" type="number" min="1" step="1"
+                 name="default_units_per_box" id="units_per_box"
+                 value="{{ item.default_units_per_box if is_edit and item.default_units_per_box is not none else '' }}"
+                 placeholder="e.g., 40">
+        </div>
+
+        <div class="field">
+          <label>Multiplier for Count/Reconcile (optional)</label>
+          <input class="input" type="number" min="0" step="0.01" id="multiplier"
+                 name="multiplier"
+                 value="{{ item.multiplier if is_edit and item.multiplier is not none else '' }}"
+                 placeholder="e.g., 1.0">
+          <div class="muted smalltxt">Used by generic_food items to adjust counts during reconciliation</div>
+        </div>
       </div>
-      <div class="field">
-        <label>Raw • Cooler</label>
-        <input class="input" type="number" min="0" name="raw_cooler_days"
-               value="{{ item.raw_cooler_days if is_edit and item.raw_cooler_days is not none else '' }}">
-      </div>
-      <div class="field">
-        <label>Raw • Out</label>
-        <input class="input" type="number" min="0" name="raw_out_days"
-               value="{{ item.raw_out_days if is_edit and item.raw_out_days is not none else '' }}">
-      </div>
+
+      <div style="height:8px;"></div>
     </div>
 
-    <div style="height:8px;"></div>
+    {# -------- ITEMS SETTINGS (items only) -------- #}
+    <div id="items_wrap" style="display:none;">
+      <h2>Items Settings</h2>
+      <div class="muted smalltxt">For simple item tracking (condiments, boxes, etc.).</div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Current Stock (units)</label>
+          <input class="input" type="number" min="0" step="1"
+                 name="on_hand_count"
+                 value="{{ item.on_hand_count if is_edit and item.on_hand_count is not none else 0 }}">
+        </div>
+      </div>
+
+      <div style="height:8px;"></div>
+    </div>
+
+    {# -------- RAW SHELF LIFE -------- #}
+    <div id="raw_shelf_wrap">
+      <h2>Raw Shelf-Life (days)</h2>
+      <div class="muted smalltxt">Leave blank if no rule is enforced.</div>
+
+      <div class="grid3">
+        <div class="field">
+          <label>Raw • Freezer</label>
+          <input class="input" type="number" min="0" name="raw_freezer_days" id="raw_freezer_days"
+                 value="{{ item.raw_freezer_days if is_edit and item.raw_freezer_days is not none else '' }}">
+        </div>
+        <div class="field">
+          <label>Raw • Cooler</label>
+          <input class="input" type="number" min="0" name="raw_cooler_days" id="raw_cooler_days"
+                 value="{{ item.raw_cooler_days if is_edit and item.raw_cooler_days is not none else '' }}">
+        </div>
+        <div class="field">
+          <label>Raw • Out</label>
+          <input class="input" type="number" min="0" name="raw_out_days" id="raw_out_days"
+                 value="{{ item.raw_out_days if is_edit and item.raw_out_days is not none else '' }}">
+        </div>
+      </div>
+
+      <div style="height:8px;"></div>
+    </div>
 
     {# -------- PREPPED SHELF LIFE -------- #}
     <h2>Prepped Shelf-Life (days)</h2>
@@ -133,60 +181,121 @@
     <div style="height:8px;"></div>
 
     {# -------- PACKS (used for packs_4) -------- #}
-    <h2>Pack Counters (used for packs_4)</h2>
-    <div class="muted smalltxt">Reconcile converts pack qty → units using these multipliers.</div>
+    <div id="pack_counters_wrap">
+      <h2>Pack Counters (used for packs_4)</h2>
+      <div class="muted smalltxt">Reconcile converts pack qty → units using these multipliers.</div>
 
-    <div class="grid2">
-      <div class="field">
-        <label>Pack 1 Label</label>
-        <input class="input" name="pack1_label"
-               value="{{ item.pack1_label if is_edit and item.pack1_label else 'Single (10)' }}">
-      </div>
-      <div class="field">
-        <label>Pack 1 Multiplier</label>
-        <input class="input" type="number" min="0" name="pack1_mult"
-               value="{{ item.pack1_mult if is_edit and item.pack1_mult is not none else 10 }}">
-      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>Pack 1 Label</label>
+          <input class="input" name="pack1_label"
+                 value="{{ item.pack1_label if is_edit and item.pack1_label else 'Single (10)' }}">
+        </div>
+        <div class="field">
+          <label>Pack 1 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack1_mult"
+                 value="{{ item.pack1_mult if is_edit and item.pack1_mult is not none else 10 }}">
+        </div>
 
-      <div class="field">
-        <label>Pack 2 Label</label>
-        <input class="input" name="pack2_label"
-               value="{{ item.pack2_label if is_edit and item.pack2_label else 'Double (20)' }}">
-      </div>
-      <div class="field">
-        <label>Pack 2 Multiplier</label>
-        <input class="input" type="number" min="0" name="pack2_mult"
-               value="{{ item.pack2_mult if is_edit and item.pack2_mult is not none else 20 }}">
-      </div>
+        <div class="field">
+          <label>Pack 2 Label</label>
+          <input class="input" name="pack2_label"
+                 value="{{ item.pack2_label if is_edit and item.pack2_label else 'Double (20)' }}">
+        </div>
+        <div class="field">
+          <label>Pack 2 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack2_mult"
+                 value="{{ item.pack2_mult if is_edit and item.pack2_mult is not none else 20 }}">
+        </div>
 
-      <div class="field">
-        <label>Pack 3 Label</label>
-        <input class="input" name="pack3_label"
-               value="{{ item.pack3_label if is_edit and item.pack3_label else 'Room 120 Single (10)' }}">
-      </div>
-      <div class="field">
-        <label>Pack 3 Multiplier</label>
-        <input class="input" type="number" min="0" name="pack3_mult"
-               value="{{ item.pack3_mult if is_edit and item.pack3_mult is not none else 10 }}">
-      </div>
+        <div class="field">
+          <label>Pack 3 Label</label>
+          <input class="input" name="pack3_label"
+                 value="{{ item.pack3_label if is_edit and item.pack3_label else 'Room 120 Single (10)' }}">
+        </div>
+        <div class="field">
+          <label>Pack 3 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack3_mult"
+                 value="{{ item.pack3_mult if is_edit and item.pack3_mult is not none else 10 }}">
+        </div>
 
-      <div class="field">
-        <label>Pack 4 Label</label>
-        <input class="input" name="pack4_label"
-               value="{{ item.pack4_label if is_edit and item.pack4_label else 'Room 120 Double (20)' }}">
-      </div>
-      <div class="field">
-        <label>Pack 4 Multiplier</label>
-        <input class="input" type="number" min="0" name="pack4_mult"
-               value="{{ item.pack4_mult if is_edit and item.pack4_mult is not none else 20 }}">
+        <div class="field">
+          <label>Pack 4 Label</label>
+          <input class="input" name="pack4_label"
+                 value="{{ item.pack4_label if is_edit and item.pack4_label else 'Room 120 Double (20)' }}">
+        </div>
+        <div class="field">
+          <label>Pack 4 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack4_mult"
+                 value="{{ item.pack4_mult if is_edit and item.pack4_mult is not none else 20 }}">
+        </div>
       </div>
     </div>
 
     <div class="actions" style="margin-top:10px;">
-      <button class="btn primary" type="submit">{% if is_edit %}Save Changes{% else %}Create Item{% endif %}</button>
+      <button class="btn primary" type="submit" name="submit">{% if is_edit %}Save Changes{% else %}Create Item{% endif %}</button>
       <a class="btn" href="/items">Cancel</a>
     </div>
   </form>
 </section>
+
+<script>
+(function () {
+  const prepTypeEl = document.getElementById("prep_type");
+  const genericWrap = document.getElementById("generic_box_wrap");
+  const itemsWrap = document.getElementById("items_wrap");
+  const rawWrap = document.getElementById("raw_shelf_wrap");
+  const packWrap = document.getElementById("pack_counters_wrap");
+
+  const unitsPerBox = document.getElementById("units_per_box");
+
+  const rawInputs = [
+    document.getElementById("raw_freezer_days"),
+    document.getElementById("raw_cooler_days"),
+    document.getElementById("raw_out_days"),
+  ];
+
+  function setDisabled(list, disabled) {
+    list.forEach(el => { if (el) el.disabled = disabled; });
+  }
+
+  function toggleByPrepType() {
+    const v = (prepTypeEl && prepTypeEl.value ? prepTypeEl.value : "").toLowerCase();
+    const isGenericType = v === "generic" || v === "generic_food";
+    const isItemsType = v === "items";
+
+    if (isItemsType) {
+      if (itemsWrap) itemsWrap.style.display = "";
+      if (genericWrap) genericWrap.style.display = "none";
+      if (rawWrap) rawWrap.style.display = "none";
+      if (packWrap) packWrap.style.display = "none";
+      setDisabled(rawInputs, true);
+
+    } else if (isGenericType) {
+      if (itemsWrap) itemsWrap.style.display = "none";
+      if (genericWrap) genericWrap.style.display = "";
+      if (rawWrap) rawWrap.style.display = "none";
+      if (packWrap) packWrap.style.display = "none";
+
+      if (unitsPerBox) unitsPerBox.required = false;
+      setDisabled(rawInputs, true);
+
+    } else {
+      if (itemsWrap) itemsWrap.style.display = "none";
+      if (genericWrap) genericWrap.style.display = "none";
+      if (rawWrap) rawWrap.style.display = "";
+      if (packWrap) packWrap.style.display = "";
+
+      if (unitsPerBox) unitsPerBox.required = false;
+      setDisabled(rawInputs, false);
+    }
+  }
+
+  if (prepTypeEl) {
+    prepTypeEl.addEventListener("change", toggleByPrepType);
+    toggleByPrepType();
+  }
+})();
+</script>
 
 {% endblock %}

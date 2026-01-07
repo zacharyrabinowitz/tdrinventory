@@ -1,310 +1,633 @@
 {% extends "base.html" %}
 {% block content %}
 
+{% set prep_type_lower = (item.prep_type or '')|lower %}
+{% set is_generic = (prep_type_lower == 'generic') %}
+{% set is_generic_food = (prep_type_lower == 'generic_food') %}
+{% set is_wings = (prep_type_lower == 'wings') %}
+
+{# ✅ ALWAYS derive on-hand from the item record so nothing is “undefined” #}
+{% set main_on_hand = (item.main_bar_on_hand if item.main_bar_on_hand is not none else 0) %}
+{% set low_on_hand  = (item.low_bar_on_hand  if item.low_bar_on_hand  is not none else 0) %}
+{% set bars_total_on_hand = (main_on_hand + low_on_hand) %}
+
 <section class="card">
   <div class="cardhead">
     <div>
-      <h1>Count / Reconcile • {{ item.name }}</h1>
-      <span class="muted">
-        This will subtract sales using FIFO (oldest inventory first), then update your selected lots so the remaining units are correct.
-      </span>
+      <h1>{{ item.name }}</h1>
+      <span class="muted">Category: {{ item.category }} • Prep Type: {{ item.prep_type }}</span>
     </div>
+
     <div class="actions">
-      <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
-      <a class="btn" href="/items/{{ item.id }}/lots">View Boxes</a>
-      <a class="btn" href="/items/{{ item.id }}/prep">Prep</a>
+      <a class="btn" href="/items">Back to All Items</a>
+      <a class="btn" href="/category/{{ item.category }}">Back to {{ item.category }}</a>
     </div>
   </div>
 
-  <form method="POST" action="/items/{{ item.id }}/reconcile" class="form" id="reconForm">
-
-    <!-- STEP 0 -->
-    <div class="grid2">
-      <div class="field">
-        <label>Date</label>
-        <input class="input" type="date" name="event_date" value="{{ today }}" required>
+  <!-- ✅ SUMMARY BOXES -->
+  <div class="grid3">
+    <div class="card mini">
+      <div class="muted">
+        {% if is_generic %}
+          Boxes Available (Cooler)
+        {% elif is_generic_food %}
+          Boxes Available (Cooler)
+        {% elif is_wings %}
+          Boxes Received (Cooler)
+        {% else %}
+          Prepped Units Available (Cooler)
+        {% endif %}
       </div>
 
-      <div class="field">
-        <label>Starting Units</label>
-        <input class="input" type="number" min="0" name="starting_units" id="startingUnits" value=""
-               placeholder="Auto-fills from selected batches (or type manually)">
-        <div class="muted smalltxt">
-          If you select batches below, Starting Units will match the selected totals.
-          You can override it, but for FIFO tracking you should usually leave it auto-filled.
-        </div>
+      <div class="big">
+        {% if is_generic or is_generic_food %}
+          {{ cooler_units_available | default(0) }}
+        {% elif is_wings %}
+          {{ totals.cooler_boxes if totals else 0 }}
+        {% else %}
+          {{ prepped_units_available | default(0) }}
+        {% endif %}
+      </div>
+
+      <div class="muted smalltxt">
+        {% if is_generic %}
+          Extra stock in cooler • managed via Receive / Boxes
+        {% elif is_generic_food %}
+          Total units in cooler
+        {% elif is_wings %}
+          Raw boxes in cooler before prepping
+        {% else %}
+          Not consumed • state=prepped
+        {% endif %}
       </div>
     </div>
 
-    <div style="height:14px;"></div>
-
-    <!-- STEP 1 -->
-    <div class="card" style="background: rgba(255,255,255,0.03);">
-      <div class="cardhead" style="padding: 12px 14px;">
-        <div>
-          <h2 style="margin:0;">Step 1 — Linked Prepped Batches (optional)</h2>
-          <div class="muted smalltxt">
-            Select the batches you are counting/selling from. FIFO will consume the oldest batch first.
-          </div>
-        </div>
-        <div class="actions">
-          <button type="button" class="btn" id="selectAllPrep">Select All</button>
-          <button type="button" class="btn" id="clearAllPrep">Clear</button>
-          <button type="button" class="btn primary" id="fillStartBtn">Fill Starting Units</button>
-        </div>
+    <div class="card mini">
+      <div class="muted">
+        {% if is_generic %}
+          On Hand (Bars)
+        {% elif is_generic_food %}
+          Freezer Units
+        {% elif is_wings %}
+          Prepped Available (Cooler)
+        {% else %}
+          Expiring Soon (Cooler)
+        {% endif %}
       </div>
 
+      <div class="big">
+        {% if is_generic %}
+          {{ bars_total_on_hand }}
+        {% elif is_generic_food %}
+          {{ totals.freezer_units if totals else 0 }}
+        {% elif is_wings %}
+          {{ prepped_units_available | default(0) }}
+        {% else %}
+          {{ expiring_soon_count }}
+        {% endif %}
+      </div>
+
+      <div class="muted smalltxt">
+        {% if is_generic %}
+          Main Bar ({{ main_on_hand }}) + Low Bar ({{ low_on_hand }}) • saved below
+        {% elif is_generic_food %}
+          Reserve/backup stock (units)
+        {% elif is_wings %}
+          Ready to use • state=prepped
+        {% else %}
+          Expires in the next 0–4 days
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mini">
+      <div class="muted">Quick Actions</div>
+      <div class="muted smalltxt">
+        {% if is_generic %}
+          Receive boxes + set on-hand for each bar
+        {% elif is_generic_food %}
+          Receive • move • count/reconcile
+        {% elif is_wings %}
+          Receive raw • prep into units • reconcile
+        {% else %}
+          Receive, move, prep, reconcile
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ✅ GENERIC: ON-HAND ENTRY (MAIN BAR / LOW BAR) - NOT FOR WINGS OR GENERIC_FOOD #}
+  {% if is_generic %}
+    <div style="height:12px;"></div>
+
+    <div class="card" style="padding:14px;">
+      <div class="strong" style="margin-bottom:6px;">On Hand (Bars)</div>
+      <div class="muted smalltxt" style="margin-bottom:12px;">
+        Enter how many units are currently at each bar. Cooler overflow is tracked separately through Receive / Boxes.
+      </div>
+
+      {% if can_edit_inventory %}
+        <form class="form" method="POST" action="/items/{{ item.id }}/generic_on_hand">
+          <div class="grid2">
+            <div class="field">
+              <label>Main Bar • On Hand (units)</label>
+              <input class="input"
+                     type="number" min="0" step="1"
+                     name="main_bar_on_hand"
+                     value="{{ main_on_hand }}">
+            </div>
+
+            <div class="field">
+              <label>Low Bar • On Hand (units)</label>
+              <input class="input"
+                     type="number" min="0" step="1"
+                     name="low_bar_on_hand"
+                     value="{{ low_on_hand }}">
+            </div>
+          </div>
+
+          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+            <button class="btn primary" type="submit">Save On-Hand</button>
+          </div>
+        </form>
+      {% else %}
+        <div class="muted">Manager/Admin only</div>
+      {% endif %}
+    </div>
+
+  {% else %}
+    {# ✅ GENERIC_FOOD: SIMPLE RECONCILE (NO PREP REQUIRED) #}
+    {% if is_generic_food %}
+      <div style="height:12px;"></div>
+
+      <div class="card" style="padding:14px;">
+        <div class="strong" style="margin-bottom:6px;">Count Inventory</div>
+        <div class="muted smalltxt" style="margin-bottom:14px;">
+          Select boxes (FIFO), record how many you counted, and how many were sold.
+        </div>
+
+        {% if can_edit_inventory %}
+          <form class="form" method="POST" action="/items/{{ item.id }}/reconcile">
+            <!-- Step 1: Select Boxes (FIFO) -->
+            {% if available_lots_for_selection and available_lots_for_selection|length > 0 %}
+              <div class="card" style="background: rgba(255,255,255,0.03); margin-bottom:14px;">
+                <div class="cardhead" style="padding: 12px 14px;">
+                  <div>
+                    <h2 style="margin:0;">Step 1 — Select Boxes (FIFO)</h2>
+                    <div class="muted smalltxt">Choose which boxes you're counting from. Uses oldest first.</div>
+                  </div>
+                  <div class="actions">
+                    <button type="button" class="btn" id="selectAllBoxes">Select All</button>
+                    <button type="button" class="btn" id="clearAllBoxes">Clear</button>
+                    <button type="button" class="btn primary" id="fillStartUnitsBtn">Auto-Fill Start Units</button>
+                  </div>
+                </div>
+
+                <div class="table">
+                  <div class="row head" style="grid-template-columns:.35fr .9fr .7fr .6fr;">
+                    <div></div>
+                    <div>Received Date</div>
+                    <div>Location</div>
+                    <div>Units in Box</div>
+                  </div>
+
+                  {% for lot in available_lots_for_selection %}
+                    {% set units_in_box = ((lot.quantity or 1) * (item.default_units_per_box or 1)) | round | int %}
+                    <div class="row" style="grid-template-columns:.35fr .9fr .7fr .6fr;">
+                      <div>
+                        <input type="checkbox" class="boxCheck" name="generic_lot_ids" value="{{ lot.id }}"
+                               data-units="{{ units_in_box }}"
+                               data-date="{{ lot.received_date.strftime('%Y-%m-%d') }}">
+                      </div>
+                      <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+                      <div class="muted">{{ lot.storage }}</div>
+                      <div class="strong">{{ units_in_box }}</div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+
+            <!-- Step 2: Event Date + Units on Hand -->
+            <div class="grid2" style="margin-bottom:16px;">
+              <div class="field">
+                <label>Date</label>
+                <input class="input" type="date" name="event_date" value="{{ today }}" required>
+              </div>
+
+              <div class="field">
+                <label>Units on Hand (Start)</label>
+                <input class="input" type="number" min="0" step="1" name="starting_units" id="startUnitsInput" value="{{ totals.starting_units | default(0) }}" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default;">
+
+              </div>
+            </div>
+
+            <!-- Step 3: Multiplier + Units Counted -->
+            <div class="grid2" style="margin-bottom:16px;">
+              <div class="field">
+                <label>Items per Order</label>
+                <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(255, 255, 255, 0.08); border-color: rgba(59, 130, 246, 0.4);">
+              </div>
+
+              <div class="field">
+                <label>Units Counted Left</label>
+                <input class="input" type="number" min="0" step="1" name="actual_units" value="0" required>
+              </div>
+            </div>
+
+            <!-- Step 4: Orders Sold + Items Sold (auto) -->
+            <div class="grid2" style="margin-bottom:16px;">
+              <div class="field">
+                <label>Orders Sold</label>
+                <input class="input" type="number" min="0" step="1" id="orders_sold_input" name="orders_sold" value="0" required>
+              </div>
+
+              <div class="field">
+                <label>Items Sold (Auto)</label>
+                <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="0" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default; color: rgba(255, 255, 255, 0.7);">
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="field" style="margin-bottom:14px;">
+              <label>Notes (optional)</label>
+              <textarea class="input" name="notes" style="height:60px;" placeholder="Any notes about this count..."></textarea>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="actions" style="justify-content:flex-end;">
+              <a class="btn" href="/items/{{ item.id }}">Back to Item Hub</a>
+              <button class="btn primary" type="submit">Save Count</button>
+            </div>
+          </form>
+
+          <script>
+            (function() {
+              const selectAllBtn = document.getElementById('selectAllBoxes');
+              const clearAllBtn = document.getElementById('clearAllBoxes');
+              const fillStartBtn = document.getElementById('fillStartUnitsBtn');
+              const startUnitsInput = document.getElementById('startUnitsInput');
+
+              function intVal(v) {
+                const n = parseInt(v || "0", 10);
+                return isNaN(n) ? 0 : n;
+              }
+
+              function sumSelectedBoxUnits() {
+                let total = 0;
+                document.querySelectorAll(".boxCheck").forEach(cb => {
+                  if(cb.checked) {
+                    total += intVal(cb.getAttribute("data-units"));
+                  }
+                });
+                return total;
+              }
+
+              function fillStartUnits() {
+                const total = sumSelectedBoxUnits();
+                if (total > 0) {
+                  startUnitsInput.value = total;
+                }
+              }
+
+              if(selectAllBtn) {
+                selectAllBtn.addEventListener('click', () => {
+                  document.querySelectorAll(".boxCheck").forEach(cb => cb.checked = true);
+                  fillStartUnits();
+                });
+              }
+
+              if(clearAllBtn) {
+                clearAllBtn.addEventListener('click', () => {
+                  document.querySelectorAll(".boxCheck").forEach(cb => cb.checked = false);
+                  if(startUnitsInput) startUnitsInput.value = "0";
+                });
+              }
+
+              if(fillStartBtn) {
+                fillStartBtn.addEventListener('click', fillStartUnits);
+              }
+
+              document.querySelectorAll(".boxCheck").forEach(cb => {
+                cb.addEventListener('change', fillStartUnits);
+              });
+            })();
+
+            function updateUnitsSold() {
+              const ordersSold = parseFloat(document.getElementById('orders_sold_input').value) || 0;
+              const multiplier = parseFloat(document.getElementById('multiplier_input').value) || 1;
+              const unitsSold = ordersSold * multiplier;
+              document.getElementById('units_sold_display').value = unitsSold.toFixed(1);
+            }
+
+            document.getElementById('orders_sold_input').addEventListener('input', updateUnitsSold);
+            document.getElementById('multiplier_input').addEventListener('input', updateUnitsSold);
+            
+            // Initialize on page load
+            updateUnitsSold();
+          </script>
+        {% else %}
+          <div class="muted">Manager/Admin only</div>
+        {% endif %}
+      </div>
+
+    {% else %}
+      {# \u2705 WINGS/OTHER: PREPPED LOT RECONCILE #}
       {% if prepped_rows and prepped_rows|length > 0 %}
+        <div style="height:12px;"></div>
+
+        <div class="card" style="padding:14px;">
+          <div class="strong" style="margin-bottom:6px;">Count / Reconcile Prepped Units</div>
+          <div class="muted smalltxt" style="margin-bottom:12px;">
+            Select prepped lots, enter sales, and verify actual count.
+          </div>
+
+          {% if can_edit_inventory %}
+            <form class="form" method="POST" action="/items/{{ item.id }}/reconcile">
+              <div class="grid2">
+                <div class="field">
+                  <label>Event Date</label>
+                  <input class="input" type="date" name="event_date" value="{{ today }}" required>
+                </div>
+
+                <div class="field">
+                  <label>Actual Units on Hand</label>
+                  <input class="input" type="number" min="0" step="1" name="actual_units" value="0" required>
+                </div>
+              </div>
+
+              <div class="strong" style="margin-top:12px; margin-bottom:8px;">Select Prepped Lots</div>
+              <div class="table">
+                <div class="row head" style="grid-template-columns: 0.4fr 1.5fr 0.8fr 0.8fr;">
+                  <div style="text-align:center;">
+                    <input type="checkbox" id="select_all_lots">
+                  </div>
+                  <div>Received</div>
+                  <div>Units</div>
+                  <div>Expires</div>
+                </div>
+
+                {% for r in prepped_rows %}
+                  {% set lot = r.lot %}
+                  <div class="row" style="grid-template-columns: 0.4fr 1.5fr 0.8fr 0.8fr;">
+                    <div style="text-align:center;">
+                      <input type="checkbox" name="prepped_lot_ids" value="{{ lot.id }}" class="lot_checkbox">
+                    </div>
+                    <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+                    <div class="muted">{{ lot.count_units or 0 }} units</div>
+                    <div class="muted">
+                      {% if r.expires_on %}
+                        {{ r.expires_on.strftime("%b %d") }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+
+              <div class="strong" style="margin-top:12px; margin-bottom:8px;">Sales</div>
+              <div class="grid4">
+                <div class="field">
+                  <label>Pack 1</label>
+                  <input class="input" type="number" min="0" step="1" name="pack1_qty" value="0">
+                  <div class="muted smalltxt">{{ item.pack1_label or 'Single (10)' }}</div>
+                </div>
+
+                <div class="field">
+                  <label>Pack 2</label>
+                  <input class="input" type="number" min="0" step="1" name="pack2_qty" value="0">
+                  <div class="muted smalltxt">{{ item.pack2_label or 'Double (20)' }}</div>
+                </div>
+
+                <div class="field">
+                  <label>Pack 3</label>
+                  <input class="input" type="number" min="0" step="1" name="pack3_qty" value="0">
+                  <div class="muted smalltxt">{{ item.pack3_label or 'Room 120 Single (10)' }}</div>
+                </div>
+
+                <div class="field">
+                  <label>Pack 4</label>
+                  <input class="input" type="number" min="0" step="1" name="pack4_qty" value="0">
+                  <div class="muted smalltxt">{{ item.pack4_label or 'Room 120 Double (20)' }}</div>
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Notes (optional)</label>
+                <textarea class="input" name="notes" style="height:60px;" placeholder="Any notes about this reconciliation..."></textarea>
+              </div>
+
+              <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+                <a class="btn" href="/items/{{ item.id }}">Back to Item Hub</a>
+                <button class="btn primary" type="submit">Save Reconcile</button>
+              </div>
+            </form>
+          {% else %}
+            <div class="muted">Manager/Admin only</div>
+          {% endif %}
+        </div>
+      {% else %}
+        <div style="height:12px;"></div>
+        <div class="card" style="padding:14px;">
+          <div class="muted">No prepped lots available to reconcile.</div>
+        </div>
+      {% endif %}
+    {% endif %}
+    {% if expiring_soon_count and expiring_soon_count > 0 %}
+      <div style="height:12px;"></div>
+
+      <div class="card" style="padding:14px;">
+        <div class="strong" style="margin-bottom:8px;">Expiring Soon (Cooler)</div>
+
         <div class="table">
-          <div class="row head" style="grid-template-columns:.35fr .9fr .7fr .6fr 1.2fr;">
-            <div></div>
-            <div>Prepped Date</div>
-            <div>Location</div>
+          <div class="row head" style="grid-template-columns: .75fr .55fr .7fr .8fr 1.2fr;">
+            <div>Received</div>
+            <div>#</div>
+            <div>State</div>
             <div>Units</div>
             <div>Expiration</div>
           </div>
 
-          {% for r in prepped_rows %}
+          {% for r in expiring_soon %}
             {% set lot = r.lot %}
             {% set exp = r.expires_on %}
             {% set left = r.days_left %}
-            <div class="row" style="grid-template-columns:.35fr .9fr .7fr .6fr 1.2fr;">
-              <div>
-                <input type="checkbox" class="prepCheck" name="prepped_lot_ids" value="{{ lot.id }}"
-                       data-units="{{ r.units }}"
-                       data-date="{{ lot.received_date.strftime('%Y-%m-%d') }}">
-              </div>
+
+            <div class="row" style="grid-template-columns: .75fr .55fr .7fr .8fr 1.2fr;">
               <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
-              <div class="muted">{{ lot.storage }}</div>
-              <div class="strong">{{ r.units }}</div>
+
               <div class="muted">
-                {% if exp %}
-                  <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
-                  {% if left is not none %}
-                    {% if left < 0 %}<span class="muted"> • EXPIRED</span>
-                    {% elif left == 0 %}<span class="muted"> • expires today</span>
-                    {% else %}<span class="muted"> • {{ left }}d left</span>
-                    {% endif %}
-                  {% endif %}
+                {% if lot.lot_number %}
+                  {{ lot.lot_number }}
+                {% elif lot.lot_label %}
+                  {{ lot.lot_label }}
                 {% else %}
                   —
+                {% endif %}
+              </div>
+
+              <div class="muted">{{ lot.state }}</div>
+
+              <div class="muted">
+                {% if lot.count_units %}
+                  {{ lot.count_units }}
+                {% else %}
+                  —
+                {% endif %}
+              </div>
+
+              <div class="muted">
+                <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
+                {% if left == 0 %}
+                  <span class="muted"> • expires today</span>
+                {% else %}
+                  <span class="muted"> • {{ left }}d left</span>
+                {% endif %}
+                {% if lot.expiration_override %}
+                  <span class="muted smalltxt"> • override</span>
                 {% endif %}
               </div>
             </div>
           {% endfor %}
         </div>
 
-        <div class="muted smalltxt" style="padding: 10px 14px;">
-          Tip: If you change selections, click “Fill Starting Units” again so your Starting Units matches.
+        <div style="height:10px;"></div>
+        <div class="actions" style="justify-content:flex-end;">
+          <a class="btn" href="/items/{{ item.id }}/lots">View All Boxes</a>
         </div>
+      </div>
+    {% endif %}
+  {% endif %}
+
+  <div style="height:14px;"></div>
+
+  <!-- ✅ YOUR EXISTING TILE LAYOUT -->
+  <div class="grid3">
+    <a class="tile" href="/items/{{ item.id }}/lots">
+      <div class="tile-title">Receive / Boxes</div>
+      <div class="tile-sub">
+        {% if is_generic %}
+          Receive cooler boxes + view FIFO list (cooler overflow)
+        {% else %}
+          Add boxes and view FIFO list
+        {% endif %}
+      </div>
+    </a>
+
+    {% if can_edit_inventory %}
+      <a class="tile" href="/items/{{ item.id }}/move_boxes">
+        <div class="tile-title">Move Boxes</div>
+        <div class="tile-sub">Move FIFO or selected boxes by location</div>
+      </a>
+    {% else %}
+      <div class="tile disabled">
+        <div class="tile-title">Move Boxes</div>
+        <div class="tile-sub">Manager/Admin only</div>
+      </div>
+    {% endif %}
+
+    {% if is_generic %}
+      <div class="tile disabled">
+        <div class="tile-title">Prep</div>
+        <div class="tile-sub">Not used for generic items</div>
+      </div>
+    {% else %}
+      {% if can_edit_inventory %}
+        <a class="tile" href="/items/{{ item.id }}/prep">
+          <div class="tile-title">Prep</div>
+          <div class="tile-sub">Use boxes → create prepped batch with expiration</div>
+        </a>
       {% else %}
-        <div class="empty" style="margin: 10px 14px;">No prepped batches found yet. Run Prep first.</div>
+        <div class="tile disabled">
+          <div class="tile-title">Prep</div>
+          <div class="tile-sub">Manager/Admin only</div>
+        </div>
       {% endif %}
+    {% endif %}
+
+    <a class="tile" href="/items/{{ item.id }}/reconcile">
+      <div class="tile-title">Count / Reconcile</div>
+      <div class="tile-sub">
+        {% if is_generic %}
+          Set bars on-hand + reconcile cooler boxes separately via Receive / Boxes
+        {% else %}
+          Expected vs actual + missing
+        {% endif %}
+      </div>
+    </a>
+  </div>
+
+  <!-- ✅ RECONCILE HISTORY -->
+  <div style="height:20px;"></div>
+
+  <section class="card">
+    <div class="cardhead">
+      <h2>Recent Count History</h2>
+      <a class="btn" href="/items/{{ item.id }}/reconcile/history">View All</a>
     </div>
 
-    <div style="height:14px;"></div>
-
-    <!-- STEP 2 -->
-    <div class="card" style="background: rgba(255,255,255,0.03);">
-      <div class="cardhead" style="padding: 12px 14px;">
-        <div>
-          <h2 style="margin:0;">Step 2 — Sales / Usage Entry</h2>
-          <div class="muted smalltxt">Enter packs sold/used. Units calculate using the item’s multipliers.</div>
-        </div>
+    {% if history and history|length > 0 %}
+      <div class="table">
+        <table style="width:100%;">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Starting Units</th>
+              <th>Units Sold</th>
+              <th>Units Left</th>
+              <th>Missing</th>
+              <th>Notes</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rec in history[:10] %}
+              <tr>
+                <td>{{ rec.event_date.strftime('%m/%d/%Y') }}</td>
+                <td>{{ rec.starting_units }} {{ item.unit if item.unit else 'units' }}</td>
+                <td>{{ rec.sales_units }} {{ item.unit if item.unit else 'units' }}</td>
+                <td>{{ rec.actual_units }} {{ item.unit if item.unit else 'units' }}</td>
+                <td>{{ rec.missing_units }} {{ item.unit if item.unit else 'units' }}</td>
+                <td class="muted smalltxt">{{ rec.notes[:40] if rec.notes else '-' }}</td>
+                <td style="text-align:right;">
+                  {% if can_edit_inventory %}
+                    <a class="btn" href="/reconcile/{{ rec.id }}/edit" style="font-size:11px; padding:4px 8px;">Edit</a>
+                    <form method="POST" action="/reconcile/{{ rec.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this count record?');">
+                      <button class="btn" type="submit" style="font-size:11px; padding:4px 8px; background:#ef4444;">Delete</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-
-      <div class="table" style="margin-top: 6px;">
-        <div class="row head" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div>Pack Type</div>
-          <div>Multiplier</div>
-          <div>Qty Sold / Used</div>
-          <div>Units</div>
-        </div>
-
-        <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack1_label or "Pack 1" }}</div>
-          <div class="muted">{{ item.pack1_mult or 0 }}</div>
-          <div>
-            <input class="input packQty" type="number" min="0" name="pack1_qty" value="0" data-mult="{{ item.pack1_mult or 0 }}">
-          </div>
-          <div class="strong"><span class="packUnits" data-for="pack1">0</span></div>
-        </div>
-
-        <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack2_label or "Pack 2" }}</div>
-          <div class="muted">{{ item.pack2_mult or 0 }}</div>
-          <div>
-            <input class="input packQty" type="number" min="0" name="pack2_qty" value="0" data-mult="{{ item.pack2_mult or 0 }}">
-          </div>
-          <div class="strong"><span class="packUnits" data-for="pack2">0</span></div>
-        </div>
-
-        <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack3_label or "Pack 3" }}</div>
-          <div class="muted">{{ item.pack3_mult or 0 }}</div>
-          <div>
-            <input class="input packQty" type="number" min="0" name="pack3_qty" value="0" data-mult="{{ item.pack3_mult or 0 }}">
-          </div>
-          <div class="strong"><span class="packUnits" data-for="pack3">0</span></div>
-        </div>
-
-        <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack4_label or "Pack 4" }}</div>
-          <div class="muted">{{ item.pack4_mult or 0 }}</div>
-          <div>
-            <input class="input packQty" type="number" min="0" name="pack4_qty" value="0" data-mult="{{ item.pack4_mult or 0 }}">
-          </div>
-          <div class="strong"><span class="packUnits" data-for="pack4">0</span></div>
-        </div>
+    {% else %}
+      <div style="padding:20px; text-align:center;">
+        <div class="muted smalltxt">No count history yet</div>
       </div>
-
-      <div class="grid3" style="padding: 12px 14px;">
-        <div class="field">
-          <label>Total Sales Units</label>
-          <input class="input" id="salesUnits" type="number" value="0" readonly>
-        </div>
-        <div class="field">
-          <label>Expected Units Left</label>
-          <input class="input" id="expectedUnits" type="number" value="0" readonly>
-        </div>
-        <div class="field">
-          <label></label>
-          <div class="muted smalltxt" style="padding-top:10px;">
-            Expected = Starting − Sales
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div style="height:14px;"></div>
-
-    <!-- STEP 3 -->
-    <div class="card" style="background: rgba(255,255,255,0.03);">
-      <div class="cardhead" style="padding: 12px 14px;">
-        <div>
-          <h2 style="margin:0;">Step 3 — Count What’s Left</h2>
-          <div class="muted smalltxt">Enter your physical count. On save, the system will update selected lots using FIFO.</div>
-        </div>
-      </div>
-
-      <div class="grid2" style="padding: 12px 14px;">
-        <div class="field">
-          <label>Actual Units Left (you counted)</label>
-          <input class="input" type="number" min="0" name="actual_units" id="actualUnits" value="0" required>
-        </div>
-
-        <div class="field">
-          <label>Difference (auto)</label>
-          <input class="input" id="diffUnits" type="number" value="0" readonly>
-          <div class="muted smalltxt">Difference = Expected − Actual</div>
-        </div>
-      </div>
-
-      <div class="field" style="padding: 0 14px 14px;">
-        <label>Notes (optional)</label>
-        <input class="input" name="notes" value="" placeholder="Waste, comps, mistakes, etc.">
-      </div>
-    </div>
-
-    <div class="actions" style="margin-top:14px;">
-      <button class="btn primary" type="submit">Save Reconcile</button>
-      <a class="btn" href="/items/{{ item.id }}/reconcile/history">View History</a>
-    </div>
-  </form>
-
-</section>
+    {% endif %}
+  </section>
 
 <script>
-(function(){
-  const startEl = document.getElementById("startingUnits");
-  const salesEl = document.getElementById("salesUnits");
-  const expEl = document.getElementById("expectedUnits");
-  const actEl = document.getElementById("actualUnits");
-  const diffEl = document.getElementById("diffUnits");
+  // Select all lots checkbox
+  const selectAllCheckbox = document.getElementById('select_all_lots');
+  const lotCheckboxes = document.querySelectorAll('.lot_checkbox');
 
-  function intVal(v){
-    const n = parseInt(v || "0", 10);
-    return isNaN(n) ? 0 : n;
-  }
-
-  function sumSelectedPrepUnits(){
-    let total = 0;
-    document.querySelectorAll(".prepCheck").forEach(cb=>{
-      if(cb.checked){
-        total += intVal(cb.getAttribute("data-units"));
-      }
-    });
-    return total;
-  }
-
-  function calcSales(){
-    let sales = 0;
-
-    const packs = document.querySelectorAll(".packQty");
-    const unitsSpans = document.querySelectorAll(".packUnits");
-
-    // update per-row units preview
-    packs.forEach((inp, idx) => {
-      const qty = intVal(inp.value);
-      const mult = intVal(inp.getAttribute("data-mult"));
-      const u = qty * mult;
-      sales += u;
-
-      // match span by index (simple + reliable)
-      if (unitsSpans[idx]) unitsSpans[idx].textContent = u;
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', function() {
+      lotCheckboxes.forEach(cb => {
+        cb.checked = this.checked;
+      });
     });
 
-    if (salesEl) salesEl.value = sales;
-
-    const start = startEl ? intVal(startEl.value) : 0;
-    const expected = start - sales;
-    if (expEl) expEl.value = expected;
-
-    const actual = actEl ? intVal(actEl.value) : 0;
-    if (diffEl) diffEl.value = expected - actual;
-  }
-
-  const fillBtn = document.getElementById("fillStartBtn");
-  const selAll = document.getElementById("selectAllPrep");
-  const clearAll = document.getElementById("clearAllPrep");
-
-  function syncStartFromChecks(){
-    if (!startEl) return;
-    const pre = sumSelectedPrepUnits();
-    if (pre > 0) startEl.value = pre;
-    calcSales();
-  }
-
-  if(fillBtn) fillBtn.addEventListener("click", syncStartFromChecks);
-
-  if(selAll){
-    selAll.addEventListener("click", ()=>{
-      document.querySelectorAll(".prepCheck").forEach(cb=>cb.checked=true);
-      syncStartFromChecks();
+    lotCheckboxes.forEach(checkbox => {
+      checkbox.addEventListener('change', function() {
+        selectAllCheckbox.checked = Array.from(lotCheckboxes).every(cb => cb.checked);
+      });
     });
   }
-
-  if(clearAll){
-    clearAll.addEventListener("click", ()=>{
-      document.querySelectorAll(".prepCheck").forEach(cb=>cb.checked=false);
-      if (startEl) startEl.value = "";
-      calcSales();
-    });
-  }
-
-  document.querySelectorAll(".prepCheck").forEach(cb=>{
-    cb.addEventListener("change", syncStartFromChecks);
-  });
-
-  document.querySelectorAll(".packQty").forEach(inp=>{
-    inp.addEventListener("input", calcSales);
-  });
-
-  if(startEl) startEl.addEventListener("input", calcSales);
-  if(actEl) actEl.addEventListener("input", calcSales);
-
-  calcSales();
-})();
 </script>
 
 {% endblock %}
