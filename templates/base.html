@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-  <title>Draft Room • Inventory</title>
+  <title>The Draft Room • Inventory</title>
 
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -26,8 +26,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <h2 class="sidebar-brand">
-        <i class="fas fa-box-open"></i>
-        <span>Inventory</span>
+        <img src="{{ url_for('static', filename='favicon.svg') }}" alt="Draft Room Logo" class="sidebar-logo">
       </h2>
       <button class="sidebar-toggle" id="sidebarToggle" title="Collapse sidebar">
         <i class="fas fa-chevron-left"></i>
@@ -101,7 +100,7 @@
         <i class="fas fa-bars"></i>
       </button>
       <div class="topbar-brand">
-        <h1>Draft Room</h1>
+        <h1>The Draft Room</h1>
         {% if current_user %}
           <div class="topbar-brand-user">
             <span class="brand-user-name">

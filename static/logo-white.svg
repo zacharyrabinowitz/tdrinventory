@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- White draft room logo -->
+  <rect width="200" height="200" fill="none"/>
+  
+  <!-- Beer mug shape in white -->
+  <g fill="white" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Mug body -->
+    <rect x="35" y="50" width="90" height="100" rx="8" fill="none" stroke="white" stroke-width="6"/>
+    
+    <!-- Mug handle -->
+    <path d="M 125 70 Q 155 70 155 100 Q 155 130 125 130" fill="none" stroke="white" stroke-width="6"/>
+    
+    <!-- Foam/head -->
+    <ellipse cx="80" cy="48" rx="50" ry="18" fill="white" opacity="0.9"/>
+    <circle cx="55" cy="35" r="12" fill="white"/>
+    <circle cx="80" cy="25" r="14" fill="white"/>
+    <circle cx="105" cy="32" r="11" fill="white"/>
+  </g>
+</svg>

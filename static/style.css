@@ -190,6 +190,25 @@ body {
   transition: opacity 0.3s ease;
 }
 
+.sidebar-logo {
+  height: 44px;
+  width: 44px;
+  object-fit: contain;
+  transition: height 0.3s ease, width 0.3s ease, filter 0.3s ease;
+  filter: invert(1) brightness(1.1);
+}
+
+/* Adjust logo size when sidebar is collapsed */
+#sidebar.collapsed .sidebar-logo {
+  height: 40px;
+  width: 40px;
+}
+
+/* In light theme, show normal colors */
+body.light-theme .sidebar-logo {
+  filter: invert(0) brightness(1);
+}
+
 #sidebar.collapsed .sidebar-brand span {
   display: none;
 }
