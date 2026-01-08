@@ -546,6 +546,7 @@ def require_beer_edit():
 def inject_user():
     u = current_user()
     return {
+        "current_user": u,
         "auth_user": u,
         "auth_break_glass": bool(session.get("break_glass_admin") is True),
         "auth_role": current_user_role(),

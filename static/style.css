@@ -468,6 +468,9 @@ body.sidebar-collapsed-state .main-content {
 
 .topbar-brand {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .topbar-brand h1 {
@@ -477,10 +480,52 @@ body.sidebar-collapsed-state .main-content {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  margin: 0;
+}
+
+.topbar-brand-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  border-left: 1px solid var(--stroke);
+  padding-left: 16px;
+}
+
+.topbar-brand-user .brand-user-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.topbar-brand-user .brand-user-role {
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 .topbar-spacer {
   flex: 1;
+}
+
+.audit-btn {
+  background: none;
+  border: 1px solid var(--stroke);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  margin-right: 8px;
+}
+
+.audit-btn:hover {
+  background-color: var(--info);
+  color: white;
+  border-color: var(--info);
 }
 
 /* ========== ALERTS ========== */

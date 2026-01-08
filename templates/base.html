@@ -61,13 +61,26 @@
         <span>Users</span>
       </a>
       {% endif %}
+      {% if auth_role == "admin" %}
+      <hr class="nav-divider">
+      <a href="/audit" class="nav-item {% if '/audit' in request.path %}active{% endif %}" data-tooltip="Audit Log">
+        <i class="fas fa-history"></i>
+        <span>Audit Log</span>
+      </a>
+      {% endif %}
     </nav>
 
     <div class="sidebar-footer">
       {% if current_user %}
       <div class="user-info">
-        <div class="user-name">{{ current_user.username }}</div>
-        <div class="user-role">{{ 'Admin' if current_user.is_admin else 'User' }}</div>
+        <div class="user-name">
+          {% if current_user.first_name or current_user.last_name %}
+            {{ current_user.first_name }} {{ current_user.last_name }}
+          {% else %}
+            {{ current_user.username }}
+          {% endif %}
+        </div>
+        <div class="user-role">{{ auth_role.title() if auth_role else 'User' }}</div>
       </div>
       <a href="/logout" class="nav-item logout" data-tooltip="Logout">
         <i class="fas fa-sign-out-alt"></i>
@@ -89,8 +102,27 @@
       </button>
       <div class="topbar-brand">
         <h1>Draft Room</h1>
+        {% if current_user %}
+          <div class="topbar-brand-user">
+            <span class="brand-user-name">
+              {% if current_user.first_name or current_user.last_name %}
+                {{ current_user.first_name }} {{ current_user.last_name }}
+              {% else %}
+                {{ current_user.username }}
+              {% endif %}
+            </span>
+            <span class="brand-user-role">({{ auth_role.title() if auth_role else 'User' }})</span>
+          </div>
+        {% endif %}
       </div>
       <div class="topbar-spacer"></div>
+      
+      {% if auth_role == "admin" %}
+        <a href="/audit" class="audit-btn" title="View audit log">
+          <i class="fas fa-history"></i>
+        </a>
+      {% endif %}
+      
       <button class="theme-toggle" id="themeToggle" title="Toggle light/dark theme">
         <i class="fas fa-moon"></i>
       </button>
