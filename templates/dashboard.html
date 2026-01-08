@@ -30,30 +30,166 @@
 
   <div class="card mini">
     <div class="cardhead">
-      <h2>Recently Added</h2>
-      <span class="muted">Quick access</span>
+      <h2>Order Analytics</h2>
+      <span class="muted">Inventory ordering overview</span>
     </div>
 
-    {% if recent_items and recent_items|length > 0 %}
-      <div class="table">
-        <div class="row head" style="grid-template-columns: 1.2fr .8fr .6fr;">
-          <div>Item</div><div>Category</div><div></div>
+    <div class="analytics-grid">
+      <div class="analytics-card">
+        <div class="analytics-icon">
+          <i class="fas fa-box"></i>
         </div>
-
-        {% for it in recent_items %}
-          <div class="row" style="grid-template-columns: 1.2fr .8fr .6fr;">
-            <div class="strong">{{ it.name }}</div>
-            <div class="muted">{{ it.category }}</div>
-            <div class="row-actions">
-              <a class="btn small" href="/items/{{ it.id }}">Open</a>
-            </div>
-          </div>
-        {% endfor %}
+        <div class="analytics-content">
+          <div class="analytics-value">{{ order_analytics.total_items }}</div>
+          <div class="analytics-label">Total Items</div>
+        </div>
       </div>
-    {% else %}
-      <div class="empty">No items yet.</div>
-    {% endif %}
-  </div>
-</section>
 
+      <div class="analytics-card">
+        <div class="analytics-icon warning">
+          <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <div class="analytics-content">
+          <div class="analytics-value">{{ order_analytics.low_stock }}</div>
+          <div class="analytics-label">Low Stock (&lt;5)</div>
+        </div>
+      </div>
+
+      <div class="analytics-card">
+        <div class="analytics-icon danger">
+          <i class="fas fa-times-circle"></i>
+        </div>
+        <div class="analytics-content">
+          <div class="analytics-value">{{ order_analytics.out_of_stock }}</div>
+          <div class="analytics-label">Out of Stock</div>
+        </div>
+      </div>
+
+      <div class="analytics-card">
+        <div class="analytics-icon info">
+          <i class="fas fa-chart-line"></i>
+        </div>
+        <div class="analytics-content">
+          <div class="analytics-value">{{ order_analytics.avg_stock }}</div>
+          <div class="analytics-label">Average Stock</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="analytics-actions">
+      <a class="btn primary" href="/order">
+        <i class="fas fa-shopping-cart"></i>
+        Go to Order Page
+      </a>
+    </div>
+  </div>
+
+  <style>
+    .analytics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .analytics-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background-color: var(--card2);
+      border-radius: 8px;
+      border: 1px solid var(--stroke);
+      transition: all 0.3s ease;
+    }
+
+    .analytics-card:hover {
+      border-color: var(--primary);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+    }
+
+    .analytics-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 50px;
+      height: 50px;
+      border-radius: 8px;
+      background-color: rgba(37, 99, 235, 0.1);
+      color: var(--primary);
+      font-size: 24px;
+    }
+
+    .analytics-icon.warning {
+      background-color: rgba(245, 158, 11, 0.1);
+      color: var(--warning);
+    }
+
+    .analytics-icon.danger {
+      background-color: rgba(220, 38, 38, 0.1);
+      color: var(--danger);
+    }
+
+    .analytics-icon.info {
+      background-color: rgba(2, 132, 199, 0.1);
+      color: var(--info);
+    }
+
+    .analytics-content {
+      flex: 1;
+    }
+
+    .analytics-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .analytics-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .analytics-actions {
+      display: flex;
+      gap: 12px;
+      padding-top: 16px;
+      border-top: 1px solid var(--stroke);
+    }
+
+    .analytics-actions .btn {
+      flex: 1;
+      text-align: center;
+      padding: 12px 16px;
+    }
+
+    /* Light theme adjustments */
+    body.light-theme .analytics-card {
+      background-color: #f9fafb;
+      border-color: #e5e7eb;
+    }
+
+    body.light-theme .analytics-card:hover {
+      border-color: #2563eb;
+    }
+
+    body.light-theme .analytics-icon {
+      background-color: rgba(37, 99, 235, 0.08);
+    }
+
+    body.light-theme .analytics-icon.warning {
+      background-color: rgba(217, 119, 6, 0.08);
+    }
+
+    body.light-theme .analytics-icon.danger {
+      background-color: rgba(220, 38, 38, 0.08);
+    }
+
+    body.light-theme .analytics-icon.info {
+      background-color: rgba(2, 132, 199, 0.08);
+    }
+  </style>
 {% endblock %}

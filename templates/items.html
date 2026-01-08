@@ -45,6 +45,7 @@
 
           <div class="row-actions">
             {% if can_edit_inventory %}
+              <a class="btn small" href="/items/{{ it.id }}">Open</a>
               <a class="btn small" href="/items/{{ it.id }}/edit">Edit</a>
               <form method="POST" action="/items/{{ it.id }}/delete" class="inline">
                 <button class="btn small danger" type="submit"

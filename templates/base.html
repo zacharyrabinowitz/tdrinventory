@@ -45,6 +45,10 @@
         <i class="fas fa-list"></i>
         <span>Items</span>
       </a>
+      <a href="/order" class="nav-item {% if '/order' in request.path %}active{% endif %}" data-tooltip="Order Items">
+        <i class="fas fa-shopping-cart"></i>
+        <span>Order</span>
+      </a>
       <a href="/beers/dashboard" class="nav-item {% if '/beers' in request.path %}active{% endif %}" data-tooltip="Beer Dashboard">
         <i class="fas fa-beer"></i>
         <span>Beer Dashboard</span>
@@ -100,7 +104,7 @@
         <i class="fas fa-bars"></i>
       </button>
       <div class="topbar-brand">
-        <h1>The Draft Room</h1>
+        <h1>Inventory System</h1>
         {% if current_user %}
           <div class="topbar-brand-user">
             <span class="brand-user-name">
@@ -148,6 +152,11 @@
     <div class="page-content">
       {% block content %}{% endblock %}
     </div>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <p>&copy; 2026 The Draft Room. All rights reserved.</p>
+    </footer>
   </main>
 
   <script>

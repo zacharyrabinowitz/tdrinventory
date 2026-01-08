@@ -55,7 +55,7 @@
   --btn: #1b2a57;
   --btn2: #22356b;
   --sidebar-width: 280px;
-  --sidebar-width-collapsed: 70px;
+  --sidebar-width-collapsed: 100px;
   
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --focus: rgba(104, 163, 255, 0.45);
@@ -63,42 +63,73 @@
 
 /* Light Theme */
 body.light-theme {
-  --bg: #f8f9fa;
-  --bg2: #f0f2f5;
+  --bg: #ffffff;
+  --bg2: #f5f7fb;
   --card: #ffffff;
-  --card2: #f8f9fa;
-  --text: #1f2937;
-  --text-muted: rgba(31, 41, 55, 0.68);
-  --stroke: rgba(0, 0, 0, 0.10);
-  --border: rgba(0, 0, 0, 0.10);
+  --card2: #f9fafb;
+  --text: #0f172a;
+  --text-muted: rgba(15, 23, 42, 0.65);
+  --stroke: rgba(55, 65, 81, 0.15);
+  --border: rgba(55, 65, 81, 0.15);
   
   --primary: #2563eb;
-  --primary-dark: #1d4ed8;
-  --primary-light: #3b82f6;
+  --primary-dark: #1e40af;
+  --primary-light: #60a5fa;
   
   --success: #059669;
   --ok: #059669;
-  --ok-light: rgba(5, 150, 105, 0.1);
+  --ok-light: rgba(5, 150, 105, 0.12);
   
   --warning: #d97706;
-  --warning-light: rgba(217, 119, 6, 0.1);
+  --warning-light: rgba(217, 119, 6, 0.12);
   
   --danger: #dc2626;
   --danger2: #ef4444;
-  --danger-light: rgba(220, 38, 38, 0.1);
+  --danger-light: rgba(220, 38, 38, 0.12);
   
   --info: #0284c7;
   
-  --shadow: 0 18px 60px rgba(0, 0, 0, 0.1);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08);
   
-  --muted: rgba(31, 41, 55, 0.68);
-  --btn: #f3f4f6;
-  --btn2: #e5e7eb;
+  --muted: rgba(15, 23, 42, 0.65);
+  --btn: #f0f4f9;
+  --btn2: #e0e7f1;
   
-  --focus: rgba(37, 99, 235, 0.2);
+  --focus: rgba(37, 99, 235, 0.15);
+}
+
+/* Light theme form and input styling */
+body.light-theme .form-control,
+body.light-theme .input,
+body.light-theme textarea,
+body.light-theme select {
+  background-color: #ffffff;
+  border: 1.5px solid #d1d5db;
+  color: #0f172a;
+}
+
+body.light-theme .form-control::placeholder,
+body.light-theme .input::placeholder,
+body.light-theme textarea::placeholder {
+  color: #9ca3af;
+}
+
+body.light-theme .form-control:focus,
+body.light-theme .input:focus,
+body.light-theme textarea:focus,
+body.light-theme select:focus {
+  background-color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+body.light-theme .input:disabled {
+  background-color: #f9fafb;
+  color: #9ca3af;
+  cursor: not-allowed;
 }
 
 html, body {
@@ -146,10 +177,11 @@ body {
 }
 
 #sidebar.collapsed .sidebar-header {
-  padding: 20px 12px;
+  padding: 16px 8px;
   justify-content: center;
+  align-items: center;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .sidebar-toggle {
@@ -198,10 +230,10 @@ body {
   filter: invert(1) brightness(1.1);
 }
 
-/* Adjust logo size when sidebar is collapsed */
+/* Adjust logo size when sidebar is collapsed - make it large to fill the space */
 #sidebar.collapsed .sidebar-logo {
-  height: 40px;
-  width: 40px;
+  height: 80px;
+  width: 80px;
 }
 
 /* In light theme, show normal colors */
@@ -626,6 +658,21 @@ body.sidebar-collapsed-state .main-content {
   overflow-y: auto;
 }
 
+/* ========== FOOTER ========== */
+.footer {
+  padding: 20px 32px;
+  border-top: 1px solid var(--stroke);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background-color: var(--card);
+  margin-top: auto;
+}
+
+.footer p {
+  margin: 0;
+}
+
 /* ========== CONTAINERS & SECTIONS ========== */
 .container {
   max-width: 1200px;
@@ -643,6 +690,17 @@ body.sidebar-collapsed-state .main-content {
 
 .card:hover {
   box-shadow: var(--shadow-md);
+}
+
+/* Light theme card improvements */
+body.light-theme .card {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+body.light-theme .card:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .card-header {
@@ -774,6 +832,25 @@ input[type="submit"]:active {
 
 .btn-secondary:hover {
   background-color: #d1d5db;
+}
+
+/* Light theme button styling */
+body.light-theme .btn-secondary {
+  background-color: #f0f4f8;
+  color: #0f172a;
+  border: 1px solid #d1d5db;
+}
+
+body.light-theme .btn-secondary:hover {
+  background-color: #e0e7f1;
+  border-color: #9ca3af;
+}
+
+body.light-theme .btn-primary:hover,
+body.light-theme button:not(.nav-item):not(.sidebar-close):not(.menu-toggle):not(.alert-close):not(.btn-danger):not(.btn-success):not(.btn-secondary):hover,
+body.light-theme input[type="submit"]:hover {
+  background-color: #1e40af;
+  box-shadow: 0 4px 6px rgba(30, 64, 175, 0.2);
 }
 
 .btn-success {

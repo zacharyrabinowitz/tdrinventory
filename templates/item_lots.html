@@ -25,6 +25,7 @@
     </div>
     <div class="actions">
       <a class="btn" href="/items/{{ item.id }}">Back to Item</a>
+      <a class="btn" href="/items/{{ item.id }}/history">View History</a>
       <a class="btn" href="/items">All Items</a>
     </div>
   </div>
@@ -174,8 +175,7 @@
       </form>
 
       <div class="muted smalltxt" style="margin-top:10px;">
-        If you hit a 404 on receive: your POST route isn’t <span class="strong">/items/{{ item.id }}/lots/receive</span>.
-        Change the form action to match your real POST route path in app.py.
+
       </div>
     </section>
   {% else %}
@@ -292,12 +292,12 @@
           <div>
             <span id="selected_count" class="muted smalltxt">0 selected</span>
           </div>
-          <button type="submit" class="btn danger" id="bulk_delete_btn" disabled onclick="return confirm('Delete the selected boxes? This cannot be undone.')">
+          <button type="button" class="btn danger" id="bulk_delete_btn" onclick="handleBulkDelete()">
             Delete Selected
           </button>
         </div>
       {% endif %}
-    </form>
+      </form>
   {% else %}
     <div class="empty">No boxes received yet.</div>
   {% endif %}
@@ -320,24 +320,90 @@
     const checked = document.querySelectorAll('.lot_checkbox:checked').length;
     const total = lotCheckboxes.length;
     
-    selectedCountSpan.textContent = checked + ' selected';
-    bulkDeleteBtn.disabled = checked === 0;
-    selectAllCheckbox.checked = checked === total && total > 0;
-    selectAllCheckbox.indeterminate = checked > 0 && checked < total;
+    if (selectedCountSpan) {
+      selectedCountSpan.textContent = checked + ' selected';
+    }
+    if (selectAllCheckbox) {
+      selectAllCheckbox.checked = checked === total && total > 0;
+      selectAllCheckbox.indeterminate = checked > 0 && checked < total;
+    }
   }
 
-  selectAllCheckbox.addEventListener('change', function() {
-    lotCheckboxes.forEach(cb => {
-      cb.checked = this.checked;
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', function() {
+      lotCheckboxes.forEach(cb => {
+        cb.checked = this.checked;
+      });
+      updateCounts();
     });
-    updateCounts();
-  });
+  }
 
   lotCheckboxes.forEach(checkbox => {
     checkbox.addEventListener('change', updateCounts);
   });
 
   updateCounts();
+
+  // Handle bulk delete button click
+  function handleBulkDelete() {
+    console.log('handleBulkDelete called');
+    const checked = document.querySelectorAll('.lot_checkbox:checked').length;
+    console.log('Checked boxes:', checked);
+    
+    if (checked === 0) {
+      alert('Please select at least one box to delete.');
+      return;
+    }
+    
+    if (!confirm('Delete the selected boxes? This cannot be undone.')) {
+      return;
+    }
+    
+    // Submit the form
+    const form = document.getElementById('bulk_delete_form');
+    if (form) {
+      console.log('Submitting form');
+      form.submit();
+    } else {
+      console.log('Form not found');
+    }
+  }
+
+  // Handle form submission
+  const bulkDeleteForm = document.getElementById('bulk_delete_form');
+  if (bulkDeleteForm) {
+    bulkDeleteForm.addEventListener('submit', function(e) {
+      console.log('Form submit event triggered');
+      const checked = document.querySelectorAll('.lot_checkbox:checked').length;
+      console.log('Checked boxes:', checked);
+      if (checked === 0) {
+        e.preventDefault();
+        alert('Please select at least one box to delete.');
+        return false;
+      }
+      const confirmed = confirm('Delete the selected boxes? This cannot be undone.');
+      console.log('User confirmed:', confirmed);
+      if (!confirmed) {
+        e.preventDefault();
+        return false;
+      }
+    });
+  }
+
+  // Auto-increment lot number when quantity changes
+  const quantityInput = document.querySelector('input[name="quantity"]');
+  const lotNumberInput = document.querySelector('input[name="lot_number"]');
+  
+  if (quantityInput && lotNumberInput) {
+    quantityInput.addEventListener('change', function() {
+      const quantity = parseInt(this.value) || 1;
+      const currentLotNum = parseInt(lotNumberInput.value) || 1;
+      
+      // Update the lot number field to suggest the next sequential numbers
+      // For multiple boxes, show the starting number
+      lotNumberInput.value = currentLotNum;
+    });
+  }
 </script>
 
 {% endblock %}

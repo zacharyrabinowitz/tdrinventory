@@ -754,6 +754,38 @@ class InventoryLot(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
 
 
+class Order(db.Model):
+    __tablename__ = "orders"
+    id = db.Column(db.Integer, primary_key=True)
+
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
+    item = db.relationship("Item", backref="orders")
+
+    quantity = db.Column(db.Integer, nullable=False, default=0)
+    order_date = db.Column(db.Date, nullable=True)
+    notes = db.Column(db.String(400), nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default="pending")  # pending|ordered|received|cancelled
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class BeerOrder(db.Model):
+    __tablename__ = "beer_orders"
+    id = db.Column(db.Integer, primary_key=True)
+
+    beer_id = db.Column(db.Integer, db.ForeignKey("beers.id"), nullable=False)
+    beer = db.relationship("Beer", backref="orders")
+
+    quantity = db.Column(db.Integer, nullable=False, default=0)  # number of kegs
+    order_date = db.Column(db.Date, nullable=True)
+    notes = db.Column(db.String(400), nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default="pending")  # pending|ordered|received|cancelled
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class PrepBatch(db.Model):
     __tablename__ = "prep_batches"
     id = db.Column(db.Integer, primary_key=True)
@@ -970,11 +1002,23 @@ def days_left(exp: Optional[date]) -> Optional[int]:
     return (exp - date.today()).days
 
 def next_lot_number(item_id: int) -> int:
-    mx = db.session.query(func.max(InventoryLot.lot_number)).filter(InventoryLot.item_id == item_id).scalar()
-    try:
-        return int(mx or 0) + 1
-    except Exception:
+    # Get all existing lot numbers for this item
+    existing = db.session.query(InventoryLot.lot_number)\
+        .filter(InventoryLot.item_id == item_id, InventoryLot.lot_number.isnot(None))\
+        .all()
+    
+    if not existing:
         return 1
+    
+    # Extract the numbers and sort them
+    numbers = sorted([int(row[0]) for row in existing if row[0] is not None])
+    
+    # Find the first gap
+    for i in range(1, len(numbers) + 2):
+        if i not in numbers:
+            return i
+    
+    return 1
 
 def parse_csv_ints(csv: Optional[str]) -> list[int]:
     if not csv:
@@ -1731,7 +1775,7 @@ def beers_bulk_edit_save():
                     pass
 
         db.session.commit()
-        return {"success": True, "message": f"Updated {len(data['beers'])} beers"}
+        return {"success": True, "message": f"Updated {len(data['beers'])} beers", "redirect": "/beers"}
     except Exception as e:
         db.session.rollback()
         print(f"Error bulk saving beers: {e}")
@@ -2760,8 +2804,20 @@ def dashboard():
     for cat in extras:
         categories.append({"name": cat, "count": counts_map.get(cat, 0)})
 
-    recent_items = Item.query.order_by(Item.created_at.desc(), Item.id.desc()).limit(8).all()
-    return render_template("dashboard.html", categories=categories, recent_items=recent_items)
+    # Ordering Analytics
+    total_items = Item.query.count()
+    low_stock_items = Item.query.filter(Item.on_hand_count < 5).count()
+    items_needing_order = Item.query.filter(Item.on_hand_count == 0).count()
+    average_stock = db.session.query(func.avg(Item.on_hand_count)).scalar() or 0
+    
+    order_analytics = {
+        "total_items": total_items,
+        "low_stock": low_stock_items,
+        "out_of_stock": items_needing_order,
+        "avg_stock": round(float(average_stock), 1)
+    }
+
+    return render_template("dashboard.html", categories=categories, order_analytics=order_analytics)
 
 @app.get("/category/<path:category_name>")
 def category_view(category_name: str):
@@ -2811,6 +2867,325 @@ def items_all():
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
 
     return render_template("items.html", items=items, suppliers=suppliers, q=q)
+
+@app.get("/api/beers")
+def api_get_beers():
+    """API endpoint to get all beers as JSON"""
+    guard = require_view_access()
+    if guard:
+        return guard
+    
+    beers = Beer.query.order_by(Beer.name.asc()).all()
+    beers_data = [
+        {
+            'id': b.id,
+            'name': b.name,
+            'brewery': b.brewery,
+            'style': b.style,
+            'abv': b.abv,
+            'cost': b.cost,
+            'price': b.price,
+            'keg_size': b.keg_size,
+            'cups_per_keg': b.cups_per_keg,
+            'on_hand_kegs': b.on_hand_kegs
+        }
+        for b in beers
+    ]
+    return jsonify(beers_data)
+
+@app.get("/order")
+def order_items():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    q = (request.args.get("q") or "").strip()
+    category_filter = (request.args.get("category") or "").strip()
+
+    query = Item.query
+    if q:
+        query = query.filter(Item.name.ilike(f"%{q}%"))
+    if category_filter:
+        query = query.filter(Item.category == category_filter)
+
+    items = query.order_by(Item.category.asc(), Item.name.asc()).all()
+    categories = db.session.query(Item.category).distinct().order_by(Item.category.asc()).all()
+    categories = [c[0] for c in categories if c[0]]
+
+    return render_template("order.html", items=items, categories=categories, q=q, category_filter=category_filter)
+
+@app.post("/items/<int:item_id>/update-onhand")
+def update_item_onhand(item_id):
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    try:
+        item = Item.query.get_or_404(item_id)
+        data = request.get_json()
+        
+        if "on_hand_count" in data:
+            new_count = int(data["on_hand_count"])
+            old_count = item.on_hand_count
+            difference = new_count - old_count
+            
+            if difference > 0:
+                # Increase: create new InventoryLot records
+                max_lot = db.session.query(func.max(InventoryLot.lot_number)).filter(
+                    InventoryLot.item_id == item_id
+                ).scalar()
+                next_lot_number = (max_lot + 1) if max_lot else 1
+                
+                # Create individual InventoryLot records for each new box
+                for i in range(difference):
+                    lot = InventoryLot(
+                        item_id=item_id,
+                        lot_number=next_lot_number + i,
+                        quantity=1.0,  # One box per lot
+                        storage="cooler",  # Default storage location
+                        state="raw",  # Default state for items
+                        received_date=date.today(),
+                        is_consumed=False
+                    )
+                    db.session.add(lot)
+            elif difference < 0:
+                # Decrease: mark the most recent unconsumed lots as consumed
+                lots_to_consume = (
+                    InventoryLot.query
+                    .filter(
+                        InventoryLot.item_id == item_id,
+                        InventoryLot.is_consumed == False
+                    )
+                    .order_by(InventoryLot.id.desc())
+                    .limit(abs(difference))
+                    .all()
+                )
+                for lot in lots_to_consume:
+                    lot.is_consumed = True
+            
+            item.on_hand_count = new_count
+        
+        db.session.commit()
+        return {"success": True, "message": "On-hand count updated"}
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating on-hand count: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
+
+@app.post("/order/save")
+def save_order():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    try:
+        data = request.get_json()
+        item_id = data.get("item_id")
+        quantity = data.get("quantity", 0)
+        order_date = data.get("order_date")
+        notes = data.get("notes", "")
+
+        if not item_id:
+            return {"error": "Invalid item"}, 400
+
+        # Convert order_date string to date object if provided
+        if order_date:
+            try:
+                order_date = datetime.strptime(order_date, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                order_date = None
+
+        # Check if order already exists for this item
+        existing_order = Order.query.filter(
+            Order.item_id == item_id,
+            Order.status == "pending"
+        ).first()
+
+        if existing_order:
+            existing_order.quantity = quantity
+            existing_order.order_date = order_date
+            existing_order.notes = notes
+            existing_order.updated_at = utcnow()
+        else:
+            new_order = Order(
+                item_id=item_id,
+                quantity=quantity,
+                order_date=order_date,
+                notes=notes
+            )
+            db.session.add(new_order)
+
+        db.session.commit()
+        return {"success": True, "message": "Order saved"}
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error in save_order: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
+
+@app.post("/beer-order/save")
+def save_beer_order():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    try:
+        data = request.get_json()
+        beer_id = data.get("beer_id")
+        quantity = data.get("quantity", 0)
+        order_date = data.get("order_date")
+        notes = data.get("notes", "")
+
+        if not beer_id:
+            return {"error": "Invalid beer"}, 400
+
+        # Convert order_date string to date object if provided
+        if order_date:
+            try:
+                order_date = datetime.strptime(order_date, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                order_date = None
+
+        # Check if order already exists for this beer
+        existing_order = BeerOrder.query.filter(
+            BeerOrder.beer_id == beer_id,
+            BeerOrder.status == "pending"
+        ).first()
+
+        if existing_order:
+            existing_order.quantity = quantity
+            existing_order.order_date = order_date
+            existing_order.notes = notes
+            existing_order.updated_at = utcnow()
+        else:
+            new_order = BeerOrder(
+                beer_id=beer_id,
+                quantity=quantity,
+                order_date=order_date,
+                notes=notes
+            )
+            db.session.add(new_order)
+
+        db.session.commit()
+        return {"success": True, "message": "Beer order saved"}
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error in save_beer_order: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
+
+@app.get("/orders")
+def view_orders():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    status_filter = request.args.get("status", "pending")
+    
+    query = Order.query.join(Item)
+    if status_filter and status_filter != "all":
+        query = query.filter(Order.status == status_filter)
+    
+    orders = query.order_by(Order.created_at.desc()).all()
+
+    # Get beer orders
+    beer_query = BeerOrder.query.join(Beer)
+    if status_filter and status_filter != "all":
+        beer_query = beer_query.filter(BeerOrder.status == status_filter)
+    
+    beer_orders = beer_query.order_by(BeerOrder.created_at.desc()).all()
+    
+    return render_template("orders.html", orders=orders, beer_orders=beer_orders, status_filter=status_filter)
+
+@app.get("/order/<int:order_id>/edit")
+def edit_order(order_id):
+    guard = require_view_access()
+    if guard:
+        return guard
+    
+    order = Order.query.get_or_404(order_id)
+    return render_template("edit_order.html", order=order)
+
+@app.post("/order/<int:order_id>/update")
+def update_order(order_id):
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    try:
+        order = Order.query.get_or_404(order_id)
+        data = request.get_json()
+        old_status = order.status
+
+        if "quantity" in data:
+            order.quantity = int(data["quantity"])
+        if "order_date" in data:
+            order_date = data["order_date"]
+            if order_date:
+                try:
+                    order.order_date = datetime.strptime(order_date, "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    order.order_date = None
+            else:
+                order.order_date = None
+        if "notes" in data:
+            order.notes = data["notes"]
+        if "status" in data:
+            order.status = data["status"]
+
+        # If status is changing to "received", add the order quantity to the item's on_hand_count and create individual lots
+        if old_status != "received" and order.status == "received":
+            item = Item.query.get(order.item_id)
+            if item:
+                item.on_hand_count += order.quantity
+                
+                # Get the next lot number for this item
+                max_lot = db.session.query(func.max(InventoryLot.lot_number)).filter(
+                    InventoryLot.item_id == order.item_id
+                ).scalar()
+                next_lot_number = (max_lot + 1) if max_lot else 1
+                
+                # Create individual InventoryLot records for each box
+                for i in range(order.quantity):
+                    lot = InventoryLot(
+                        item_id=order.item_id,
+                        lot_number=next_lot_number + i,
+                        quantity=1.0,  # One box per lot
+                        storage="cooler",  # Default storage location
+                        state="raw",  # Default state for items
+                        received_date=date.today(),
+                        is_consumed=False
+                    )
+                    db.session.add(lot)
+
+        order.updated_at = utcnow()
+        db.session.commit()
+        return {"success": True, "message": "Order updated"}
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error in update_order: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
+
+@app.post("/order/<int:order_id>/delete")
+def delete_order(order_id):
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    try:
+        order = Order.query.get_or_404(order_id)
+        db.session.delete(order)
+        db.session.commit()
+        return {"success": True, "message": "Order deleted"}
+    except Exception as e:
+        db.session.rollback()
+        return {"error": str(e)}, 500
 
 @app.get("/items/bulk")
 def items_bulk():
@@ -3846,9 +4221,13 @@ def item_lots(item_id: int):
 
     item = Item.query.get_or_404(item_id)
 
+    # Only fetch active (non-consumed) lots for display
     lots = (
         InventoryLot.query
-        .filter(InventoryLot.item_id == item.id)
+        .filter(
+            InventoryLot.item_id == item.id,
+            InventoryLot.is_consumed == False
+        )
         .order_by(
             InventoryLot.received_date.asc(),
             InventoryLot.lot_number.asc().nulls_last(),
@@ -3872,20 +4251,19 @@ def item_lots(item_id: int):
         exp = compute_lot_expiration(item, lot)
         left = days_left(exp)
 
-        if not lot.is_consumed:
-            box_count = int(round(lot.quantity or 1.0))
-            if box_count < 1:
-                box_count = 1
+        box_count = int(round(lot.quantity or 1.0))
+        if box_count < 1:
+            box_count = 1
 
-            if lot.storage == "freezer":
-                totals["freezer_boxes"] += box_count
-                totals["freezer_units"] += int(lot.count_units or 0)
-            elif lot.storage == "cooler":
-                totals["cooler_boxes"] += box_count
-                totals["cooler_units"] += int(lot.count_units or 0)
-            else:
-                totals["out_boxes"] += box_count
-                totals["out_units"] += int(lot.count_units or 0)
+        if lot.storage == "freezer":
+            totals["freezer_boxes"] += box_count
+            totals["freezer_units"] += int(lot.count_units or 0)
+        elif lot.storage == "cooler":
+            totals["cooler_boxes"] += box_count
+            totals["cooler_units"] += int(lot.count_units or 0)
+        else:
+            totals["out_boxes"] += box_count
+            totals["out_units"] += int(lot.count_units or 0)
 
         rows.append({"lot": lot, "expires_on": exp, "days_left": left})
 
@@ -3937,7 +4315,14 @@ def lot_new_post(item_id: int):
     if state == "raw" and count_units is not None and count_units <= 0:
         count_units = None
 
-    if lot_number is not None:
+    # Get quantity - default to 1 if not provided
+    quantity_raw = (request.form.get("quantity") or "").strip()
+    quantity = to_int(quantity_raw, 1) if quantity_raw else 1
+    if quantity < 1:
+        quantity = 1
+
+    # Check if a single lot_number is being used - if so, use old behavior
+    if lot_number is not None and quantity == 1:
         existing = InventoryLot.query.filter(
             InventoryLot.item_id == item.id,
             InventoryLot.lot_number == lot_number
@@ -3946,32 +4331,75 @@ def lot_new_post(item_id: int):
             flash("That box # already exists for this item.", "error")
             return redirect(f"/items/{item.id}/lots/new")
 
-    lot = InventoryLot(
-        item_id=item.id,
-        received_date=received_date,
-        lot_number=lot_number,
-        lot_label=lot_label,
-        storage=storage,
-        state=state,
-        count_units=count_units,
-        quantity=1.0,
-        notes=notes,
-        is_consumed=False
-    )
+        lot = InventoryLot(
+            item_id=item.id,
+            received_date=received_date,
+            lot_number=lot_number,
+            lot_label=lot_label,
+            storage=storage,
+            state=state,
+            count_units=count_units,
+            quantity=1.0,
+            notes=notes,
+            is_consumed=False
+        )
 
-    db.session.add(lot)
-    db.session.flush()
+        db.session.add(lot)
+        db.session.flush()
 
-    audit_log(
-        action="create",
-        entity_type="InventoryLot",
-        entity_id=lot.id,
-        message="Box received",
-        details={"item_id": item.id, "lot_number": lot.lot_number, "storage": lot.storage, "state": lot.state}
-    )
+        audit_log(
+            action="create",
+            entity_type="InventoryLot",
+            entity_id=lot.id,
+            message="Box received",
+            details={"item_id": item.id, "lot_number": lot.lot_number, "storage": lot.storage, "state": lot.state}
+        )
 
-    db.session.commit()
-    flash("Box received.", "success")
+        db.session.commit()
+        flash("Box received.", "success")
+    else:
+        # Create multiple individual lots with auto-incrementing lot numbers
+        if lot_number is None:
+            lot_number = next_lot_number(item.id)
+
+        for i in range(quantity):
+            current_lot_num = lot_number + i
+
+            # Check if this lot number already exists
+            existing = InventoryLot.query.filter(
+                InventoryLot.item_id == item.id,
+                InventoryLot.lot_number == current_lot_num
+            ).first()
+            if existing:
+                flash(f"Box #{current_lot_num} already exists. Skipping.", "warning")
+                continue
+
+            lot = InventoryLot(
+                item_id=item.id,
+                received_date=received_date,
+                lot_number=current_lot_num,
+                lot_label=lot_label,
+                storage=storage,
+                state=state,
+                count_units=count_units,
+                quantity=1.0,
+                notes=notes,
+                is_consumed=False
+            )
+
+            db.session.add(lot)
+            db.session.flush()
+
+            audit_log(
+                action="create",
+                entity_type="InventoryLot",
+                entity_id=lot.id,
+                message="Box received",
+                details={"item_id": item.id, "lot_number": current_lot_num, "storage": storage, "state": state}
+            )
+
+        db.session.commit()
+        flash(f"{quantity} boxes received with lot numbers {lot_number}-{lot_number + quantity - 1}.", "success")
     return redirect(f"/items/{item.id}/lots")
 
 @app.get("/items/<int:item_id>/lots/bulk")
@@ -4189,6 +4617,7 @@ def lot_delete(lot_id: int):
 
     lot = InventoryLot.query.get_or_404(lot_id)
     item_id = lot.item_id
+    item = Item.query.get(item_id)
 
     audit_log(
         action="delete",
@@ -4197,6 +4626,12 @@ def lot_delete(lot_id: int):
         message="Box deleted",
         details={"item_id": item_id, "lot_number": lot.lot_number, "storage": lot.storage, "state": lot.state}
     )
+
+    # Decrease on_hand_count when deleting a lot
+    if item and not lot.is_consumed:
+        item.on_hand_count -= int(lot.quantity)
+        if item.on_hand_count < 0:
+            item.on_hand_count = 0
 
     db.session.delete(lot)
     db.session.commit()
@@ -4239,8 +4674,17 @@ def lots_bulk_delete(item_id: int):
     deleted_ids = [l.id for l in lots]
     deleted_count = len(lots)
 
+    # Calculate total quantity to decrease from on_hand_count
+    total_quantity = sum(int(l.quantity) for l in lots if not l.is_consumed)
+    
     for l in lots:
         db.session.delete(l)
+
+    # Decrease on_hand_count for all deleted lots
+    if total_quantity > 0:
+        item.on_hand_count -= total_quantity
+        if item.on_hand_count < 0:
+            item.on_hand_count = 0
 
     audit_log(
         action="delete",
