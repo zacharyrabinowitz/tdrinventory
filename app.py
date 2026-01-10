@@ -54,8 +54,8 @@ limiter = Limiter(
 @app.before_request
 def log_page_visits():
     """Log all page visits for audit trail"""
-    # Only log for logged-in users (not login page)
-    if request.endpoint and request.endpoint != 'login' and is_logged_in():
+    # Only log for logged-in users (not login page, not static files)
+    if request.endpoint and request.endpoint not in ('login', 'static') and is_logged_in():
         # Map endpoints to human-readable page names
         page_names = {
             'index': 'Dashboard',
@@ -659,13 +659,54 @@ def is_logged_in() -> bool:
     return (session.get("break_glass_admin") is True) or (session.get("user_id") is not None)
 
 def can_manage_users() -> bool:
-    return current_user_role() == "admin"
+    u = current_user()
+    if not u:
+        return False
+    # Break glass admin bypass
+    if session.get("break_glass_admin") is True:
+        return True
+    # Check new role-based admin flag
+    if u.role_id:
+        role = Role.query.get(u.role_id)
+        if role and role.is_admin:
+            return True
+    # Fallback: legacy admin role
+    if u.role == "admin":
+        return True
+    return False
 
 def can_edit_inventory() -> bool:
-    return role_rank(current_user_role()) >= ROLE_RANK["manager"]
+    u = current_user()
+    if not u:
+        return False
+    # Break glass admin bypass
+    if session.get("break_glass_admin") is True:
+        return True
+    # Check new role-based permissions
+    if u.role_id:
+        role = Role.query.get(u.role_id)
+        if role and role.has_permission("can_edit_items"):
+            return True
+    # Fallback: legacy admin role
+    if u.role == "admin":
+        return True
+    return False
 
 def can_view_inventory() -> bool:
-    return role_rank(current_user_role()) >= ROLE_RANK["staff"] or (session.get("break_glass_admin") is True)
+    u = current_user()
+    if not u:
+        return False
+    if session.get("break_glass_admin") is True:
+        return True
+    # Check new role-based permissions
+    if u.role_id:
+        role = Role.query.get(u.role_id)
+        if role and role.has_permission("can_view_items"):
+            return True
+    # Fallback: legacy admin role
+    if u.role == "admin":
+        return True
+    return False
 
 def require_view_access():
     if not is_logged_in():
@@ -711,11 +752,13 @@ def require_beer_edit():
 @app.context_processor
 def inject_user():
     u = current_user()
+    role_name = u.get_role_name() if u else None
     return {
         "current_user": u,
         "auth_user": u,
         "auth_break_glass": bool(session.get("break_glass_admin") is True),
         "auth_role": current_user_role(),
+        "auth_role_name": role_name,
         "can_edit_inventory": can_edit_inventory(),
         "can_manage_users": can_manage_users(),
     }
@@ -724,6 +767,28 @@ def inject_user():
 # ============================================================
 # MODELS
 # ============================================================
+
+class Role(db.Model):
+    __tablename__ = "roles"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    is_admin = db.Column(db.Boolean, nullable=False, default=False)
+    permissions = db.Column(db.JSON, nullable=False, default=dict)  # Store permissions as JSON
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    
+    def has_permission(self, permission):
+        """Check if role has a specific permission"""
+        if self.is_admin:
+            return True
+        return self.permissions.get(permission, False)
+    
+    def set_permission(self, permission, value):
+        """Set a permission for this role"""
+        if not isinstance(self.permissions, dict):
+            self.permissions = {}
+        self.permissions[permission] = bool(value)
+
+
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
@@ -733,13 +798,32 @@ class User(db.Model):
     last_name = db.Column(db.String(80), nullable=True)
 
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default="staff")
+    role = db.Column(db.String(20), nullable=False, default="staff")  # Backward compatibility
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=True)  # New: reference to Role
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    
+    # Relationship
+    role_obj = db.relationship('Role', backref='users')
 
     def display_name(self) -> str:
         full = f"{(self.first_name or '').strip()} {(self.last_name or '').strip()}".strip()
         return full if full else self.username
+    
+    def get_role_name(self):
+        """Get the role name (from Role object or legacy string)"""
+        if self.role_obj:
+            return self.role_obj.name
+        return self.role
+    
+    def has_permission(self, permission):
+        """Check if user has a specific permission"""
+        if self.role_obj:
+            return self.role_obj.has_permission(permission)
+        # Fallback: legacy admin role can do everything
+        if self.role == "admin":
+            return True
+        return False
 
 
 class Beer(db.Model):
@@ -4117,7 +4201,25 @@ def users_page():
     if guard:
         return guard
     users = User.query.order_by(User.created_at.desc(), User.id.desc()).all()
-    return render_template("users.html", users=users)
+    roles = Role.query.order_by(Role.name).all()
+    return render_template("users.html", users=users, roles=roles)
+
+@app.get("/users/new")
+def users_new():
+    guard = require_admin()
+    if guard:
+        return guard
+    roles = Role.query.order_by(Role.name).all()
+    return render_template("user_form.html", user=None, roles=roles)
+
+@app.get("/users/<int:user_id>/edit")
+def users_edit(user_id: int):
+    guard = require_admin()
+    if guard:
+        return guard
+    user = User.query.get_or_404(user_id)
+    roles = Role.query.order_by(Role.name).all()
+    return render_template("user_form.html", user=user, roles=roles)
 
 @app.post("/users/create")
 def users_create():
@@ -4128,18 +4230,30 @@ def users_create():
     username = (request.form.get("username") or "").strip()
     first_name = (request.form.get("first_name") or "").strip() or None
     last_name = (request.form.get("last_name") or "").strip() or None
-    role = (request.form.get("role") or "staff").strip().lower()
+    role_id_str = (request.form.get("role_id") or "").strip()
     password = (request.form.get("password") or "").strip()
 
     if not username:
         flash("Username is required.", "error")
         return redirect("/users")
 
-    if role not in {"staff", "manager", "admin"}:
-        role = "staff"
-
     if not password or len(password) < 6:
         flash("Password must be at least 6 characters.", "error")
+        return redirect("/users")
+
+    if not role_id_str:
+        flash("Role is required.", "error")
+        return redirect("/users")
+
+    # Validate and get role_id
+    try:
+        role_id = int(role_id_str)
+        role = Role.query.get(role_id)
+        if not role:
+            flash("Invalid role selected.", "error")
+            return redirect("/users")
+    except (ValueError, TypeError):
+        flash("Invalid role selected.", "error")
         return redirect("/users")
 
     exists = User.query.filter(func.lower(User.username) == username.lower()).first()
@@ -4151,7 +4265,8 @@ def users_create():
         username=username,
         first_name=first_name,
         last_name=last_name,
-        role=role,
+        role_id=role_id,
+        role="",  # Don't set role field anymore
         is_active=True,
         password_hash=generate_password_hash(password),
     )
@@ -4163,11 +4278,62 @@ def users_create():
         entity_type="User",
         entity_id=u.id,
         message="User created",
-        details={"username": u.username, "role": u.role}
+        details={"username": u.username, "role": role.name}
     )
 
     db.session.commit()
-    flash("User created.", "success")
+    flash(f"User '{username}' created with role '{role.name}'.", "success")
+    return redirect("/users")
+
+@app.post("/users/<int:user_id>/edit")
+def users_edit_post(user_id: int):
+    guard = require_admin()
+    if guard:
+        return guard
+
+    user = User.query.get_or_404(user_id)
+    
+    first_name = (request.form.get("first_name") or "").strip() or None
+    last_name = (request.form.get("last_name") or "").strip() or None
+    role_id_str = (request.form.get("role_id") or "").strip()
+    password = (request.form.get("password") or "").strip()
+
+    if not role_id_str:
+        flash("Role is required.", "error")
+        return redirect(f"/users/{user_id}/edit")
+
+    # Validate and get role_id
+    try:
+        role_id = int(role_id_str)
+        role = Role.query.get(role_id)
+        if not role:
+            flash("Invalid role selected.", "error")
+            return redirect(f"/users/{user_id}/edit")
+    except (ValueError, TypeError):
+        flash("Invalid role selected.", "error")
+        return redirect(f"/users/{user_id}/edit")
+
+    user.first_name = first_name
+    user.last_name = last_name
+    user.role_id = role_id
+
+    if password:
+        if len(password) < 6:
+            flash("Password must be at least 6 characters.", "error")
+            return redirect(f"/users/{user_id}/edit")
+        user.password_hash = generate_password_hash(password)
+
+    db.session.commit()
+    
+    audit_log(
+        action="update",
+        entity_type="User",
+        entity_id=user_id,
+        message="User updated",
+        details={"username": user.username, "role": role.name}
+    )
+
+    flash(f"User '{user.username}' updated.", "success")
     return redirect("/users")
 
 @app.post("/users/<int:user_id>/toggle_active")
@@ -6048,6 +6214,209 @@ def reconcile_delete(rec_id: int):
     return redirect(f"/items/{item_id}/reconcile")
 
 # ============================================================
+# ROLE MANAGEMENT (ADMIN ONLY)
+# ============================================================
+@app.get("/admin/roles")
+def roles_page():
+    guard = require_admin()
+    if guard:
+        return guard
+    
+    roles = Role.query.order_by(Role.name).all()
+    return render_template("roles.html", roles=roles)
+
+@app.get("/admin/roles/new")
+def new_role_page():
+    guard = require_admin()
+    if guard:
+        return guard
+    
+    role = None
+    return render_template("role_form.html", role=role)
+
+@app.get("/admin/roles/<int:role_id>/edit")
+def edit_role_page(role_id):
+    guard = require_admin()
+    if guard:
+        return guard
+    
+    role = Role.query.get(role_id)
+    if not role:
+        return "Role not found", 404
+    
+    return render_template("role_form.html", role=role)
+
+@app.post("/admin/roles/create")
+def create_role():
+    guard = require_admin()
+    if guard:
+        return guard
+    
+    try:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("Role name required", "error")
+            return redirect("/admin/roles/new")
+        
+        if Role.query.filter_by(name=name).first():
+            flash("Role name already exists", "error")
+            return redirect("/admin/roles/new")
+        
+        # Collect permissions - first try JSON, then fall back to form data
+        permissions = {}
+        permissions_json = request.form.get("permissions", "")
+        
+        if permissions_json:
+            try:
+                permissions = json.loads(permissions_json)
+                if not isinstance(permissions, dict):
+                    permissions = {}
+            except Exception as e:
+                print(f"DEBUG: Failed to parse JSON permissions: {e}, falling back to form data")
+                permissions = {}
+        
+        # If we don't have permissions yet, collect from form data
+        if not permissions:
+            for key in request.form.keys():
+                if key.startswith('can_'):
+                    # Checkbox values are typically 'on' if checked, absent if not
+                    permissions[key] = request.form.get(key) in ('on', 'true', '1', 'yes')
+        
+        print(f"DEBUG: Creating role '{name}' with {len([p for p in permissions.values() if p])} permissions: {permissions}")
+        
+        role = Role(name=name, is_admin=False, permissions=permissions)
+        db.session.add(role)
+        db.session.commit()
+        
+        audit_log("create", "Role", role.id, f"Created role '{name}'", {"permissions": permissions})
+        
+        flash(f"Role '{name}' created successfully with {len([p for p in permissions.values() if p])} permissions", "success")
+        return redirect("/admin/roles")
+    except Exception as e:
+        print(f"ERROR creating role: {str(e)}")
+        flash(f"Error creating role: {str(e)}", "error")
+        return redirect("/admin/roles/new")
+
+@app.post("/admin/roles/<int:role_id>/update")
+def update_role(role_id):
+    guard = require_admin()
+    if guard:
+        return guard
+    
+    try:
+        role = Role.query.get(role_id)
+        if not role:
+            flash("Role not found", "error")
+            return redirect("/admin/roles")
+        
+        if role.is_admin:
+            flash("Cannot modify admin role", "error")
+            return redirect("/admin/roles")
+        
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("Role name required", "error")
+            return redirect(f"/admin/roles/{role_id}/edit")
+        
+        # Check for duplicate name (different from current role)
+        existing = Role.query.filter_by(name=name).first()
+        if existing and existing.id != role_id:
+            flash("Role name already exists", "error")
+            return redirect(f"/admin/roles/{role_id}/edit")
+        
+        old_name = role.name
+        role.name = name
+        
+        # Collect permissions - first try JSON, then fall back to form data
+        permissions = {}
+        permissions_json = request.form.get("permissions", "")
+        
+        if permissions_json:
+            try:
+                permissions = json.loads(permissions_json)
+                if not isinstance(permissions, dict):
+                    permissions = {}
+            except Exception as e:
+                print(f"DEBUG: Failed to parse JSON permissions: {e}, falling back to form data")
+                permissions = {}
+        
+        # If we don't have permissions yet, collect from form data
+        if not permissions:
+            for key in request.form.keys():
+                if key.startswith('can_'):
+                    # Checkbox values are typically 'on' if checked, absent if not
+                    permissions[key] = request.form.get(key) in ('on', 'true', '1', 'yes')
+        
+        print(f"DEBUG: Updating role '{old_name}' to '{name}' with {len([p for p in permissions.values() if p])} permissions: {permissions}")
+        
+        role.permissions = permissions
+        
+        db.session.commit()
+        
+        audit_log("update", "Role", role.id, f"Updated role '{old_name}' to '{name}'", {"permissions": permissions})
+        
+        flash(f"Role '{name}' updated successfully with {len([p for p in permissions.values() if p])} permissions", "success")
+        return redirect("/admin/roles")
+    except Exception as e:
+        print(f"ERROR updating role: {str(e)}")
+        flash(f"Error updating role: {str(e)}", "error")
+        return redirect(f"/admin/roles/{role_id}/edit")
+
+@app.post("/admin/roles/<int:role_id>/delete")
+def delete_role(role_id):
+    guard = require_admin()
+    if guard:
+        return guard
+    
+    try:
+        role = Role.query.get(role_id)
+        if not role:
+            flash("Role not found", "error")
+            return redirect("/admin/roles")
+        
+        if role.is_admin:
+            flash("Cannot delete admin role", "error")
+            return redirect("/admin/roles")
+        
+        # Check if any users have this role
+        user_count = User.query.filter_by(role_id=role_id).count()
+        if user_count > 0:
+            flash(f"{user_count} users have this role. Reassign them first.", "error")
+            return redirect("/admin/roles")
+        
+        role_name = role.name
+        db.session.delete(role)
+        db.session.commit()
+        
+        audit_log("delete", "Role", role_id, f"Deleted role '{role_name}'")
+        
+        flash(f"Role '{role_name}' deleted successfully", "success")
+        return redirect("/admin/roles")
+    except Exception as e:
+        flash(f"Error deleting role: {str(e)}", "error")
+        return redirect("/admin/roles")
+
+@app.get("/admin/roles/<int:role_id>/data")
+def get_role_data(role_id):
+    guard = require_admin()
+    if guard:
+        return guard
+    
+    try:
+        role = Role.query.get(role_id)
+        if not role:
+            return jsonify({"error": "Role not found"}), 404
+        
+        return jsonify({
+            "id": role.id,
+            "name": role.name,
+            "is_admin": role.is_admin,
+            "permissions": role.permissions or {}
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ============================================================
 # AUDIT HISTORY PAGE (your filter/search kept + made stable)
 # ============================================================
 # ============================================================
@@ -6140,12 +6509,46 @@ with app.app_context():
     except Exception:
         pass
 
+    # Create default Admin role if it doesn't exist
+    if not Role.query.filter_by(name="Admin").first():
+        admin_role = Role(
+            name="Admin",
+            is_admin=True,
+            permissions={
+                "can_view_items": True,
+                "can_edit_items": True,
+                "can_delete_items": True,
+                "can_view_lots": True,
+                "can_edit_lots": True,
+                "can_delete_lots": True,
+                "can_view_orders": True,
+                "can_create_orders": True,
+                "can_delete_orders": True,
+                "can_view_beers": True,
+                "can_edit_beers": True,
+                "can_delete_beers": True,
+                "can_view_users": True,
+                "can_create_users": True,
+                "can_delete_users": True,
+                "can_view_suppliers": True,
+                "can_edit_suppliers": True,
+                "can_delete_suppliers": True,
+                "can_view_audit": True,
+                "can_reconcile": True,
+            }
+        )
+        db.session.add(admin_role)
+        db.session.commit()
+
     if User.query.count() == 0:
+        # Get the Admin role
+        admin_role = Role.query.filter_by(name="Admin").first()
         db.session.add(User(
             username="owner",
             first_name="Draft",
             last_name="Room",
             role="admin",
+            role_id=admin_role.id if admin_role else None,
             is_active=True,
             password_hash=generate_password_hash("ChangeMe123"),
         ))

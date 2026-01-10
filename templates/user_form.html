@@ -32,11 +32,18 @@
 
       <div class="field">
         <label>Role</label>
-        {% set r = user.role if user else 'staff' %}
-        <select class="input" name="role">
-          <option value="staff" {% if r=='staff' %}selected{% endif %}>staff</option>
-          <option value="manager" {% if r=='manager' %}selected{% endif %}>manager</option>
-          <option value="admin" {% if r=='admin' %}selected{% endif %}>admin</option>
+        <select class="input" name="role_id" required>
+          <option value="">-- Select a role --</option>
+          {% if roles %}
+            {% for role in roles %}
+              <option value="{{ role.id }}" {% if user and user.role_id == role.id %}selected{% endif %}>
+                {{ role.name }}
+                {% if role.is_admin %}(Admin){% endif %}
+              </option>
+            {% endfor %}
+          {% else %}
+            <option disabled>No roles available</option>
+          {% endif %}
         </select>
       </div>
 

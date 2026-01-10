@@ -67,11 +67,15 @@
         <span>Users</span>
       </a>
       {% endif %}
-      {% if auth_role == "admin" %}
+      {% if can_manage_users %}
       <hr class="nav-divider">
       <a href="/audit" class="nav-item {% if '/audit' in request.path %}active{% endif %}" data-tooltip="Audit Log">
         <i class="fas fa-history"></i>
         <span>Audit Log</span>
+      </a>
+      <a href="/admin/roles" class="nav-item {% if '/admin/roles' in request.path %}active{% endif %}" data-tooltip="Role Management">
+        <i class="fas fa-shield-alt"></i>
+        <span>Roles</span>
       </a>
       {% endif %}
     </nav>
@@ -86,7 +90,7 @@
             {{ current_user.username }}
           {% endif %}
         </div>
-        <div class="user-role">{{ auth_role.title() if auth_role else 'User' }}</div>
+        <div class="user-role">{{ auth_role_name.title() if auth_role_name else 'User' }}</div>
       </div>
       <a href="/logout" class="nav-item logout" data-tooltip="Logout">
         <i class="fas fa-sign-out-alt"></i>
@@ -117,13 +121,13 @@
                 {{ current_user.username }}
               {% endif %}
             </span>
-            <span class="brand-user-role">({{ auth_role.title() if auth_role else 'User' }})</span>
+            <span class="brand-user-role">({{ auth_role_name.title() if auth_role_name else 'User' }})</span>
           </div>
         {% endif %}
       </div>
       <div class="topbar-spacer"></div>
       
-      {% if auth_role == "admin" %}
+      {% if can_manage_users %}
         <a href="/audit" class="audit-btn" title="View audit log">
           <i class="fas fa-history"></i>
         </a>

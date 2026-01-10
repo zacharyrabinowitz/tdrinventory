@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h1>Role Management</h1>
+      <span class="muted">Create and manage user roles with custom permissions</span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <a href="/admin/roles/new" class="btn primary">+ Create New Role</a>
+  </div>
+
+  <!-- ROLES LIST -->
+  {% if roles %}
+    <div class="table">
+      <div class="row head" style="grid-template-columns: 1.5fr 1fr 2fr 0.8fr;">
+        <div>Role Name</div>
+        <div>Type</div>
+        <div>Permissions</div>
+        <div>Actions</div>
+      </div>
+
+      {% for role in roles %}
+        <div class="row" style="grid-template-columns: 1.5fr 1fr 2fr 0.8fr;">
+          <div>
+            <div class="strong">{{ role.name }}</div>
+          </div>
+
+          <div class="muted">
+            {% if role.is_admin %}
+              <span style="background: var(--danger); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">Admin</span>
+            {% else %}
+              <span style="background: var(--primary); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">Custom</span>
+            {% endif %}
+          </div>
+
+          <div class="muted smalltxt">
+            {% if role.is_admin %}
+              <strong>All Permissions</strong>
+            {% else %}
+              {% set perms = role.permissions.keys()|list if role.permissions else [] %}
+              {% if perms %}
+                {{ perms|length }} permissions configured
+              {% else %}
+                No permissions
+              {% endif %}
+            {% endif %}
+          </div>
+
+          <div style="display: flex; gap: 8px;">
+            {% if not role.is_admin %}
+              <a href="/admin/roles/{{ role.id }}/edit" class="btn" style="font-size: 12px; padding: 6px 10px; text-decoration: none;">Edit</a>
+              <form method="POST" action="/admin/roles/{{ role.id }}/delete" style="display: inline;" onsubmit="return confirm('Delete role {{ role.name }}?');">
+                <button class="btn btn-danger" style="font-size: 12px; padding: 6px 10px;" type="submit">Delete</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">No roles created yet.</div>
+  {% endif %}
+</section>
+
+{% endblock %}

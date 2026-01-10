@@ -43,10 +43,18 @@
       <div class="grid2 mobile-grid1">
         <div class="field">
           <label>Role</label>
-          <select class="input" name="role">
-            <option value="staff" selected>staff</option>
-            <option value="manager">manager</option>
-            <option value="admin">admin</option>
+          <select class="input" name="role_id" required>
+            <option value="">-- Select a role --</option>
+            {% if roles %}
+              {% for role in roles %}
+                <option value="{{ role.id }}">
+                  {{ role.name }}
+                  {% if role.is_admin %}(Admin){% endif %}
+                </option>
+              {% endfor %}
+            {% else %}
+              <option disabled>No roles available</option>
+            {% endif %}
           </select>
         </div>
 
@@ -84,7 +92,7 @@
             <div class="muted smalltxt">@{{ u.username }}</div>
           </div>
 
-          <div class="muted">{{ u.role }}</div>
+          <div class="muted">{{ u.get_role_name() }}</div>
 
           <div class="muted">
             {% if u.is_active %}
@@ -128,7 +136,7 @@
               <div class="muted smalltxt">@{{ u.username }}</div>
             </div>
 
-            <div class="pill" style="text-transform:lowercase;">{{ u.role }}</div>
+            <div class="pill" style="text-transform:lowercase;">{{ u.get_role_name() }}</div>
           </div>
 
           <div class="user-card-meta">

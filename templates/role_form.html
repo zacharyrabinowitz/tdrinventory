@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <div class="cardhead">
+    <div>
+      {% if role %}
+        <h1>Edit Role: {{ role.name }}</h1>
+        <span class="muted">Update the role name and permissions</span>
+      {% else %}
+        <h1>Create New Role</h1>
+        <span class="muted">Set up a new user role with custom permissions</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <form method="POST" action="{% if role %}/admin/roles/{{ role.id }}/update{% else %}/admin/roles/create{% endif %}" class="form" style="max-width: 800px;">
+    <div class="field">
+      <label>Role Name</label>
+      <input class="input" name="name" placeholder="e.g. Manager, Viewer, Editor" value="{{ role.name if role else '' }}" required>
+    </div>
+
+    <div style="margin-top: 32px;">
+      <h2>Permissions</h2>
+      <div class="muted" style="margin-bottom: 20px; font-size: 14px;">
+        Grant this role permission to access and manage different parts of the system. Select the checkboxes for each permission.
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <!-- Items -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Items</h3>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_view_items" {% if role and role.permissions.get('can_view_items') %}checked{% endif %}>
+            <span>View Items</span>
+          </label>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_edit_items" {% if role and role.permissions.get('can_edit_items') %}checked{% endif %}>
+            <span>Edit Items</span>
+          </label>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_delete_items" {% if role and role.permissions.get('can_delete_items') %}checked{% endif %}>
+            <span>Delete Items</span>
+          </label>
+        </div>
+
+        <!-- Lots -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Lots</h3>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_view_lots" {% if role and role.permissions.get('can_view_lots') %}checked{% endif %}>
+            <span>View Lots</span>
+          </label>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_edit_lots" {% if role and role.permissions.get('can_edit_lots') %}checked{% endif %}>
+            <span>Edit Lots</span>
+          </label>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_delete_lots" {% if role and role.permissions.get('can_delete_lots') %}checked{% endif %}>
+            <span>Delete Lots</span>
+          </label>
+        </div>
+
+        <!-- Orders -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Orders</h3>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_view_orders" {% if role and role.permissions.get('can_view_orders') %}checked{% endif %}>
+            <span>View Orders</span>
+          </label>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_create_orders" {% if role and role.permissions.get('can_create_orders') %}checked{% endif %}>
+            <span>Create Orders</span>
+          </label>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_delete_orders" {% if role and role.permissions.get('can_delete_orders') %}checked{% endif %}>
+            <span>Delete Orders</span>
+          </label>
+        </div>
+
+        <!-- Beers -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Beers</h3>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_view_beers" {% if role and role.permissions.get('can_view_beers') %}checked{% endif %}>
+            <span>View Beers</span>
+          </label>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_edit_beers" {% if role and role.permissions.get('can_edit_beers') %}checked{% endif %}>
+            <span>Edit Beers</span>
+          </label>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_delete_beers" {% if role and role.permissions.get('can_delete_beers') %}checked{% endif %}>
+            <span>Delete Beers</span>
+          </label>
+        </div>
+
+        <!-- Users -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Users</h3>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_view_users" {% if role and role.permissions.get('can_view_users') %}checked{% endif %}>
+            <span>View Users</span>
+          </label>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_create_users" {% if role and role.permissions.get('can_create_users') %}checked{% endif %}>
+            <span>Create Users</span>
+          </label>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_delete_users" {% if role and role.permissions.get('can_delete_users') %}checked{% endif %}>
+            <span>Delete Users</span>
+          </label>
+        </div>
+
+        <!-- Suppliers -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Suppliers</h3>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_view_suppliers" {% if role and role.permissions.get('can_view_suppliers') %}checked{% endif %}>
+            <span>View Suppliers</span>
+          </label>
+          <label style="display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_edit_suppliers" {% if role and role.permissions.get('can_edit_suppliers') %}checked{% endif %}>
+            <span>Edit Suppliers</span>
+          </label>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_delete_suppliers" {% if role and role.permissions.get('can_delete_suppliers') %}checked{% endif %}>
+            <span>Delete Suppliers</span>
+          </label>
+        </div>
+
+        <!-- Audit -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Audit</h3>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_view_audit" {% if role and role.permissions.get('can_view_audit') %}checked{% endif %}>
+            <span>View Audit Log</span>
+          </label>
+        </div>
+
+        <!-- Reconcile -->
+        <div style="padding: 16px; background: var(--bg2); border-radius: 6px;">
+          <h3 style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600;">Reconcile</h3>
+          <label style="display: flex; gap: 10px; cursor: pointer; align-items: center;">
+            <input type="checkbox" name="can_reconcile" {% if role and role.permissions.get('can_reconcile') %}checked{% endif %}>
+            <span>Reconcile Inventory</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 12px; margin-top: 32px;">
+      <button class="btn primary" type="submit">
+        {% if role %}
+          Update Role
+        {% else %}
+          Create Role
+        {% endif %}
+      </button>
+      <a href="/admin/roles" class="btn">Cancel</a>
+    </div>
+  </form>
+</section>
+
+<script>
+  document.querySelector('form').addEventListener('submit', function(e) {
+    // Collect all permissions from checkboxes
+    const permissions = {};
+    document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      permissions[cb.name] = cb.checked;
+    });
+    
+    // Create or update hidden input with permissions as JSON
+    let permInput = document.querySelector('input[name="permissions"]');
+    if (!permInput) {
+      permInput = document.createElement('input');
+      permInput.type = 'hidden';
+      permInput.name = 'permissions';
+      this.appendChild(permInput);
+    }
+    permInput.value = JSON.stringify(permissions);
+    
+    console.log('Submitting with permissions:', permissions);
+  });
+</script>
+
+{% endblock %}
