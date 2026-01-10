@@ -158,4 +158,30 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     observer.observe(sidebar, { attributes: true });
   }
+
+  // ===== THEME TOGGLE =====
+  const themeBtn = document.getElementById('themeToggle');
+  if (themeBtn) {
+    function setTheme(theme) {
+      const isDark = theme !== 'light';
+      if (isDark) {
+        document.body.classList.remove('light-theme');
+        themeBtn.innerHTML = '<i class="fas fa-moon"></i>';
+      } else {
+        document.body.classList.add('light-theme');
+        themeBtn.innerHTML = '<i class="fas fa-sun"></i>';
+      }
+      localStorage.setItem('theme', theme);
+    }
+    
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    setTheme(savedTheme);
+    
+    themeBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const current = localStorage.getItem('theme') || 'dark';
+      setTheme(current === 'light' ? 'dark' : 'light');
+    });
+  }
 });

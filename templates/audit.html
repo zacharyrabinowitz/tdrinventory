@@ -76,6 +76,13 @@
       </div>
     </div>
 
+    <div class="grid3">
+      <div class="field">
+        <label>Page</label>
+        <input class="input" name="page" value="{{ page_q or '' }}" placeholder="e.g. /items, /orders, dashboard...">
+      </div>
+    </div>
+
     <div class="actions">
       <button class="btn primary" type="submit">Apply Filters</button>
       <a class="btn" href="/audit">Reset</a>
@@ -86,16 +93,17 @@
 
   {% if logs and logs|length > 0 %}
     <div class="table">
-      <div class="row head" style="grid-template-columns: 1.1fr .9fr .7fr .9fr 2fr;">
+      <div class="row head" style="grid-template-columns: 1.1fr .9fr .7fr .9fr 1.2fr 2fr;">
         <div>Timestamp</div>
         <div>User</div>
         <div>Action</div>
         <div>Entity</div>
+        <div>Page</div>
         <div>Message / Details</div>
       </div>
 
       {% for l in logs %}
-        <div class="row" style="grid-template-columns: 1.1fr .9fr .7fr .9fr 2fr;">
+        <div class="row" style="grid-template-columns: 1.1fr .9fr .7fr .9fr 1.2fr 2fr; {% if l.action == 'page_visit' %}background-color: rgba(100, 150, 255, 0.05); border-left: 3px solid #4080ff;{% endif %}">
           <div class="muted">
             <span class="strong">{{ l.created_at.strftime("%b %d, %Y %I:%M:%S %p") }}</span>
           </div>
@@ -112,6 +120,15 @@
           <div class="muted">
             <div class="strong">{{ l.entity_type }}</div>
             <div class="smalltxt muted">ID: {{ l.entity_id or "—" }}</div>
+          </div>
+
+          <div class="muted">
+            {% if l.page %}
+              <div class="strong">{{ l.page_title or "—" }}</div>
+              <div class="smalltxt muted" style="font-family: monospace;">{{ l.page }}</div>
+            {% else %}
+              <span style="opacity:.6;">—</span>
+            {% endif %}
           </div>
 
           <div class="muted" style="line-height:1.35;">

@@ -316,48 +316,6 @@
           this.closest('.alert').remove();
         });
       });
-
-      // ===== THEME TOGGLE =====
-      const themeToggle = document.getElementById('themeToggle');
-      const htmlElement = document.documentElement;
-
-      // Initialize theme from localStorage or system preference
-      function initTheme() {
-        let theme = localStorage.getItem('theme');
-        
-        if (!theme) {
-          // Check system preference
-          if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-            theme = 'light';
-          } else {
-            theme = 'dark';
-          }
-        }
-        
-        applyTheme(theme);
-      }
-
-      function applyTheme(theme) {
-        if (theme === 'light') {
-          body.classList.add('light-theme');
-          themeToggle.innerHTML = '<i class="fas fa-sun"></i>';
-          themeToggle.title = 'Switch to dark theme';
-          localStorage.setItem('theme', 'light');
-        } else {
-          body.classList.remove('light-theme');
-          themeToggle.innerHTML = '<i class="fas fa-moon"></i>';
-          themeToggle.title = 'Switch to light theme';
-          localStorage.setItem('theme', 'dark');
-        }
-      }
-
-      themeToggle.addEventListener('click', () => {
-        const isLight = body.classList.contains('light-theme');
-        applyTheme(isLight ? 'dark' : 'light');
-      });
-
-      // Initialize on page load
-      initTheme();
     })();
   </script>
 </body>

@@ -52,8 +52,61 @@ limiter = Limiter(
 
 # Register before_request to add security headers
 @app.before_request
-def add_security_headers():
-    pass  # Headers added in after_request
+def log_page_visits():
+    """Log all page visits for audit trail"""
+    # Only log for logged-in users (not login page)
+    if request.endpoint and request.endpoint != 'login' and is_logged_in():
+        # Map endpoints to human-readable page names
+        page_names = {
+            'index': 'Dashboard',
+            'items': 'Items',
+            'items_bulk': 'Bulk Edit Items',
+            'item': 'Item Details',
+            'item_hub': 'Item Hub',
+            'item_lots': 'Item Lots',
+            'lot_add': 'Add Lot',
+            'lot_view': 'View Lot',
+            'lot_edit': 'Edit Lot',
+            'lot_bulk': 'Bulk Lots',
+            'lots': 'Lots',
+            'order': 'Create Order',
+            'orders': 'Orders',
+            'order_edit': 'Edit Order',
+            'edit_order': 'Edit Order',
+            'beers': 'Beers',
+            'beers_dashboard': 'Beer Dashboard',
+            'beers_manage': 'Manage Beers',
+            'beers_bulk_edit': 'Bulk Edit Beers',
+            'suppliers': 'Suppliers',
+            'supplier_form': 'Supplier Form',
+            'users': 'Users',
+            'user_form': 'User Form',
+            'audit': 'Audit Log',
+            'audit_log': 'Audit Log',
+            'prep': 'Prep',
+            'reconcile': 'Reconcile',
+            'reconcile_edit': 'Reconcile Edit',
+            'reconcile_history': 'Reconcile History',
+            'sales_edit': 'Sales Edit',
+            'move_boxes': 'Move Boxes',
+            'batch': 'Batch',
+        }
+        
+        page_title = page_names.get(request.endpoint, request.endpoint or 'Unknown')
+        
+        try:
+            audit_log(
+                action='page_visit',
+                entity_type='Page',
+                entity_id=None,
+                page=request.path,
+                page_title=page_title,
+                message=f'User visited {page_title}',
+                details={'endpoint': request.endpoint, 'method': request.method}
+            )
+            db.session.commit()
+        except Exception:
+            pass  # Don't block request if audit fails
 
 @app.after_request
 def add_security_headers_response(response):
@@ -760,9 +813,13 @@ class AuditLog(db.Model):
     actor_role = db.Column(db.String(30), nullable=True)
 
     # what
-    action = db.Column(db.String(40), nullable=False)          # create/update/delete/move/prep/reconcile/login/logout
-    entity_type = db.Column(db.String(60), nullable=False)     # InventoryLot, Item, Supplier, PrepBatch, ReconcileRecord, User
+    action = db.Column(db.String(40), nullable=False)          # create/update/delete/move/prep/reconcile/login/logout/page_visit
+    entity_type = db.Column(db.String(60), nullable=False)     # InventoryLot, Item, Supplier, PrepBatch, ReconcileRecord, User, Page
     entity_id = db.Column(db.Integer, nullable=True)
+
+    # page context
+    page = db.Column(db.String(200), nullable=True)            # URL path visited
+    page_title = db.Column(db.String(200), nullable=True)      # Human-readable page name
 
     # details
     message = db.Column(db.String(400), nullable=True)
@@ -981,12 +1038,13 @@ def audit_log(
     entity_type: str,
     entity_id: int | None = None,
     message: str | None = None,
-    details: dict | str | None = None
+    details: dict | str | None = None,
+    page: str | None = None,
+    page_title: str | None = None
 ):
     """
-    Call this BEFORE commit. It's ok if entity_id isn't known yet; you can:
-      - db.session.flush() first, then audit_log with id
-      - or log with entity_id=None (still records the event)
+    Log audit trail with optional page tracking.
+    Call this BEFORE commit. It's ok if entity_id isn't known yet.
     """
     try:
         u = current_user()
@@ -996,6 +1054,10 @@ def audit_log(
 
         ip = request.headers.get("X-Forwarded-For", request.remote_addr)
         ua = (request.headers.get("User-Agent") or "")[:240]
+
+        # If page not provided, try to get from request
+        if page is None:
+            page = request.path
 
         if isinstance(details, dict):
             details_str = json.dumps(details, ensure_ascii=False)
@@ -1011,6 +1073,8 @@ def audit_log(
             action=(action or "").strip().lower(),
             entity_type=(entity_type or "").strip(),
             entity_id=entity_id,
+            page=page,
+            page_title=page_title,
             message=message,
             details=details_str,
             ip=ip,
@@ -5999,6 +6063,7 @@ def audit_history():
     user_q = (request.args.get("user") or "").strip()
     action = (request.args.get("action") or "").strip().lower()
     entity = (request.args.get("entity") or "").strip()
+    page_q = (request.args.get("page") or "").strip()
     date_from = (request.args.get("from") or "").strip()
     date_to = (request.args.get("to") or "").strip()
 
@@ -6022,6 +6087,13 @@ def audit_history():
 
     if entity:
         query = query.filter(AuditLog.entity_type == entity)
+
+    if page_q:
+        like = f"%{page_q}%"
+        query = query.filter(
+            (AuditLog.page.ilike(like)) |
+            (AuditLog.page_title.ilike(like))
+        )
 
     # date filters treat input as local dates
     if date_from:
@@ -6050,6 +6122,7 @@ def audit_history():
         user_q=user_q,
         action=action,
         entity=entity,
+        page_q=page_q,
         date_from=date_from,
         date_to=date_to,
         actions=actions,
