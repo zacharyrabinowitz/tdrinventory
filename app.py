@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 import os
 import io
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta, timezone
 from typing import Optional, Any, Iterable, cast
+from functools import wraps
 
 from flask import Flask, flash, redirect, render_template, request, session, abort, url_for, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from sqlalchemy import func, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from io import BytesIO
@@ -24,11 +28,68 @@ except Exception:
 # APP SETUP
 # ============================================================
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "dev-change-this-to-a-long-random-string"
+
+# Load SECRET_KEY from environment or use secure default for development
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///draftroom_inventory.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# Security headers and session configuration
+app.config["SESSION_COOKIE_HTTPONLY"] = True  # Prevent JavaScript from accessing session cookie
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_ENV") == "production"  # HTTPS only in production
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Prevent CSRF attacks
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=24)
+app.config["PREFERRED_URL_SCHEME"] = "https" if os.environ.get("FLASK_ENV") == "production" else "http"
+
 db = SQLAlchemy(app)
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+
+# Register before_request to add security headers
+@app.before_request
+def add_security_headers():
+    pass  # Headers added in after_request
+
+@app.after_request
+def add_security_headers_response(response):
+    """Add security headers to all responses"""
+    # Prevent clickjacking attacks
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    
+    # Enable XSS protection in older browsers
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    
+    # Prevent MIME type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    # Content Security Policy - restrictive by default
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "font-src 'self' https://cdnjs.cloudflare.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'self'"
+    )
+    
+    # Referrer policy
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    # Feature policy
+    response.headers["Permissions-Policy"] = (
+        "geolocation=(), "
+        "microphone=(), "
+        "camera=(), "
+        "payment=()"
+    )
+    
+    return response
 
 
 # ============================================================
@@ -458,8 +519,60 @@ def fmt_dt(dt: Optional[datetime], fmt: str = "%b %d, %Y %I:%M %p") -> str:
 # ============================================================
 # AUTH SETTINGS (hardcoded fallback)
 # ============================================================
-BREAK_GLASS_ADMIN_USERNAME = "admin"
-BREAK_GLASS_ADMIN_PASSWORD = "admin123"
+# IMPORTANT: Change these credentials in production via environment variables!
+# Set BREAK_GLASS_ADMIN_USERNAME and BREAK_GLASS_ADMIN_PASSWORD environment variables
+BREAK_GLASS_ADMIN_USERNAME = os.environ.get("BREAK_GLASS_ADMIN_USERNAME", "admin")
+BREAK_GLASS_ADMIN_PASSWORD = os.environ.get("BREAK_GLASS_ADMIN_PASSWORD", "change_me_immediately")
+
+# Helper function for password validation
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """
+    Validate password meets minimum security requirements:
+    - Minimum 12 characters
+    - Mix of uppercase and lowercase
+    - Numbers
+    - Special characters
+    Returns (is_valid, error_message)
+    """
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters long"
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter"
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter"
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one number"
+    if not any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password):
+        return False, "Password must contain at least one special character"
+    return True, ""
+
+
+# Helper functions for input validation
+def sanitize_input(value: str, max_length: int = 512, allow_special: bool = True) -> str:
+    """
+    Sanitize user input by stripping whitespace and enforcing length limits.
+    Note: This does NOT prevent XSS - rely on Jinja2 auto-escaping for that.
+    """
+    if not isinstance(value, str):
+        return ""
+    sanitized = value.strip()
+    return sanitized[:max_length]
+
+def is_valid_username(username: str) -> bool:
+    """Validate username format"""
+    if not username or len(username) < 3 or len(username) > 255:
+        return False
+    # Allow alphanumeric, dots, underscores, hyphens
+    import re
+    return bool(re.match(r'^[a-zA-Z0-9._-]+$', username))
+
+def is_valid_email(email: str) -> bool:
+    """Validate email format"""
+    if not email or len(email) > 255:
+        return False
+    import re
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
 
 
 # ============================================================
@@ -1436,13 +1549,24 @@ def login():
     return render_template("login.html")
 
 @app.post("/login")
+@limiter.limit("5 per minute")  # Rate limit: max 5 login attempts per minute
 def login_post():
     username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
 
+    # Input validation
+    if not username or not password:
+        flash("Username and password are required.", "error")
+        return redirect("/login")
+    
+    if len(username) > 255 or len(password) > 512:
+        flash("Invalid input.", "error")
+        return redirect("/login")
+
     if username.lower() == BREAK_GLASS_ADMIN_USERNAME.lower() and password == BREAK_GLASS_ADMIN_PASSWORD:
         session.clear()
         session["break_glass_admin"] = True
+        session.permanent = True  # Use permanent session with configured lifetime
 
         audit_log(
             action="login",
@@ -1458,15 +1582,18 @@ def login_post():
 
     u = User.query.filter(func.lower(User.username) == username.lower()).first()
     if not u or not u.is_active:
+        # Use generic message to prevent user enumeration
         flash("Invalid username/password.", "error")
         return redirect("/login")
 
     if not check_password_hash(u.password_hash, password):
+        # Use generic message to prevent user enumeration
         flash("Invalid username/password.", "error")
         return redirect("/login")
 
     session.clear()
     session["user_id"] = u.id
+    session.permanent = True  # Use permanent session with configured lifetime
 
     audit_log(
         action="login",
