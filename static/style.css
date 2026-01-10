@@ -2895,3 +2895,425 @@ input:focus, select:focus, textarea:focus{
   gap:10px;
   flex-wrap:wrap;
 }
+
+/* ========== ENHANCED MOBILE OPTIMIZATION ========== */
+/* iPhone App-like Experience */
+
+@media (max-width: 768px) {
+  /* Safe area support for notches */
+  body {
+    padding-top: max(0px, env(safe-area-inset-top));
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+
+  main.main-content {
+    padding-bottom: 80px; /* Space for bottom nav */
+  }
+
+  /* Sidebar - hidden on mobile by default */
+  #sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 1001;
+    width: 280px;
+  }
+
+  .sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: none;
+  }
+
+  .sidebar-overlay.open {
+    display: block;
+  }
+
+  /* Mobile Bottom Navigation */
+  .mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--card);
+    border-top: 1px solid var(--stroke);
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    height: 70px;
+    z-index: 999;
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+    padding: 8px 0 max(16px, env(safe-area-inset-bottom)) 0;
+  }
+
+  .mobile-bottom-nav a {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    height: 60px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 11px;
+    gap: 4px;
+    transition: color 0.2s ease;
+    border-radius: 8px;
+    margin: 0 4px;
+  }
+
+  .mobile-bottom-nav a i {
+    font-size: 24px;
+  }
+
+  .mobile-bottom-nav a:hover,
+  .mobile-bottom-nav a.active {
+    color: var(--primary-light);
+    background: rgba(59, 130, 246, 0.1);
+  }
+
+  /* Topbar adjustments for mobile */
+  .topbar {
+    padding: 12px 16px;
+    gap: 8px;
+  }
+
+  .topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .topbar-brand h1 {
+    font-size: 18px;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-brand-user {
+    display: none;
+  }
+
+  /* Page content padding */
+  .page-content {
+    padding: 16px 12px;
+    padding-bottom: 32px;
+  }
+
+  /* Card improvements */
+  .card {
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+  }
+
+  /* Touch-friendly sizing */
+  .btn {
+    min-height: 48px;
+    padding: 12px 16px;
+    font-size: 16px; /* Prevents auto-zoom on iOS */
+    border-radius: 8px;
+    touch-action: manipulation;
+  }
+
+  .btn-sm {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+
+  .form-control,
+  .input,
+  textarea,
+  select {
+    min-height: 48px;
+    padding: 12px 16px;
+    font-size: 16px;
+    border-radius: 8px;
+  }
+
+  /* Table optimization */
+  .table {
+    font-size: 13px;
+  }
+
+  .table th,
+  .table td {
+    padding: 10px;
+  }
+
+  /* Grid adjustments */
+  .grid-2,
+  .grid-3,
+  .grid-4,
+  .grid-5 {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  /* Form layout */
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  /* Modal adjustments */
+  .modal {
+    max-height: 90vh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .modal-header {
+    padding: 16px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .modal-body {
+    padding: 16px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .modal-footer {
+    padding: 16px;
+    gap: 8px;
+  }
+
+  .modal-footer .btn {
+    flex: 1;
+  }
+
+  /* Alert sizing */
+  .alert {
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 8px;
+  }
+
+  /* Dropdown menu mobile */
+  .dropdown-menu {
+    position: fixed !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 90vw !important;
+    max-width: 360px !important;
+    border-radius: 12px;
+  }
+
+  /* Spacing adjustments */
+  .mt-1 { margin-top: 8px; }
+  .mt-2 { margin-top: 12px; }
+  .mt-3 { margin-top: 16px; }
+  .mt-4 { margin-top: 20px; }
+
+  .mb-1 { margin-bottom: 8px; }
+  .mb-2 { margin-bottom: 12px; }
+  .mb-3 { margin-bottom: 16px; }
+  .mb-4 { margin-bottom: 20px; }
+
+  /* Header adjustments */
+  h1 { font-size: 24px; }
+  h2 { font-size: 20px; }
+  h3 { font-size: 18px; }
+  h4 { font-size: 16px; }
+  h5 { font-size: 15px; }
+  h6 { font-size: 14px; }
+
+  /* Text sizing */
+  .text-sm { font-size: 13px; }
+  .text-base { font-size: 14px; }
+  .text-lg { font-size: 16px; }
+
+  /* Link improvements */
+  a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Disable input zoom on iOS */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Status badge sizing */
+  .badge {
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  /* Avatar sizing */
+  .avatar {
+    width: 40px;
+    height: 40px;
+  }
+
+  .avatar-lg {
+    width: 64px;
+    height: 64px;
+  }
+
+  /* Scrolling improvements */
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Small phones (< 480px) */
+@media (max-width: 480px) {
+  .topbar-brand h1 {
+    font-size: 16px;
+  }
+
+  .page-content {
+    padding: 12px 8px;
+  }
+
+  .card {
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .btn {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 15px;
+  }
+
+  .form-control,
+  .input,
+  textarea,
+  select {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 16px;
+  }
+
+  .grid-2,
+  .grid-3,
+  .grid-4,
+  .grid-5 {
+    grid-template-columns: 1fr;
+  }
+
+  /* Hide less important elements */
+  .text-muted:not(.required) {
+    font-size: 12px;
+  }
+
+  /* Reduce table padding on very small screens */
+  .table th,
+  .table td {
+    padding: 8px;
+    font-size: 12px;
+  }
+
+  /* Full-width cards on tiny screens */
+  .card-footer {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .card-footer .btn {
+    width: 100%;
+  }
+
+  h1 { font-size: 20px; }
+  h2 { font-size: 18px; }
+  h3 { font-size: 16px; }
+  h4 { font-size: 14px; }
+}
+
+/* Landscape orientation adjustments */
+@media (max-height: 600px) and (orientation: landscape) {
+  main.main-content {
+    padding-bottom: 60px;
+  }
+
+  .mobile-bottom-nav {
+    height: 50px;
+    padding: 4px 0;
+  }
+
+  .mobile-bottom-nav a {
+    height: 50px;
+    font-size: 10px;
+  }
+
+  .mobile-bottom-nav a i {
+    font-size: 20px;
+  }
+
+  .topbar {
+    padding: 8px 12px;
+  }
+
+  .page-content {
+    padding: 12px;
+  }
+}
+
+/* iPad/Tablet (> 768px) - Keep original layout */
+@media (min-width: 769px) {
+  .mobile-bottom-nav {
+    display: none;
+  }
+
+  main.main-content {
+    padding-bottom: 0;
+  }
+
+  body {
+    padding: 0;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .mobile-bottom-nav {
+    background: var(--card);
+    border-top-color: var(--stroke);
+  }
+}
+
+/* Light mode support */
+@media (prefers-color-scheme: light) {
+  .mobile-bottom-nav {
+    background: var(--card);
+    border-top-color: var(--stroke);
+  }
+}
+
+/* Haptic feedback and animations for mobile */
+@media (any-hover: none) {
+  /* No hover support - remove hover effects */
+  .btn:hover,
+  a:hover {
+    background: none;
+    transform: none;
+  }
+
+  /* Add active state feedback instead */
+  .btn:active,
+  a:active {
+    opacity: 0.8;
+    transform: scale(0.98);
+  }
+}
+

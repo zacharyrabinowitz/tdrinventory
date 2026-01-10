@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no"/>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Draft Room">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
 
   <title>The Draft Room • Inventory</title>
 
@@ -157,6 +160,30 @@
     <footer class="footer">
       <p>&copy; 2026 The Draft Room. All rights reserved.</p>
     </footer>
+
+    <!-- MOBILE BOTTOM NAVIGATION -->
+    <nav class="mobile-bottom-nav" id="mobileBottomNav">
+      <a href="/" class="nav-link" data-tooltip="Dashboard" title="Dashboard">
+        <i class="fas fa-home"></i>
+        <span>Home</span>
+      </a>
+      <a href="/items" class="nav-link" data-tooltip="Items" title="Items">
+        <i class="fas fa-list"></i>
+        <span>Items</span>
+      </a>
+      <a href="/order" class="nav-link" data-tooltip="Order" title="Order">
+        <i class="fas fa-shopping-cart"></i>
+        <span>Order</span>
+      </a>
+      <a href="/beers/dashboard" class="nav-link" data-tooltip="Beers" title="Beers">
+        <i class="fas fa-beer"></i>
+        <span>Beers</span>
+      </a>
+      <a href="#" id="mobileMenuToggle" class="nav-link" data-tooltip="Menu" title="Menu">
+        <i class="fas fa-bars"></i>
+        <span>More</span>
+      </a>
+    </nav>
   </main>
 
   <script>

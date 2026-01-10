@@ -91,3 +91,71 @@
   // If you dynamically add dropdown HTML, call: window.DRDropdownInit()
   window.DRDropdownInit = initAllDropdowns;
 })();
+
+// ===== MOBILE NAVIGATION =====
+document.addEventListener('DOMContentLoaded', function() {
+  // Update active nav item based on current page
+  const currentPath = window.location.pathname;
+  const navLinks = document.querySelectorAll('.mobile-bottom-nav .nav-link');
+  
+  navLinks.forEach(link => {
+    const href = link.getAttribute('href');
+    if (href && currentPath.startsWith(href.replace(/\/$/, ''))) {
+      link.classList.add('active');
+    }
+  });
+
+  // Mobile menu toggle (for "More" button)
+  const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+  if (mobileMenuToggle) {
+    mobileMenuToggle.addEventListener('click', function(e) {
+      e.preventDefault();
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.querySelector('.sidebar-overlay');
+      
+      if (sidebar) {
+        sidebar.classList.toggle('open');
+      }
+      if (overlay) {
+        overlay.classList.toggle('open');
+      }
+    });
+  }
+
+  // Close sidebar when clicking overlay on mobile
+  const overlay = document.querySelector('.sidebar-overlay');
+  if (overlay) {
+    overlay.addEventListener('click', function() {
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar) {
+        sidebar.classList.remove('open');
+      }
+      this.classList.remove('open');
+    });
+  }
+
+  // Close sidebar when nav item is clicked on mobile
+  const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
+  navItems.forEach(item => {
+    item.addEventListener('click', function() {
+      if (window.matchMedia('(max-width: 768px)').matches) {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.querySelector('.sidebar-overlay');
+        if (sidebar) sidebar.classList.remove('open');
+        if (overlay) overlay.classList.remove('open');
+      }
+    });
+  });
+
+  // Prevent body scroll when mobile menu is open
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) {
+    const observer = new MutationObserver(function() {
+      const isOpen = sidebar.classList.contains('open');
+      if (window.matchMedia('(max-width: 768px)').matches) {
+        document.body.style.overflow = isOpen ? 'hidden' : '';
+      }
+    });
+    observer.observe(sidebar, { attributes: true });
+  }
+});
