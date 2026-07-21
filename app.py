@@ -683,12 +683,12 @@ def can_manage_users() -> bool:
     return False
 
 def can_edit_inventory() -> bool:
+    # Break glass admin bypass (checked before requiring a real User row)
+    if session.get("break_glass_admin") is True:
+        return True
     u = current_user()
     if not u:
         return False
-    # Break glass admin bypass
-    if session.get("break_glass_admin") is True:
-        return True
     # Check new role-based permissions
     if u.role_id:
         role = Role.query.get(u.role_id)
@@ -700,11 +700,11 @@ def can_edit_inventory() -> bool:
     return False
 
 def can_view_inventory() -> bool:
+    if session.get("break_glass_admin") is True:
+        return True
     u = current_user()
     if not u:
         return False
-    if session.get("break_glass_admin") is True:
-        return True
     # Check new role-based permissions
     if u.role_id:
         role = Role.query.get(u.role_id)
@@ -7651,6 +7651,20 @@ def _unique_mode_slug(name: str, exclude_id: int | None = None) -> str:
         n += 1
 
 
+def _resolve_on_hand_location_key(mode: "InventoryMode", locations_in: list) -> Optional[str]:
+    """
+    Match the admin's "On-Hand" radio pick (by position among non-blank submitted
+    rows) against the freshly-synced mode.locations (same order via sort_order).
+    Falls back to the last location if nothing was flagged.
+    """
+    non_blank = [l for l in (locations_in or []) if (l.get("label") or "").strip()]
+    locs = list(mode.locations)  # ordered by sort_order via the relationship
+    for i, l in enumerate(non_blank):
+        if l.get("is_on_hand") and i < len(locs):
+            return locs[i].key
+    return locs[-1].key if locs else None
+
+
 def _sync_mode_states_locations(mode: "InventoryMode", states_in: list, locations_in: list):
     """Diff-and-sync submitted state/location rows against existing ones, matched by key when present."""
     existing_states = {s.key: s for s in mode.states}
@@ -7742,12 +7756,14 @@ def settings_add_inventory_mode():
     db.session.flush()
 
     if engine == "lot_tracking":
-        _sync_mode_states_locations(mode, data.get("states") or [], data.get("locations") or [])
+        locations_in = data.get("locations") or []
+        _sync_mode_states_locations(mode, data.get("states") or [], locations_in)
         db.session.flush()
+        db.session.expire(mode, ["states", "locations"])
         # on-hand state = the sellable one if marked, else the last state (matches legacy "prepped" convention)
         sellable = next((s.key for s in mode.states if s.is_sellable), None)
         mode.on_hand_state_key = sellable or (mode.states[-1].key if mode.states else None)
-        mode.on_hand_location_key = mode.locations[0].key if mode.locations else None
+        mode.on_hand_location_key = _resolve_on_hand_location_key(mode, locations_in)
 
     db.session.commit()
     return jsonify(success=True, **mode.to_dict())
@@ -7771,14 +7787,15 @@ def settings_edit_inventory_mode(mode_id):
 
     mode.name = name
     if mode.engine == "lot_tracking":
+        locations_in = data.get("locations") or []
+        _sync_mode_states_locations(mode, data.get("states") or [], locations_in)
         mode.reconcile_style = reconcile_style
         mode.on_hand_style = reconcile_style
-        _sync_mode_states_locations(mode, data.get("states") or [], data.get("locations") or [])
         db.session.flush()
+        db.session.expire(mode, ["states", "locations"])
         sellable = next((s.key for s in mode.states if s.is_sellable), None)
         mode.on_hand_state_key = sellable or (mode.states[-1].key if mode.states else None)
-        if mode.on_hand_location_key not in [l.key for l in mode.locations]:
-            mode.on_hand_location_key = mode.locations[0].key if mode.locations else None
+        mode.on_hand_location_key = _resolve_on_hand_location_key(mode, locations_in)
 
     db.session.commit()
     return jsonify(success=True, **mode.to_dict())

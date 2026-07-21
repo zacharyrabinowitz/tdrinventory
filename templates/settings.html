@@ -826,24 +826,26 @@ async function loadModes() {
 }
 loadModes();
 
-function modeRowHtml(kind, label, isSellable) {
-  const sellableHtml = kind === 'state'
+function modeRowHtml(kind, label, isFlagged) {
+  const flagHtml = kind === 'state'
     ? `<label style="display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px;color:var(--text-muted);">
-         <input type="radio" name="modeSellableRadio" ${isSellable ? 'checked' : ''}> Sellable
+         <input type="radio" name="modeSellableRadio" ${isFlagged ? 'checked' : ''}> Sellable
        </label>`
-    : '';
+    : `<label style="display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px;color:var(--text-muted);">
+         <input type="radio" name="modeOnHandRadio" ${isFlagged ? 'checked' : ''}> On-Hand
+       </label>`;
   return `
     <div class="mode-row" style="display:flex;gap:8px;align-items:center;">
       <input type="text" class="input mode-row-label" value="${escHtml(label || '')}" placeholder="Label" style="flex:1;">
-      ${sellableHtml}
+      ${flagHtml}
       <button type="button" class="btn small danger" onclick="this.closest('.mode-row').remove()"><i class="fas fa-trash"></i></button>
     </div>`;
 }
 
-function addModeRow(listId, kind, label, isSellable) {
+function addModeRow(listId, kind, label, isFlagged) {
   const list = document.getElementById(listId);
   const div = document.createElement('div');
-  div.innerHTML = modeRowHtml(kind, label, isSellable);
+  div.innerHTML = modeRowHtml(kind, label, isFlagged);
   list.appendChild(div.firstElementChild);
 }
 
@@ -855,6 +857,9 @@ function collectModeRows(listId, kind) {
     if (kind === 'state') {
       const radio = row.querySelector('input[type=radio]');
       out.is_sellable = radio ? radio.checked : false;
+    } else {
+      const radio = row.querySelector('input[type=radio]');
+      out.is_on_hand = radio ? radio.checked : false;
     }
     return out;
   }).filter(r => r.label);
@@ -879,11 +884,11 @@ function openModeModal(mode) {
   locsList.innerHTML = '';
   if (mode && mode.engine === 'lot_tracking') {
     mode.states.forEach(s => addModeRow('modeStatesList', 'state', s.label, s.is_sellable));
-    mode.locations.forEach(l => addModeRow('modeLocationsList', 'location', l.label));
+    mode.locations.forEach(l => addModeRow('modeLocationsList', 'location', l.label, l.key === mode.on_hand_location_key));
   } else if (!mode) {
     addModeRow('modeStatesList', 'state', 'Raw', false);
     addModeRow('modeStatesList', 'state', 'Prepped', true);
-    addModeRow('modeLocationsList', 'location', 'Cooler');
+    addModeRow('modeLocationsList', 'location', 'Cooler', true);
   }
 
   toggleModeEngineFields();
