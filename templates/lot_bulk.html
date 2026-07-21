@@ -23,8 +23,12 @@
       <div class="field">
         <label>State</label>
         <select class="input" name="state">
-          <option value="raw" selected>raw</option>
-          <option value="prepped">prepped</option>
+          {% for st in states %}
+          <option value="{{ st.key }}" {% if loop.first %}selected{% endif %}>{{ st.label }}</option>
+          {% else %}
+          <option value="raw" selected>Raw</option>
+          <option value="prepped">Prepped</option>
+          {% endfor %}
         </select>
       </div>
     </div>
@@ -72,19 +76,21 @@
   const autoFillBtn = document.getElementById("autoFillBtn");
 
   const START_NUM = {{ start_num|int }};
+  const LOCATIONS = {{ (locations or []) | tojson | safe }};
 
   function makeRow(boxNum="") {
     const row = document.createElement("div");
     row.className = "row";
     row.style.gridTemplateColumns = ".6fr .9fr .9fr .9fr 1.2fr .3fr";
+    const locOptions = LOCATIONS.length
+      ? LOCATIONS.map((l, i) => `<option value="${l.key}" ${i === 0 ? 'selected' : ''}>${l.label}</option>`).join('')
+      : `<option value="freezer" selected>Freezer</option><option value="cooler">Cooler</option><option value="out">Out</option>`;
     row.innerHTML = `
       <div><input class="input" name="lot_number[]" type="number" placeholder="#" value="${boxNum}"></div>
       <div><input class="input" name="lot_label[]" placeholder="optional label"></div>
       <div>
         <select class="input" name="storage[]">
-          <option value="freezer" selected>freezer</option>
-          <option value="cooler">cooler</option>
-          <option value="out">out</option>
+          ${locOptions}
         </select>
       </div>
       <div><input class="input" name="count_units[]" type="number" placeholder="optional"></div>

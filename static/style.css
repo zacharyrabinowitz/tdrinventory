@@ -55,7 +55,7 @@
   --btn: #1b2a57;
   --btn2: #22356b;
   --sidebar-width: 280px;
-  --sidebar-width-collapsed: 100px;
+  --sidebar-width-collapsed: 70px;
   
   --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --focus: rgba(104, 163, 255, 0.45);
@@ -230,10 +230,10 @@ body {
   filter: invert(1) brightness(1.1);
 }
 
-/* Adjust logo size when sidebar is collapsed - make it large to fill the space */
+/* Adjust logo size when sidebar is collapsed - make it fill the space appropriately */
 #sidebar.collapsed .sidebar-logo {
-  height: 80px;
-  width: 80px;
+  height: 60px;
+  width: 60px;
 }
 
 /* In light theme, show normal colors */
@@ -633,6 +633,13 @@ body.sidebar-collapsed-state .main-content {
   border-left-color: var(--info);
 }
 
+/* Light theme: alert text needs darker, saturated colors to stay
+   readable against the pale tinted backgrounds above. */
+body.light-theme .alert-success { color: #047857; }
+body.light-theme .alert-warning { color: #92400e; }
+body.light-theme .alert-danger  { color: #991b1b; }
+body.light-theme .alert-info    { color: #1d4ed8; }
+
 .alert-close {
   background: none;
   border: none;
@@ -772,7 +779,7 @@ select:focus {
 }
 
 .input:disabled {
-  background-color: #f3f4f6;
+  background-color: var(--card2);
   color: var(--text-muted);
   cursor: not-allowed;
 }
@@ -1695,6 +1702,135 @@ input.input:-webkit-autofill:focus {
   font-size: 13px;
 }
 
+/* ========== DASHBOARD STATS ========== */
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 900px) {
+  .dash-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .dash-stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+}
+
+.dash-stat {
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: var(--text);
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+}
+
+.dash-stat:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.dash-stat-warn {
+  border-color: rgba(245,158,11,0.4);
+  background: rgba(245,158,11,0.07);
+}
+
+.dash-stat-warn .dash-stat-icon { color: var(--warning); background: rgba(245,158,11,0.15); }
+.dash-stat-warn .dash-stat-val  { color: var(--warning); }
+
+.dash-stat-danger {
+  border-color: rgba(185,39,58,0.4);
+  background: rgba(185,39,58,0.07);
+}
+
+.dash-stat-danger .dash-stat-icon { color: var(--danger); background: rgba(185,39,58,0.15); }
+.dash-stat-danger .dash-stat-val  { color: var(--danger); }
+
+.dash-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: rgba(37,99,235,0.12);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.dash-stat-val {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.dash-stat-lbl {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+/* ========== QUICK ACTIONS ========== */
+.quick-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.quick-btn {
+  flex: 1;
+  min-width: 120px;
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--text);
+  transition: var(--transition);
+  box-shadow: var(--shadow-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.quick-btn i {
+  font-size: 22px;
+  color: var(--primary);
+}
+
+.quick-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.quick-btn:hover i {
+  color: white;
+}
+
+@media (max-width: 480px) {
+  .quick-btn { min-width: 80px; padding: 12px 8px; font-size: 12px; }
+  .quick-btn i { font-size: 18px; }
+}
+
 /* Empty States */
 .empty {
   padding: 24px;
@@ -2127,7 +2263,7 @@ textarea{
   padding: 11px 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: rgba(10,16,35,.55);
+  background: var(--card2);
   color: var(--text);
   outline:none;
 }
@@ -2135,8 +2271,8 @@ textarea{
 select{
   appearance:none;
   background-image:
-    linear-gradient(45deg, transparent 50%, rgba(242,245,255,.75) 50%),
-    linear-gradient(135deg, rgba(242,245,255,.75) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
   background-position:
     calc(100% - 16px) 52%,
     calc(100% - 10px) 52%;
@@ -2172,10 +2308,10 @@ input:focus, select:focus, textarea:focus{
 .row:first-child{border-top:none}
 
 .row.head{
-  background: rgba(255,255,255,.06);
+  background: var(--card2);
   border-top:none;
   font-weight:800;
-  color: rgba(242,245,255,.86);
+  color: var(--text-muted);
 }
 
 .row-actions{
@@ -2456,13 +2592,13 @@ input:focus, select:focus, textarea:focus{
   }
 }
 .btn.danger {
-  background: rgba(255, 60, 60, 0.18);
-  border: 1px solid rgba(255, 60, 60, 0.45);
-  color: #ffb3b3;
+  background: var(--danger);
+  border: 1px solid var(--danger);
+  color: white;
 }
 .btn.danger:hover {
-  background: rgba(255, 60, 60, 0.28);
-  border-color: rgba(255, 60, 60, 0.65);
+  background: var(--danger2);
+  border-color: var(--danger2);
 }
 .btn.btn-sm {
   padding: 8px 10px;
@@ -3171,8 +3307,10 @@ input:focus, select:focus, textarea:focus{
   }
 
   /* Scrolling improvements */
-  -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
+  * {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
 }
 
 /* Small phones (< 480px) */
@@ -3316,4 +3454,20 @@ input:focus, select:focus, textarea:focus{
     transform: scale(0.98);
   }
 }
+
+/* ========== STATUS TEXT / BADGES (theme-aware) ==========
+   Replaces hardcoded pastel colors that were only readable on dark
+   backgrounds and disappeared in light theme. */
+.text-status-active   { color: var(--success); }
+.text-status-inactive { color: var(--danger); }
+
+.badge-status {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.badge-status-active   { background: var(--ok-light);          color: var(--success); }
+.badge-status-inactive { background: var(--danger-light);      color: var(--danger); }
+.badge-status-raw      { background: rgba(37, 99, 235, 0.15);  color: var(--info); }
+.badge-status-other    { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
 

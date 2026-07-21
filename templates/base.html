@@ -44,20 +44,25 @@
         <i class="fas fa-home"></i>
         <span>Dashboard</span>
       </a>
-      <a href="/items" class="nav-item {% if '/items' in request.path %}active{% endif %}" data-tooltip="Items">
-        <i class="fas fa-list"></i>
+      <a href="/items" class="nav-item {% if request.path.startswith('/items') or request.path.startswith('/category') %}active{% endif %}" data-tooltip="Items">
+        <i class="fas fa-boxes"></i>
         <span>Items</span>
       </a>
-      <a href="/order" class="nav-item {% if '/order' in request.path %}active{% endif %}" data-tooltip="Order Items">
+      <a href="/order" class="nav-item {% if request.path == '/order' %}active{% endif %}" data-tooltip="New Order">
         <i class="fas fa-shopping-cart"></i>
-        <span>Order</span>
+        <span>New Order</span>
       </a>
-      <a href="/beers/dashboard" class="nav-item {% if '/beers' in request.path %}active{% endif %}" data-tooltip="Beer Dashboard">
+      <a href="/orders" class="nav-item {% if request.path.startswith('/orders') or (request.path.startswith('/order/') and request.path != '/order') %}active{% endif %}" data-tooltip="View Orders">
+        <i class="fas fa-clipboard-list"></i>
+        <span>Orders</span>
+      </a>
+      <a href="/beers/dashboard" class="nav-item {% if '/beers' in request.path %}active{% endif %}" data-tooltip="Beer Taps">
         <i class="fas fa-beer"></i>
-        <span>Beer Dashboard</span>
+        <span>Beer Taps</span>
       </a>
-      <hr class="nav-divider">
+
       {% if can_edit_inventory %}
+      <hr class="nav-divider">
       <a href="/suppliers" class="nav-item {% if '/suppliers' in request.path %}active{% endif %}" data-tooltip="Suppliers">
         <i class="fas fa-truck"></i>
         <span>Suppliers</span>
@@ -66,14 +71,19 @@
         <i class="fas fa-users"></i>
         <span>Users</span>
       </a>
+      <a href="/settings" class="nav-item {% if request.path.startswith('/settings') %}active{% endif %}" data-tooltip="Settings">
+        <i class="fas fa-cog"></i>
+        <span>Settings</span>
+      </a>
       {% endif %}
+
       {% if can_manage_users %}
       <hr class="nav-divider">
       <a href="/audit" class="nav-item {% if '/audit' in request.path %}active{% endif %}" data-tooltip="Audit Log">
         <i class="fas fa-history"></i>
         <span>Audit Log</span>
       </a>
-      <a href="/admin/roles" class="nav-item {% if '/admin/roles' in request.path %}active{% endif %}" data-tooltip="Role Management">
+      <a href="/admin/roles" class="nav-item {% if '/admin/roles' in request.path %}active{% endif %}" data-tooltip="Roles">
         <i class="fas fa-shield-alt"></i>
         <span>Roles</span>
       </a>
@@ -92,11 +102,11 @@
         </div>
         <div class="user-role">{{ auth_role_name.title() if auth_role_name else 'User' }}</div>
       </div>
+      {% endif %}
       <a href="/logout" class="nav-item logout" data-tooltip="Logout">
         <i class="fas fa-sign-out-alt"></i>
         <span>Logout</span>
       </a>
-      {% endif %}
     </div>
   </aside>
 
@@ -111,28 +121,9 @@
         <i class="fas fa-bars"></i>
       </button>
       <div class="topbar-brand">
-        <h1>Inventory System</h1>
-        {% if current_user %}
-          <div class="topbar-brand-user">
-            <span class="brand-user-name">
-              {% if current_user.first_name or current_user.last_name %}
-                {{ current_user.first_name }} {{ current_user.last_name }}
-              {% else %}
-                {{ current_user.username }}
-              {% endif %}
-            </span>
-            <span class="brand-user-role">({{ auth_role_name.title() if auth_role_name else 'User' }})</span>
-          </div>
-        {% endif %}
+        <h1>The Draft Room Inventory System</h1>
       </div>
       <div class="topbar-spacer"></div>
-      
-      {% if can_manage_users %}
-        <a href="/audit" class="audit-btn" title="View audit log">
-          <i class="fas fa-history"></i>
-        </a>
-      {% endif %}
-      
       <button class="theme-toggle" id="themeToggle" title="Toggle light/dark theme">
         <i class="fas fa-moon"></i>
       </button>
@@ -160,27 +151,25 @@
       {% block content %}{% endblock %}
     </div>
 
-
-
     <!-- MOBILE BOTTOM NAVIGATION -->
     <nav class="mobile-bottom-nav" id="mobileBottomNav">
-      <a href="/" class="nav-link" data-tooltip="Dashboard" title="Dashboard">
+      <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}" title="Dashboard">
         <i class="fas fa-home"></i>
         <span>Home</span>
       </a>
-      <a href="/items" class="nav-link" data-tooltip="Items" title="Items">
-        <i class="fas fa-list"></i>
+      <a href="/items" class="nav-link {% if request.path.startswith('/items') or request.path.startswith('/category') %}active{% endif %}" title="Items">
+        <i class="fas fa-boxes"></i>
         <span>Items</span>
       </a>
-      <a href="/order" class="nav-link" data-tooltip="Order" title="Order">
+      <a href="/order" class="nav-link {% if request.path == '/order' %}active{% endif %}" title="Order">
         <i class="fas fa-shopping-cart"></i>
         <span>Order</span>
       </a>
-      <a href="/beers/dashboard" class="nav-link" data-tooltip="Beers" title="Beers">
+      <a href="/beers/dashboard" class="nav-link {% if '/beers' in request.path %}active{% endif %}" title="Beers">
         <i class="fas fa-beer"></i>
         <span>Beers</span>
       </a>
-      <a href="#" id="mobileMenuToggle" class="nav-link" data-tooltip="Menu" title="Menu">
+      <a href="#" id="mobileMenuToggle" class="nav-link" title="More">
         <i class="fas fa-bars"></i>
         <span>More</span>
       </a>
@@ -189,44 +178,8 @@
 
   <script>
     (function() {
-      // ===== SIDEBAR COLLAPSE (DESKTOP) =====
-      const sidebarToggle = document.getElementById('sidebarToggle');
-      const sidebar = document.getElementById('sidebar');
-      const body = document.body;
-      
-      // Load collapse state from localStorage
-      function loadSidebarState() {
-        const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
-        if (isCollapsed) {
-          sidebar.classList.add('collapsed');
-          body.classList.add('sidebar-collapsed-state');
-          updateToggleIcon();
-        }
-      }
-      
-      function updateToggleIcon() {
-        const isCollapsed = sidebar.classList.contains('collapsed');
-        if (sidebarToggle) {
-          sidebarToggle.innerHTML = isCollapsed 
-            ? '<i class="fas fa-chevron-right"></i>' 
-            : '<i class="fas fa-chevron-left"></i>';
-          sidebarToggle.title = isCollapsed ? 'Expand sidebar' : 'Collapse sidebar';
-        }
-      }
-      
-      if (sidebarToggle) {
-        sidebarToggle.addEventListener('click', () => {
-          sidebar.classList.toggle('collapsed');
-          body.classList.toggle('sidebar-collapsed-state');
-          localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
-          updateToggleIcon();
-        });
-      }
-      
-      // Initialize on page load
-      loadSidebarState();
-
       // ===== SIDEBAR TOGGLE (MOBILE) =====
+      const sidebar = document.getElementById('sidebar');
       const overlay = document.getElementById('sidebarOverlay');
       const menuToggle = document.getElementById('menuToggle');
       const sidebarClose = document.getElementById('sidebarClose');

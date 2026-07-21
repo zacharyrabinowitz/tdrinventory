@@ -148,15 +148,57 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   // Prevent body scroll when mobile menu is open
-  const sidebar = document.getElementById('sidebar');
-  if (sidebar) {
+  const sidebarForScroll = document.getElementById('sidebar');
+  if (sidebarForScroll) {
     const observer = new MutationObserver(function() {
-      const isOpen = sidebar.classList.contains('open');
+      const isOpen = sidebarForScroll.classList.contains('open');
       if (window.matchMedia('(max-width: 768px)').matches) {
         document.body.style.overflow = isOpen ? 'hidden' : '';
       }
     });
-    observer.observe(sidebar, { attributes: true });
+    observer.observe(sidebarForScroll, { attributes: true });
+  }
+
+  // ===== DESKTOP SIDEBAR COLLAPSE TOGGLE =====
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  const sidebar = document.getElementById('sidebar');
+  
+  if (sidebarToggle && sidebar) {
+    // Load collapse state from localStorage
+    function loadSidebarState() {
+      const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+      if (isCollapsed) {
+        sidebar.classList.add('collapsed');
+        document.body.classList.add('sidebar-collapsed-state');
+        updateToggleIcon();
+      }
+    }
+
+    // Update the toggle icon
+    function updateToggleIcon() {
+      const isCollapsed = sidebar.classList.contains('collapsed');
+      const icon = sidebarToggle.querySelector('i');
+      if (icon) {
+        icon.className = isCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left';
+      }
+    }
+
+    // Load the saved state on page load
+    loadSidebarState();
+
+    // Handle toggle button click
+    sidebarToggle.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const isCollapsed = sidebar.classList.toggle('collapsed');
+      document.body.classList.toggle('sidebar-collapsed-state');
+      
+      updateToggleIcon();
+      
+      // Save preference to localStorage
+      localStorage.setItem('sidebarCollapsed', isCollapsed);
+    });
   }
 
   // ===== THEME TOGGLE =====

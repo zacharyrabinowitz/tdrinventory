@@ -5,7 +5,7 @@
   <div class="cardhead">
     <div>
       <h1>Move Boxes • {{ item.name }}</h1>
-      <span class="muted">Move boxes between freezer, cooler, and out using FIFO or selected boxes.</span>
+      <span class="muted">Move boxes between{% if locations %} {{ locations|map(attribute='label')|join(', ') }}{% else %} locations{% endif %} using FIFO or selected boxes.</span>
     </div>
     <div class="actions">
       <a class="btn" href="/items/{{ item.id }}/lots">Back to Boxes</a>
@@ -20,9 +20,13 @@
       <div class="field">
         <label>From Location</label>
         <select class="input" name="from_loc" id="fromSel">
-          <option value="freezer" {% if from_loc == "freezer" %}selected{% endif %}>freezer</option>
-          <option value="cooler" {% if from_loc == "cooler" %}selected{% endif %}>cooler</option>
-          <option value="out" {% if from_loc == "out" %}selected{% endif %}>out</option>
+          {% for loc in locations %}
+          <option value="{{ loc.key }}" {% if from_loc == loc.key %}selected{% endif %}>{{ loc.label }}</option>
+          {% else %}
+          <option value="freezer" {% if from_loc == "freezer" %}selected{% endif %}>Freezer</option>
+          <option value="cooler" {% if from_loc == "cooler" %}selected{% endif %}>Cooler</option>
+          <option value="out" {% if from_loc == "out" %}selected{% endif %}>Out</option>
+          {% endfor %}
         </select>
         <div class="muted smalltxt">This controls which boxes show below.</div>
       </div>
@@ -30,9 +34,13 @@
       <div class="field">
         <label>To Location</label>
         <select class="input" name="to_loc" required>
-          <option value="freezer" {% if default_to == "freezer" %}selected{% endif %}>freezer</option>
-          <option value="cooler"  {% if default_to == "cooler" %}selected{% endif %}>cooler</option>
-          <option value="out"     {% if default_to == "out" %}selected{% endif %}>out</option>
+          {% for loc in locations %}
+          <option value="{{ loc.key }}" {% if default_to == loc.key %}selected{% endif %}>{{ loc.label }}</option>
+          {% else %}
+          <option value="freezer" {% if default_to == "freezer" %}selected{% endif %}>Freezer</option>
+          <option value="cooler"  {% if default_to == "cooler" %}selected{% endif %}>Cooler</option>
+          <option value="out"     {% if default_to == "out" %}selected{% endif %}>Out</option>
+          {% endfor %}
         </select>
       </div>
     </div>

@@ -1,498 +1,228 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="main-content">
-  <div class="content-header">
+
+<section class="card">
+  <div class="cardhead">
     <div>
       <h1>Orders</h1>
-      <p class="subtitle">Manage your pending and completed orders</p>
+      <span class="muted">Manage pending and completed orders</span>
     </div>
-    <div class="header-actions">
-      <a href="/order" class="btn btn-primary">
-        <i class="fas fa-plus"></i>
-        New Order
-      </a>
-    </div>
+    <a href="/order" class="btn primary"><i class="fas fa-plus"></i> New Order</a>
   </div>
 
-  <!-- Status Filter -->
-  <div class="filter-section card">
-    <div class="filter-tabs">
-      <a href="/orders?status=pending" class="filter-tab {% if status_filter == 'pending' %}active{% endif %}">
-        <i class="fas fa-hourglass-half"></i>
-        Pending
-      </a>
-      <a href="/orders?status=ordered" class="filter-tab {% if status_filter == 'ordered' %}active{% endif %}">
-        <i class="fas fa-check"></i>
-        Ordered
-      </a>
-      <a href="/orders?status=received" class="filter-tab {% if status_filter == 'received' %}active{% endif %}">
-        <i class="fas fa-box"></i>
-        Received
-      </a>
-      <a href="/orders?status=all" class="filter-tab {% if status_filter == 'all' %}active{% endif %}">
-        <i class="fas fa-list"></i>
-        All
-      </a>
-    </div>
+  <!-- Status filter tabs -->
+  <div style="display:flex; gap:0; border-bottom:2px solid var(--stroke); margin:0 -1px;">
+    <a href="/orders?status=pending"
+       class="otab {% if status_filter == 'pending' %}otab-active{% endif %}">
+      <i class="fas fa-hourglass-half"></i> Pending
+    </a>
+    <a href="/orders?status=ordered"
+       class="otab {% if status_filter == 'ordered' %}otab-active{% endif %}">
+      <i class="fas fa-check"></i> Ordered
+    </a>
+    <a href="/orders?status=received"
+       class="otab {% if status_filter == 'received' %}otab-active{% endif %}">
+      <i class="fas fa-box"></i> Received
+    </a>
+    <a href="/orders?status=all"
+       class="otab {% if status_filter == 'all' %}otab-active{% endif %}">
+      <i class="fas fa-list"></i> All
+    </a>
   </div>
 
-  <!-- Orders Table -->
-  <div class="orders-wrapper card">
-    {% if orders %}
-    <table class="orders-table">
+  <!-- Orders table / empty state -->
+  {% if orders %}
+  <div style="overflow-x:auto;">
+    <table class="otable">
       <thead>
         <tr>
           <th>Item</th>
           <th>Category</th>
-          <th class="qty-col">Quantity</th>
-          <th class="date-col">Order By Date</th>
-          <th class="status-col">Status</th>
-          <th class="notes-col">Notes</th>
-          <th class="actions-col">Actions</th>
+          <th class="col-sm">Qty</th>
+          <th class="col-md">Order By</th>
+          <th class="col-sm">Status</th>
+          <th class="col-lg">Notes</th>
+          <th class="col-act"></th>
         </tr>
       </thead>
       <tbody>
         {% for order in orders %}
-        <tr class="order-row" data-order-id="{{ order.id }}" data-item-id="{{ order.item_id }}">
-          <td class="item-name">{{ order.item.name }}</td>
-          <td class="category">{{ order.item.category }}</td>
-          <td class="qty-col">
-            <span class="qty-value">{{ order.quantity }}</span>
-          </td>
-          <td class="date-col">
-            <span class="date-value">{{ order.order_date or '-' }}</span>
-          </td>
-          <td class="status-col">
+        <tr class="order-row" data-order-id="{{ order.id }}">
+          <td style="font-weight:500;">{{ order.item.name }}</td>
+          <td class="muted" style="font-size:13px;">{{ order.item.category }}</td>
+          <td class="col-sm" style="text-align:center;">{{ order.quantity }}</td>
+          <td class="col-md muted" style="font-size:13px;">{{ order.order_date or '—' }}</td>
+          <td class="col-sm">
             <span class="status-badge status-{{ order.status }}">{{ order.status.title() }}</span>
           </td>
-          <td class="notes-col">
-            <span class="notes-value">{{ order.notes or '-' }}</span>
-          </td>
-          <td class="actions-col">
-            <a href="/order/{{ order.id }}/edit" class="btn-edit" title="Edit order">
-              <i class="fas fa-edit"></i>
-            </a>
-            <button class="btn-check" title="Mark as ordered" {% if order.status != 'pending' %}style="display: none;"{% endif %}>
-              <i class="fas fa-check"></i>
-            </button>
-            <button class="btn-received" title="Mark as received" {% if order.status != 'ordered' %}style="display: none;"{% endif %}>
-              <i class="fas fa-box"></i>
-            </button>
-            <button class="btn-delete" title="Delete order">
-              <i class="fas fa-trash"></i>
-            </button>
+          <td class="col-lg muted" style="font-size:13px;">{{ order.notes or '—' }}</td>
+          <td class="col-act">
+            <div style="display:flex; gap:2px; justify-content:center; align-items:center;">
+              <a href="/order/{{ order.id }}/edit" class="oact" title="Edit">
+                <i class="fas fa-edit"></i>
+              </a>
+              {% if order.status == 'pending' %}
+              <button type="button" class="oact" data-action="check" title="Mark ordered">
+                <i class="fas fa-check"></i>
+              </button>
+              {% endif %}
+              {% if order.status == 'ordered' %}
+              <button type="button" class="oact" data-action="received" title="Mark received">
+                <i class="fas fa-box"></i>
+              </button>
+              {% endif %}
+              <button type="button" class="oact danger" data-action="delete" title="Delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-    {% else %}
-    <div class="empty-state">
-      <i class="fas fa-inbox"></i>
-      <p>No orders found.</p>
-      <a href="/order" class="btn btn-primary">Create Order</a>
-    </div>
-    {% endif %}
   </div>
-</div>
+  {% else %}
+  <div class="empty">
+    No orders found.
+    {% if status_filter and status_filter != 'all' %}
+      <a href="/orders?status=all">View all</a> or
+    {% endif %}
+    <a href="/order">create one</a>.
+  </div>
+  {% endif %}
+
+</section>
 
 <style>
-.filter-section {
-  margin-bottom: 20px;
-  padding: 12px;
-}
-
-.filter-tabs {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.filter-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  background-color: var(--btn);
-  color: var(--text);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 13px;
-  transition: all 0.2s ease;
-  border: 1px solid var(--stroke);
-}
-
-.filter-tab:hover {
-  background-color: var(--btn2);
-}
-
-.filter-tab.active {
-  background-color: var(--primary);
-  color: white;
-  border-color: var(--primary);
-}
-
-.orders-wrapper {
-  overflow-x: auto;
-}
-
-.orders-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.orders-table thead {
-  background-color: var(--btn);
-  border-bottom: 2px solid var(--stroke);
-  position: sticky;
-  top: 0;
-}
-
-.orders-table th {
-  padding: 12px;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text);
+/* ── Filter tabs ── */
+.otab {
+  padding: 12px 18px; font-size: 13px; font-weight: 600; color: var(--text-muted);
+  text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+  border-bottom: 3px solid transparent; margin-bottom: -2px; transition: var(--transition);
   white-space: nowrap;
 }
+.otab:hover { color: var(--text); background: rgba(255,255,255,.04); }
+.otab-active { color: var(--primary); border-bottom-color: var(--primary); }
 
-.orders-table td {
-  padding: 12px;
-  border-bottom: 1px solid var(--stroke);
-}
+/* ── Orders table ── */
+.otable { width: 100%; border-collapse: collapse; font-size: 14px; }
+.otable thead { background: var(--card2); border-bottom: 2px solid var(--stroke); }
+.otable th { padding: 12px 14px; text-align: left; font-weight: 600; white-space: nowrap; }
+.otable td { padding: 11px 14px; border-bottom: 1px solid var(--stroke); vertical-align: middle; }
+.otable tbody tr:last-child td { border-bottom: none; }
+.otable tbody tr:hover { background: rgba(37,99,235,.04); }
 
-.orders-table tbody tr:hover {
-  background-color: rgba(37, 99, 235, 0.04);
-}
+.col-sm  { width: 80px; text-align: center; }
+.col-md  { width: 130px; }
+.col-lg  { width: 200px; }
+.col-act { width: 110px; text-align: center; }
 
-.item-name {
-  font-weight: 500;
-  color: var(--text);
-}
-
-.category {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.qty-col {
-  width: 100px;
-  text-align: center;
-}
-
-.date-col {
-  width: 140px;
-}
-
-.status-col {
-  width: 110px;
-}
-
-.notes-col {
-  width: 200px;
-}
-
-.actions-col {
-  width: 110px;
-  text-align: center;
-}
-
+/* ── Status badges ── */
 .status-badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  display: inline-block; padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
 }
+.status-pending  { background: rgba(245,158,11,.18);  color: var(--warning); }
+.status-ordered  { background: rgba(37,99,235,.18);   color: var(--primary); }
+.status-received { background: rgba(16,185,129,.18);  color: var(--success); }
+.status-cancelled{ background: rgba(185,39,58,.18);   color: var(--danger);  }
 
-.status-pending {
-  background-color: rgba(245, 158, 11, 0.2);
-  color: var(--warning);
+/* ── Row action buttons ── */
+.oact {
+  background: none; border: none; color: var(--text-muted); font-size: 13px;
+  cursor: pointer; padding: 6px 8px; border-radius: var(--radius-sm);
+  transition: var(--transition); display: inline-flex; align-items: center;
+  text-decoration: none; user-select: none;
 }
+.oact:hover        { color: var(--primary); background: rgba(37,99,235,.1); }
+.oact.danger:hover { color: var(--danger);  background: rgba(185,39,58,.1); }
 
-.status-ordered {
-  background-color: rgba(37, 99, 235, 0.2);
-  color: var(--primary);
-}
-
-.status-received {
-  background-color: rgba(16, 185, 129, 0.2);
-  color: var(--success);
-}
-
-.status-cancelled {
-  background-color: rgba(220, 38, 38, 0.2);
-  color: var(--danger);
-}
-
-/* Edit mode styling */
-.btn-edit {
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.qty-value,
-.date-value,
-.status-badge,
-.notes-value {
-  display: block;
-}
-
-/* Action buttons */
-.btn-edit,
-.btn-delete {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 2px;
-}
-
-.btn-edit:hover {
-  color: var(--primary);
-  background-color: rgba(37, 99, 235, 0.1);
-}
-
-.btn-check:hover {
-  color: var(--success);
-  background-color: rgba(16, 185, 129, 0.1);
-}
-
-.btn-received:hover {
-  color: var(--success);
-  background-color: rgba(16, 185, 129, 0.1);
-}
-
-.btn-delete:hover {
-  color: var(--danger);
-  background-color: rgba(220, 38, 38, 0.1);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-muted);
-}
-
-.empty-state i {
-  font-size: 48px;
-  margin-bottom: 16px;
-  opacity: 0.5;
-}
-
-.empty-state p {
-  font-size: 16px;
-  margin-bottom: 20px;
-}
-
-@media (max-width: 768px) {
-  .filter-tabs {
-    justify-content: center;
-  }
-
-  .orders-table {
-    font-size: 12px;
-  }
-
-  .orders-table th,
-  .orders-table td {
-    padding: 8px 6px;
-  }
-
-  .qty-col,
-  .date-col,
-  .status-col,
-  .notes-col,
-  .actions-col {
-    width: auto;
-  }
+@media (max-width: 640px) {
+  .otable { font-size: 12px; }
+  .otable th, .otable td { padding: 8px 10px; }
+  .col-lg  { display: none; }
+  .col-md  { display: none; }
 }
 </style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const ordersTable = document.querySelector('.orders-table tbody');
+  const tbody = document.querySelector('.otable tbody');
+  if (!tbody) return;
 
-  if (!ordersTable) return;
-
-  ordersTable.addEventListener('click', function(e) {
-    const row = e.target.closest('.order-row');
-    if (!row) return;
+  tbody.addEventListener('click', function(e) {
+    const row    = e.target.closest('.order-row');
+    const button = e.target.closest('button[data-action]');
+    if (!row || !button) return;
 
     const orderId = row.dataset.orderId;
+    const action  = button.dataset.action;
 
-    // Check button - mark as ordered
-    if (e.target.closest('.btn-check')) {
-      markAsOrdered(row, orderId);
-    }
-
-    // Received button - mark as received and add to inventory
-    if (e.target.closest('.btn-received')) {
-      markAsReceived(row, orderId);
-    }
-
-    // Delete button
-    if (e.target.closest('.btn-delete')) {
-      deleteOrder(row, orderId);
-    }
+    if (action === 'check')    markStatus(row, orderId, 'ordered',  button);
+    if (action === 'received') markStatus(row, orderId, 'received', button);
+    if (action === 'delete')   deleteOrder(row, orderId, button);
   });
 
-  function showIconFeedback(button, iconClass, color, duration = 1500) {
-    const icon = button.querySelector('i');
-    const originalClass = icon.className;
-    const originalColor = button.style.color;
-    
-    // Change icon and color
-    icon.className = iconClass;
-    button.style.color = color;
-    
-    // Revert after duration
-    setTimeout(() => {
-      icon.className = originalClass;
-      button.style.color = originalColor;
-    }, duration);
+  function pulse(btn, iconOk, color, ms = 1500) {
+    const icon = btn.querySelector('i');
+    const origClass = icon.className;
+    btn.style.color = color;
+    icon.className  = iconOk;
+    setTimeout(() => { icon.className = origClass; btn.style.color = ''; }, ms);
   }
 
-  function markAsOrdered(row, orderId) {
-    const button = row.querySelector('.btn-check');
-    const originalIcon = button.querySelector('i').className;
-    
-    const orderData = {
-      status: 'ordered'
-    };
-
+  function markStatus(row, orderId, status, btn) {
     fetch(`/order/${orderId}/update`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(orderData)
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
     })
-    .then(response => response.json())
+    .then(r => r.json())
     .then(data => {
-      if (data.success) {
-        // Show success icon
-        showIconFeedback(button, 'fas fa-check-circle', '#22c55e');
-        
-        // Update status badge
-        const statusBadge = row.querySelector('.status-badge');
-        statusBadge.textContent = 'Ordered';
-        statusBadge.className = 'status-badge status-ordered';
+      if (!data.success) { pulse(btn, 'fas fa-exclamation-circle', '#ef4444'); return; }
+      pulse(btn, 'fas fa-check-circle', '#22c55e');
 
-        // Hide check button and show received button
-        setTimeout(() => {
-          row.querySelector('.btn-check').style.display = 'none';
-          row.querySelector('.btn-received').style.display = 'inline-flex';
-        }, 1500);
-      } else {
-        // Show error icon
-        showIconFeedback(button, 'fas fa-exclamation-circle', '#ef4444');
+      const badge = row.querySelector('.status-badge');
+      if (badge) {
+        badge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        badge.className = `status-badge status-${status}`;
       }
+
+      setTimeout(() => {
+        // swap action buttons inline without reload
+        btn.style.display = 'none';
+        if (status === 'ordered') {
+          const newBtn = document.createElement('button');
+          newBtn.type = 'button'; newBtn.className = 'oact'; newBtn.dataset.action = 'received';
+          newBtn.title = 'Mark received'; newBtn.innerHTML = '<i class="fas fa-box"></i>';
+          btn.parentNode.insertBefore(newBtn, btn.nextSibling);
+        }
+      }, 1500);
     })
-    .catch(error => {
-      console.error('Error:', error);
-      // Show error icon
-      showIconFeedback(button, 'fas fa-exclamation-circle', '#ef4444');
-    });
+    .catch(() => pulse(btn, 'fas fa-exclamation-circle', '#ef4444'));
   }
 
-  function markAsReceived(row, orderId) {
-    const button = row.querySelector('.btn-received');
-    const originalIcon = button.querySelector('i').className;
-    
-    const orderData = {
-      status: 'received'
-    };
-
-    fetch(`/order/${orderId}/update`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(orderData)
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        // Show success icon
-        showIconFeedback(button, 'fas fa-check-circle', '#22c55e');
-        // Reload after confirmation animation
-        setTimeout(() => {
-          location.reload();
-        }, 1500);
-      } else {
-        // Show error icon
-        showIconFeedback(button, 'fas fa-exclamation-circle', '#ef4444');
-      }
-    })
-    .catch(error => {
-      console.error('Error:', error);
-      // Show error icon
-      showIconFeedback(button, 'fas fa-exclamation-circle', '#ef4444');
-    });
-  }
-
-  function deleteOrder(row, orderId) {
-    const button = row.querySelector('.btn-delete');
-    const originalIcon = button.querySelector('i').className;
-    
+  function deleteOrder(row, orderId, btn) {
+    if (!confirm('Delete this order?')) return;
     fetch(`/order/${orderId}/delete`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
+      method: 'POST', headers: { 'Content-Type': 'application/json' }
     })
-    .then(response => response.json())
+    .then(r => r.json())
     .then(data => {
-      if (data.success) {
-        // Show success icon
-        showIconFeedback(button, 'fas fa-check-circle', '#22c55e');
-        
+      if (!data.success) { pulse(btn, 'fas fa-exclamation-circle', '#ef4444'); return; }
+      pulse(btn, 'fas fa-check-circle', '#22c55e');
+      setTimeout(() => {
+        row.style.transition = 'opacity .3s, transform .3s';
+        row.style.opacity = '0'; row.style.transform = 'translateX(-12px)';
         setTimeout(() => {
-          row.style.animation = 'fadeOut 0.3s ease';
-          setTimeout(() => {
-            row.remove();
-            // Check if table is empty
-            const tbody = document.querySelector('.orders-table tbody');
-            if (!tbody || tbody.querySelectorAll('tr').length === 0) {
-              location.reload();
-            }
-          }, 300);
-        }, 1500);
-      } else {
-        // Show error icon
-        showIconFeedback(button, 'fas fa-exclamation-circle', '#ef4444');
-      }
+          row.remove();
+          if (!tbody.querySelectorAll('tr').length) location.reload();
+        }, 300);
+      }, 1200);
     })
-    .catch(error => {
-      console.error('Error:', error);
-      // Show error icon
-      showIconFeedback(button, 'fas fa-exclamation-circle', '#ef4444');
-    });
+    .catch(() => pulse(btn, 'fas fa-exclamation-circle', '#ef4444'));
   }
 });
 </script>
 
-<style>
-@keyframes fadeOut {
-  to {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-}
-</style>
 {% endblock %}

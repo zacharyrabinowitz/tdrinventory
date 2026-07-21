@@ -38,4 +38,4 @@ if issues:
         print(f'  - {issue}')
 else:
     if not undefined:
-        print('\n✅ CSS file is valid and complete!')
+        print('\n[OK] CSS file is valid and complete!')

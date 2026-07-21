@@ -1,410 +1,397 @@
 {% extends "base.html" %}
 {% block content %}
 
-{# Treat missing prep_type safely #}
-{% set prep_type_lower = (item.prep_type or '')|lower %}
-{% set is_generic = (prep_type_lower == 'generic') %}
-{% set is_generic_food = (prep_type_lower == 'generic_food') %}
-{% set is_items = (prep_type_lower == 'items') %}
-{% set is_wings = (prep_type_lower == 'wings') %}
+{# ── Resolve effective inventory mode ──────────────────────── #}
+{# cat_cfg.inv_mode is set from Settings; fall back to item.prep_type #}
+{% set inv_mode       = (cat_cfg.inv_mode if cat_cfg and cat_cfg.inv_mode else (item.prep_type or 'generic'))|lower %}
+{% set has_reconcile  = cat_cfg.has_reconcile if cat_cfg else true %}
+{% set has_locations  = cat_cfg.has_locations  if cat_cfg else false %}
+{% set cat_desc       = cat_cfg.description    if cat_cfg else '' %}
 
-{# ✅ Pull on-hand directly from the Item model so analytics always works #}
-{% set mb = (item.main_bar_on_hand if (item is defined and item.main_bar_on_hand is not none) else 0) %}
-{% set lb = (item.low_bar_on_hand if (item is defined and item.low_bar_on_hand is not none) else 0) %}
+{# Convenience booleans for template branches #}
+{% set is_simple      = (inv_mode == 'items') %}
+{% set is_generic     = (inv_mode == 'generic') %}
+{% set is_generic_food= (inv_mode == 'generic_food') %}
+{% set is_wings       = (inv_mode == 'wings') %}
+{% set is_raw_protein = (inv_mode == 'raw_protein') %}
+{% set is_portion     = (inv_mode == 'portion_pack') %}
+{% set is_prep_based  = is_wings or is_raw_protein or is_portion %}
+
+{# Location counts #}
+{% set mb = (item.main_bar_on_hand if item.main_bar_on_hand is not none else 0) %}
+{% set lb = (item.low_bar_on_hand  if item.low_bar_on_hand  is not none else 0) %}
 {% set total_on_hand = mb + lb %}
 
+{# Readable mode label — falls back to the admin-defined mode's own name for custom modes #}
+{% set mode_label = {
+  'items':        'Simple Count',
+  'generic':      'Box / Case',
+  'generic_food': 'Prep Food',
+  'wings':        'Wings Prep',
+  'raw_protein':  'Raw Protein',
+  'portion_pack': 'Portion Packs'
+}.get(inv_mode, (mode_obj.name if mode_obj else inv_mode)) %}
+
+<!-- ══════════════════════════════════════════════
+     HEADER
+     ══════════════════════════════════════════════ -->
 <section class="card">
   <div class="cardhead">
     <div>
       <h1>{{ item.name }}</h1>
-      <span class="muted">Category: {{ item.category }} • Prep Type: {{ item.prep_type }}</span>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:4px;">
+        <span class="muted">{{ item.category }}</span>
+        <span style="color:var(--text-muted)">·</span>
+        <span class="hub-badge">{{ mode_label }}</span>
+        {% if has_reconcile %}
+        <span class="hub-badge badge-green">Reconcile</span>
+        {% endif %}
+        {% if has_locations %}
+        <span class="hub-badge badge-blue">Locations</span>
+        {% endif %}
+        {% if item.unit %}
+        <span class="muted smalltxt">unit: {{ item.unit }}</span>
+        {% endif %}
+      </div>
+      {% if cat_desc %}
+      <div class="muted smalltxt" style="margin-top:4px;">{{ cat_desc }}</div>
+      {% endif %}
     </div>
 
     <div class="actions">
-      <a class="btn" href="/items">Back to All Items</a>
-      <a class="btn" href="/category/{{ item.category }}">View {{ item.category }}</a>
+      <a class="btn" href="/items">All Items</a>
+      <a class="btn" href="/category/{{ item.category }}">{{ item.category }}</a>
       {% if can_edit_inventory %}
-        <a class="btn" href="/items/{{ item.id }}/edit">Edit Item</a>
+        <a class="btn" href="/items/{{ item.id }}/edit">Edit</a>
       {% endif %}
-      <a class="btn" href="/items/{{ item.id }}/history">View History</a>
+      <a class="btn" href="/items/{{ item.id }}/history">History</a>
     </div>
   </div>
 
-  <!-- ✅ SUMMARY BOXES -->
+  <!-- ══════════════════════════════════════════════
+       SUMMARY CARDS — adapt per inv_mode
+       ══════════════════════════════════════════════ -->
   <div class="grid3">
+
+    {# ── SIMPLE COUNT ────────────────────────────── #}
+    {% if is_simple %}
     <div class="card mini">
-      <div class="muted">
-        {% if is_generic %}
-          Boxes Available (Cooler)
-        {% elif is_generic_food %}
-          Units Available (Cooler)
-        {% elif is_items %}
-          Items on Hand
-        {% elif is_wings %}
-          Boxes Received (Cooler)
-        {% else %}
-          Prepped Units Available (Cooler)
-        {% endif %}
-      </div>
-
-      <div class="big">
-        {% if is_generic or is_generic_food %}
-          {{ cooler_units_available | default(0) }}
-        {% elif is_items %}
-          {{ item.on_hand_count | default(0) }}
-        {% elif is_wings %}
-          {{ totals.cooler_boxes if totals else 0 }}
-        {% else %}
-          {{ prepped_units_available }}
-        {% endif %}
-      </div>
-
-      <div class="muted smalltxt">
-        {% if is_generic %}
-          Extra stock in cooler • managed via Receive / Boxes
-        {% elif is_generic_food %}
-          Total units tracked by location
-        {% elif is_items %}
-          Simple item count
-        {% elif is_wings %}
-          Raw boxes in cooler before prepping
-        {% else %}
-          Not consumed • state=prepped
-        {% endif %}
-      </div>
+      <div class="muted">On Hand</div>
+      <div class="big">{{ item.on_hand_count or 0 }}</div>
+      <div class="muted smalltxt">Current stock count</div>
     </div>
-
     <div class="card mini">
-      <div class="muted">
-        {% if is_generic %}
-          On Hand (Bars)
-        {% elif is_generic_food %}
-          Freezer Units
-        {% elif is_items %}
-          Supplier
-        {% elif is_wings %}
-          Prepped Available (Cooler)
-        {% else %}
-          Expiring Soon (Cooler)
-        {% endif %}
-      </div>
-
-      <div class="big">
-        {% if is_generic %}
-          {{ total_on_hand }}
-        {% elif is_generic_food %}
-          {{ totals.freezer_units if totals else 0 }}
-        {% elif is_items %}
-          {% if item.supplier %}
-            {{ item.supplier.name }}
-          {% else %}
-            —
-          {% endif %}
-        {% elif is_wings %}
-          {{ prepped_units_available }}
-        {% else %}
-          {{ expiring_soon_count }}
-        {% endif %}
-      </div>
-
-      <div class="muted smalltxt">
-        {% if is_generic %}
-          Main Bar ({{ mb }}) + Low Bar ({{ lb }}) • set directly below
-        {% elif is_generic_food %}
-          Reserve/backup stock (units)
-        {% elif is_items %}
-          Where to order from
-        {% elif is_wings %}
-          Ready to use • state=prepped
-        {% else %}
-          Expires in the next 0–4 days
-        {% endif %}
-      </div>
+      <div class="muted">Supplier</div>
+      <div class="big" style="font-size:18px;">{{ item.supplier.name if item.supplier else '—' }}</div>
+      <div class="muted smalltxt">Where to order from</div>
     </div>
-
     <div class="card mini">
       <div class="muted">Quick Actions</div>
+      <div class="muted smalltxt">Adjust stock count below</div>
+    </div>
+
+    {# ── GENERIC (BOX/CASE) ──────────────────────── #}
+    {% elif is_generic %}
+    <div class="card mini">
+      <div class="muted">Cooler Stock</div>
+      <div class="big">{{ cooler_units_available | default(0) }}</div>
+      <div class="muted smalltxt">Units in cooler</div>
+    </div>
+    {% if has_locations %}
+    <div class="card mini">
+      <div class="muted">At Bars</div>
+      <div class="big">{{ total_on_hand }}</div>
+      <div class="muted smalltxt">Main ({{ mb }}) + Lower ({{ lb }})</div>
+    </div>
+    {% else %}
+    <div class="card mini">
+      <div class="muted">Supplier</div>
+      <div class="big" style="font-size:18px;">{{ item.supplier.name if item.supplier else '—' }}</div>
+      <div class="muted smalltxt">Where to order from</div>
+    </div>
+    {% endif %}
+    <div class="card mini">
+      <div class="muted">Quick Actions</div>
+      <div class="muted smalltxt">Receive boxes, move stock{% if has_reconcile %}, reconcile{% endif %}</div>
+    </div>
+
+    {# ── GENERIC FOOD ────────────────────────────── #}
+    {% elif is_generic_food %}
+    <div class="card mini">
+      <div class="muted">Cooler Units</div>
+      <div class="big">{{ cooler_units_available | default(0) }}</div>
+      <div class="muted smalltxt">Available in cooler</div>
+    </div>
+    <div class="card mini">
+      <div class="muted">Freezer Units</div>
+      <div class="big">{{ totals.freezer_units if totals else 0 }}</div>
+      <div class="muted smalltxt">Backup / reserve stock</div>
+    </div>
+    {% if item.multiplier and item.multiplier > 0 %}
+    <div class="card mini">
+      <div class="muted">Orders Available</div>
+      <div class="big">{{ (cooler_units_available / item.multiplier) | int }}</div>
+      <div class="muted smalltxt">Cooler ÷ {{ item.multiplier }} per order</div>
+    </div>
+    {% else %}
+    <div class="card mini">
+      <div class="muted">Quick Actions</div>
+      <div class="muted smalltxt">Receive, move{% if has_reconcile %}, reconcile{% endif %}</div>
+    </div>
+    {% endif %}
+
+    {# ── PREP-BASED (wings / raw_protein / portion_pack) ─ #}
+    {% elif is_prep_based %}
+    <div class="card mini">
+      <div class="muted">
+        {% if is_wings %}Boxes in Cooler{% else %}Available (Cooler){% endif %}
+      </div>
+      <div class="big">
+        {% if is_wings %}{{ totals.cooler_boxes if totals else 0 }}
+        {% else %}{{ cooler_units_available | default(0) }}{% endif %}
+      </div>
       <div class="muted smalltxt">
-        {% if is_generic %}
-          Receive boxes + set on-hand for each bar
-        {% elif is_generic_food %}
-          Receive • move • count/reconcile
-        {% elif is_items %}
-          Adjust stock count
-        {% elif is_wings %}
-          Receive raw • prep into units • reconcile
-        {% else %}
-          Receive, move, prep, reconcile
+        {% if is_wings %}Raw boxes before prep{% else %}Ready to use{% endif %}
+      </div>
+    </div>
+    <div class="card mini">
+      <div class="muted">Prepped Units</div>
+      <div class="big">{{ prepped_units_available }}</div>
+      <div class="muted smalltxt">State=prepped, not consumed</div>
+    </div>
+    <div class="card mini">
+      <div class="muted">Expiring Soon</div>
+      <div class="big">{{ expiring_soon_count }}</div>
+      <div class="muted smalltxt">Lots expiring in ≤ 4 days</div>
+    </div>
+
+    {# ── CUSTOM MODE (admin-defined via Settings > Inventory Modes) ─ #}
+    {% else %}
+    {% for loc in locations %}
+    <div class="card mini">
+      <div class="muted">{{ loc.label }}</div>
+      <div class="big">{{ totals[loc.key ~ '_units'] if totals else 0 }}</div>
+      <div class="muted smalltxt">{{ totals[loc.key ~ '_boxes'] if totals else 0 }} box(es)</div>
+    </div>
+    {% endfor %}
+    {% if mode_obj and mode_obj.states|length > 1 %}
+    <div class="card mini">
+      <div class="muted">Prepped / Sellable Units</div>
+      <div class="big">{{ prepped_units_available }}</div>
+      <div class="muted smalltxt">Ready to sell</div>
+    </div>
+    {% endif %}
+    <div class="card mini">
+      <div class="muted">Expiring Soon</div>
+      <div class="big">{{ expiring_soon_count }}</div>
+      <div class="muted smalltxt">Lots expiring in ≤ 4 days</div>
+    </div>
+    {% endif %}
+
+  </div>{# /grid3 #}
+
+  <!-- ══════════════════════════════════════════════
+       INLINE ACTION PANELS
+       ══════════════════════════════════════════════ -->
+
+  {# ── Simple Count: stock adjustment ────────────── #}
+  {% if is_simple and can_edit_inventory %}
+  <div style="height:12px;"></div>
+  <div class="card" style="padding:14px;">
+    <div class="strong" style="margin-bottom:12px;">Adjust Stock</div>
+    <form method="POST" action="/items/{{ item.id }}/adjust-stock" class="form">
+      <div class="grid2" style="margin-bottom:12px;">
+        <div class="field">
+          <label>Current Stock</label>
+          <input class="input" type="number" value="{{ item.on_hand_count or 0 }}" disabled
+                 style="background:rgba(255,255,255,.04);">
+        </div>
+        <div class="field">
+          <label>Adjustment (+/−)</label>
+          <input class="input" type="number" name="adjustment" placeholder="e.g. +10 or -5" required>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:12px;">
+        <label>Notes (optional)</label>
+        <textarea class="input" name="notes" placeholder="Why was this adjusted?" style="height:60px;"></textarea>
+      </div>
+      <div class="actions" style="justify-content:flex-end;">
+        <button class="btn primary" type="submit">Update Stock</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  {# ── Generic / has_locations: bar on-hand entry ── #}
+  {% if (is_generic or has_locations) and not is_simple and can_edit_inventory %}
+  <div style="height:12px;"></div>
+  <div class="card" style="padding:14px;">
+    <div class="strong" style="margin-bottom:6px;">On Hand at Bars</div>
+    <div class="muted smalltxt" style="margin-bottom:12px;">
+      Set how many units are currently at each bar location. Cooler stock is tracked separately via Receive / Boxes.
+    </div>
+    <form class="form" method="POST" action="/items/{{ item.id }}/generic_on_hand">
+      <div class="grid2">
+        <div class="field">
+          <label>Main Bar · On Hand</label>
+          <input class="input" type="number" min="0" step="1" name="main_bar_on_hand" value="{{ mb }}">
+        </div>
+        <div class="field">
+          <label>Lower Bar · On Hand</label>
+          <input class="input" type="number" min="0" step="1" name="low_bar_on_hand" value="{{ lb }}">
+        </div>
+      </div>
+      <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+        <button class="btn primary" type="submit">Save On-Hand</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  {# ── Prep-based: expiring soon ───────────────────── #}
+  {% if is_prep_based and expiring_soon_count and expiring_soon_count > 0 %}
+  <div style="height:12px;"></div>
+  <div class="card" style="padding:14px;">
+    <div class="strong" style="margin-bottom:8px;">Expiring Soon (Cooler)</div>
+    <div class="table">
+      <div class="row head" style="grid-template-columns:.75fr .55fr .7fr .8fr 1.2fr;">
+        <div>Received</div><div>#</div><div>State</div><div>Units</div><div>Expiration</div>
+      </div>
+      {% for r in expiring_soon %}
+      {% set lot = r.lot %}
+      <div class="row" style="grid-template-columns:.75fr .55fr .7fr .8fr 1.2fr;">
+        <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
+        <div class="muted">{{ lot.lot_number or lot.lot_label or '—' }}</div>
+        <div class="muted">{{ lot.state }}</div>
+        <div class="muted">{{ lot.count_units or '—' }}</div>
+        <div class="muted">
+          <span class="strong">{{ r.expires_on.strftime("%b %d, %Y") }}</span>
+          <span class="muted"> · {{ r.days_left }}d left</span>
+          {% if lot.expiration_override %}<span class="muted smalltxt"> · override</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div style="height:10px;"></div>
+    <div class="actions" style="justify-content:flex-end;">
+      <a class="btn" href="/items/{{ item.id }}/lots">View All Lots</a>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Custom Fields (category-defined) ────────────── #}
+  {% if custom_fields %}
+  <div style="height:12px;"></div>
+  <div class="card" style="padding:14px;">
+    <div class="strong" style="margin-bottom:12px;">Custom Fields</div>
+    <div class="grid3">
+      {% for cf in custom_fields %}
+      <div class="card mini">
+        <div class="muted">{{ cf.label }}</div>
+        <div class="big" style="font-size:20px;">{{ cf.display_value }}</div>
+        {% if cf.field_type == 'formula' %}
+        <div class="muted smalltxt">Calculated</div>
         {% endif %}
       </div>
+      {% endfor %}
     </div>
-
-    {% if is_generic_food %}
-      <div class="card mini">
-        <div class="muted">Orders Available (Cooler)</div>
-        
-        <div class="big">
-          {% if item.multiplier and item.multiplier > 0 %}
-            {{ (cooler_units_available / item.multiplier) | int }}
-          {% else %}
-            <span class="muted">Set multiplier</span>
-          {% endif %}
-        </div>
-
-        <div class="muted smalltxt">
-          {% if item.multiplier and item.multiplier > 0 %}
-            Available units ÷ items per order
-          {% else %}
-            Edit item to set "Items per Order"
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="card mini">
-        <div class="muted">Orders Available (Freezer)</div>
-        
-        <div class="big">
-          {% if item.multiplier and item.multiplier > 0 %}
-            {{ (totals.freezer_units / item.multiplier) | int }}
-          {% else %}
-            <span class="muted">Set multiplier</span>
-          {% endif %}
-        </div>
-
-        <div class="muted smalltxt">
-          {% if item.multiplier and item.multiplier > 0 %}
-            Backup units ÷ items per order
-          {% else %}
-            Edit item to set "Items per Order"
-          {% endif %}
-        </div>
-      </div>
-    {% endif %}
   </div>
-
-  {# ✅ GENERIC: ON-HAND ENTRY (MAIN BAR / LOW BAR) - NOT FOR WINGS OR GENERIC_FOOD #}
-  {% if is_generic %}
-    <div style="height:12px;"></div>
-
-    <div class="card" style="padding:14px;">
-      <div class="strong" style="margin-bottom:6px;">On Hand (Bars)</div>
-      <div class="muted smalltxt" style="margin-bottom:12px;">
-        Enter how many units are currently at each bar. Cooler overflow is tracked separately through Receive / Boxes.
-      </div>
-
-      {% if can_edit_inventory %}
-        {# ✅ Uses the route you have: POST /items/<id>/generic_on_hand #}
-        <form class="form" method="POST" action="/items/{{ item.id }}/generic_on_hand">
-          <div class="grid2">
-            <div class="field">
-              <label>Main Bar • On Hand (units)</label>
-              <input class="input"
-                     type="number" min="0" step="1"
-                     name="main_bar_on_hand"
-                     value="{{ mb }}">
-            </div>
-
-            <div class="field">
-              <label>Low Bar • On Hand (units)</label>
-              <input class="input"
-                     type="number" min="0" step="1"
-                     name="low_bar_on_hand"
-                     value="{{ lb }}">
-            </div>
-          </div>
-
-          <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-            <button class="btn primary" type="submit">Save On-Hand</button>
-          </div>
-        </form>
-
-        {# Optional fallback (kept hidden) for your alternate route:
-           POST /items/<id>/on_hand
-           If you ever need to switch back, change the form action above. #}
-      {% else %}
-        <div class="muted">Manager/Admin only</div>
-      {% endif %}
-    </div>
-
-  {% elif is_items %}
-    {# ✅ ITEMS: Simple Stock Adjustment Form #}
-    <div style="height:12px;"></div>
-
-    <div class="card" style="padding:14px;">
-      <div class="strong" style="margin-bottom:12px;">Adjust Stock</div>
-      
-      <form method="POST" action="/items/{{ item.id }}/adjust-stock" class="form">
-        <div class="grid2" style="margin-bottom:12px;">
-          <div class="field">
-            <label>Current Stock</label>
-            <input class="input" type="number" value="{{ item.on_hand_count or 0 }}" disabled style="background: rgba(255, 255, 255, 0.04);">
-          </div>
-          
-          <div class="field">
-            <label>Adjustment (+/−)</label>
-            <input class="input" type="number" name="adjustment" placeholder="e.g., +10 or -5" required>
-          </div>
-        </div>
-
-        <div class="field" style="margin-bottom:12px;">
-          <label>Notes (optional)</label>
-          <textarea class="input" name="notes" placeholder="Why was this adjusted?" style="height:60px;"></textarea>
-        </div>
-
-        <div class="actions" style="justify-content:flex-end;">
-          <button class="btn primary" type="submit">Update Stock</button>
-        </div>
-      </form>
-    </div>
-
-  {% else %}
-    {# ✅ EXISTING EXPIRING SOON BLOCK (UNCHANGED) #}
-    {% if expiring_soon_count and expiring_soon_count > 0 %}
-      <div style="height:12px;"></div>
-
-      <div class="card" style="padding:14px;">
-        <div class="strong" style="margin-bottom:8px;">Expiring Soon (Cooler)</div>
-
-        <div class="table">
-          <div class="row head" style="grid-template-columns: .75fr .55fr .7fr .8fr 1.2fr;">
-            <div>Received</div>
-            <div>#</div>
-            <div>State</div>
-            <div>Units</div>
-            <div>Expiration</div>
-          </div>
-
-          {% for r in expiring_soon %}
-            {% set lot = r.lot %}
-            {% set exp = r.expires_on %}
-            {% set left = r.days_left %}
-
-            <div class="row" style="grid-template-columns: .75fr .55fr .7fr .8fr 1.2fr;">
-              <div class="strong">{{ lot.received_date.strftime("%b %d, %Y") }}</div>
-
-              <div class="muted">
-                {% if lot.lot_number %}
-                  {{ lot.lot_number }}
-                {% elif lot.lot_label %}
-                  {{ lot.lot_label }}
-                {% else %}
-                  —
-                {% endif %}
-              </div>
-
-              <div class="muted">{{ lot.state }}</div>
-
-              <div class="muted">
-                {% if lot.count_units %}
-                  {{ lot.count_units }}
-                {% else %}
-                  —
-                {% endif %}
-              </div>
-
-              <div class="muted">
-                <span class="strong">{{ exp.strftime("%b %d, %Y") }}</span>
-                {% if left == 0 %}
-                  <span class="muted"> • expires today</span>
-                {% else %}
-                  <span class="muted"> • {{ left }}d left</span>
-                {% endif %}
-                {% if lot.expiration_override %}
-                  <span class="muted smalltxt"> • override</span>
-                {% endif %}
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-
-        <div style="height:10px;"></div>
-        <div class="actions" style="justify-content:flex-end;">
-          <a class="btn" href="/items/{{ item.id }}/lots">View All Boxes</a>
-        </div>
-      </div>
-    {% endif %}
   {% endif %}
 
   <div style="height:14px;"></div>
 
-  <!-- ✅ YOUR EXISTING TILE LAYOUT -->
+  <!-- ══════════════════════════════════════════════
+       ACTION TILES — shown based on inv_mode / settings
+       ══════════════════════════════════════════════ -->
   <div class="grid3">
+
+    {# Receive / Boxes — not shown for Simple Count #}
+    {% if not is_simple %}
     <a class="tile" href="/items/{{ item.id }}/lots">
       <div class="tile-title">Receive / Boxes</div>
       <div class="tile-sub">
-        {% if is_generic %}
-          Receive cooler boxes + view FIFO list (cooler overflow)
-        {% elif is_generic_food %}
-          Receive boxes and view by location (cooler/freezer/out)
-        {% elif is_wings %}
-          Receive raw boxes and view by location
-        {% else %}
-          Add boxes and view FIFO list
-        {% endif %}
+        {% if is_generic %}Receive cooler boxes + FIFO list
+        {% elif is_generic_food %}Receive boxes by location (cooler / freezer / out)
+        {% else %}Receive raw boxes and view by location{% endif %}
       </div>
     </a>
+    {% endif %}
 
-    {% if can_edit_inventory %}
+    {# Move Boxes — not shown for Simple Count #}
+    {% if not is_simple %}
+      {% if can_edit_inventory %}
       <a class="tile" href="/items/{{ item.id }}/move_boxes">
         <div class="tile-title">Move Boxes</div>
         <div class="tile-sub">
-          {% if is_generic_food %}
-            Move boxes between cooler/freezer/out
-          {% elif is_wings %}
-            Move raw boxes between locations
-          {% else %}
-            Move FIFO or selected boxes by location
-          {% endif %}
+          {% if is_generic_food or is_prep_based %}Move boxes between cooler / freezer / out
+          {% else %}Move selected boxes by location{% endif %}
         </div>
       </a>
-    {% else %}
+      {% else %}
       <div class="tile disabled">
         <div class="tile-title">Move Boxes</div>
-        <div class="tile-sub">Manager/Admin only</div>
+        <div class="tile-sub">Manager / Admin only</div>
       </div>
+      {% endif %}
     {% endif %}
 
-    {% if is_generic or is_generic_food %}
-      {% if is_generic %}
-        <div class="tile disabled">
-          <div class="tile-title">Prep</div>
-          <div class="tile-sub">Not used for generic items</div>
-        </div>
-      {% else %}
-        <div class="tile disabled">
-          <div class="tile-title">Prep</div>
-          <div class="tile-sub">Not used for generic_food items</div>
-        </div>
-      {% endif %}
-    {% else %}
+    {# Prep — only for prep-based modes #}
+    {% if is_prep_based %}
       {% if can_edit_inventory %}
-        <a class="tile" href="/items/{{ item.id }}/prep">
-          <div class="tile-title">Prep</div>
-          <div class="tile-sub">Use boxes → create prepped batch with expiration</div>
-        </a>
-      {% else %}
-        <div class="tile disabled">
-          <div class="tile-title">Prep</div>
-          <div class="tile-sub">Manager/Admin only</div>
+      <a class="tile" href="/items/{{ item.id }}/prep">
+        <div class="tile-title">Prep</div>
+        <div class="tile-sub">
+          {% if is_wings %}Batch prep raw boxes → prepped units
+          {% else %}Convert raw stock → prepped with expiration{% endif %}
         </div>
+      </a>
+      {% else %}
+      <div class="tile disabled">
+        <div class="tile-title">Prep</div>
+        <div class="tile-sub">Manager / Admin only</div>
+      </div>
       {% endif %}
+    {% elif not is_simple %}
+    {# Placeholder so grid doesn't collapse — only if we haven't shown it #}
+    <div class="tile disabled">
+      <div class="tile-title">Prep</div>
+      <div class="tile-sub">Not used for {{ mode_label }}</div>
+    </div>
     {% endif %}
 
+    {# Reconcile — only if category has has_reconcile #}
+    {% if has_reconcile %}
     <a class="tile" href="/items/{{ item.id }}/reconcile">
       <div class="tile-title">Count / Reconcile</div>
       <div class="tile-sub">
-        {% if is_generic %}
-          Set bars on-hand + reconcile cooler boxes separately via Receive / Boxes
-        {% elif is_generic_food %}
-          Count boxes by location + adjust for multiplier
-        {% elif is_wings %}
-          Count prepped units + verify against expected
-        {% else %}
-          Expected vs actual + missing
-        {% endif %}
+        {% if is_generic %}Set bars on-hand + reconcile cooler boxes
+        {% elif is_generic_food %}Count by location + adjust for multiplier
+        {% elif is_prep_based %}Count prepped units vs expected
+        {% else %}Expected vs actual + missing{% endif %}
       </div>
     </a>
-  </div>
+    {% endif %}
+
+    {# History always shown #}
+    <a class="tile" href="/items/{{ item.id }}/history">
+      <div class="tile-title">History</div>
+      <div class="tile-sub">View reconcile records and adjustments</div>
+    </a>
+
+  </div>{# /grid3 #}
+
 </section>
+
+<style>
+.hub-badge {
+  display: inline-block;
+  font-size: 11px; font-weight: 700; padding: 2px 8px;
+  border-radius: 20px; background: rgba(100,116,139,.15);
+  color: var(--text-muted); border: 1px solid var(--stroke);
+  white-space: nowrap;
+}
+.badge-green { background:rgba(34,197,94,.12); color:#16a34a; border-color:rgba(34,197,94,.3); }
+.badge-blue  { background:rgba(37,99,235,.12); color:var(--primary); border-color:rgba(37,99,235,.3); }
+</style>
 
 {% endblock %}

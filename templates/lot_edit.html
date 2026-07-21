@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 
+{% set states = states or [] %}
+{% set locations = locations or [] %}
+
 <section class="card">
   <div class="cardhead">
     <div>
@@ -23,8 +26,12 @@
       <div class="field">
         <label>State</label>
         <select class="input" name="state">
-          <option value="raw" {% if (lot.state or '') == 'raw' %}selected{% endif %}>raw</option>
-          <option value="prepped" {% if (lot.state or '') == 'prepped' %}selected{% endif %}>prepped</option>
+          {% for st in states %}
+          <option value="{{ st.key }}" {% if (lot.state or '') == st.key %}selected{% endif %}>{{ st.label }}</option>
+          {% else %}
+          <option value="raw"     {% if (lot.state or '') == 'raw'     %}selected{% endif %}>Raw</option>
+          <option value="prepped" {% if (lot.state or '') == 'prepped' %}selected{% endif %}>Prepped</option>
+          {% endfor %}
         </select>
       </div>
     </div>
@@ -45,9 +52,13 @@
       <div class="field">
         <label>Location</label>
         <select class="input" name="storage">
-          <option value="freezer" {% if (lot.storage or '') == 'freezer' %}selected{% endif %}>freezer</option>
-          <option value="cooler" {% if (lot.storage or '') == 'cooler' %}selected{% endif %}>cooler</option>
-          <option value="out" {% if (lot.storage or '') == 'out' %}selected{% endif %}>out</option>
+          {% for loc in locations %}
+          <option value="{{ loc.key }}" {% if (lot.storage or '') == loc.key %}selected{% endif %}>{{ loc.label }}</option>
+          {% else %}
+          <option value="freezer" {% if (lot.storage or '') == 'freezer' %}selected{% endif %}>Freezer</option>
+          <option value="cooler"  {% if (lot.storage or '') == 'cooler'  %}selected{% endif %}>Cooler</option>
+          <option value="out"     {% if (lot.storage or '') == 'out'     %}selected{% endif %}>Out</option>
+          {% endfor %}
         </select>
       </div>
 

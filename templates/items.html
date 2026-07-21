@@ -1,68 +1,253 @@
 {% extends "base.html" %}
 {% block content %}
 
+{# Pass server-side flags to JS via data attributes #}
+<div id="__pageFlags" hidden
+     data-admin="{{ '1' if can_manage_users else '0' }}"></div>
+
 <section class="card">
   <div class="cardhead">
     <div>
-      <h1>All Items</h1>
-      <span class="muted">Search + manage the master item list.</span>
+      <h1>Items</h1>
+      <span class="muted" id="itemCount">{{ items|length }} item{{ 's' if items|length != 1 else '' }}</span>
     </div>
 
     <div class="actions">
-      <form method="GET" action="/items" class="inline">
-        <input class="input" name="q" placeholder="Search items..." value="{{ q or '' }}">
-        <button class="btn" type="submit">Search</button>
-      </form>
-
+      <div class="search-wrap">
+        <i class="fas fa-search search-icon"></i>
+        <input class="input search-live" id="itemSearch" placeholder="Search items…"
+               value="{{ q or '' }}" autocomplete="off">
+      </div>
       {% if can_edit_inventory %}
-        <a class="btn primary" href="/items/new">+ Add Item</a>
+        <a class="btn primary" href="/items/new"><i class="fas fa-plus"></i> Add Item</a>
         <a class="btn" href="/items/bulk">Bulk Edit</a>
       {% endif %}
-      <a class="btn" href="/">Back to Dashboard</a>
     </div>
   </div>
 
+  {# ── Bulk-action bar (admin only) — hidden until ≥1 checkbox checked ── #}
+  {% if can_manage_users %}
+  <div id="bulkBar" style="display:none; align-items:center; gap:12px; padding:10px 20px;
+       border-bottom:1px solid var(--stroke); background:rgba(185,39,58,.06);">
+    <span id="bulkCount" style="font-size:13px; font-weight:600; color:var(--danger);">0 selected</span>
+    <button type="button" class="btn danger" id="bulkDeleteBtn">
+      <i class="fas fa-trash"></i> Delete Selected
+    </button>
+    <button type="button" class="btn" id="bulkCancelBtn">
+      <i class="fas fa-times"></i> Cancel
+    </button>
+  </div>
+  {% endif %}
+
   {% if items and items|length > 0 %}
     <div class="table">
-      <div class="row head" style="grid-template-columns: 1.3fr .8fr .7fr .9fr .9fr .8fr;">
+      {# Header — admin gets an extra 32px checkbox column #}
+      <div class="row head items-row{% if can_manage_users %} row-admin{% endif %}">
+        {% if can_manage_users %}
+        <div class="check-cell">
+          <input type="checkbox" id="selectAll" title="Select all">
+        </div>
+        {% endif %}
         <div>Name</div>
         <div>Category</div>
         <div>Unit</div>
-        <div>Prep Type</div>
+        <div>Inventory Mode</div>
         <div>Supplier</div>
         <div></div>
       </div>
 
       {% for it in items %}
-        <div class="row" style="grid-template-columns: 1.3fr .8fr .7fr .9fr .9fr .8fr;">
-          <div class="strong">
-            <a class="navlink" style="padding:0; border:none;" href="/items/{{ it.id }}">{{ it.name }}</a>
+        {% set mode_label = {
+          'items':        'Simple Count',
+          'generic':      'Box / Case',
+          'generic_food': 'Prep Food',
+          'wings':        'Wings Prep',
+          'raw_protein':  'Raw Protein',
+          'portion_pack': 'Portion Packs'
+        }.get(it.prep_type, it.prep_type) %}
+
+        <div class="row item-row items-row{% if can_manage_users %} row-admin{% endif %}"
+             data-id="{{ it.id }}"
+             data-name="{{ it.name.lower() }}"
+             data-category="{{ it.category.lower() }}">
+
+          {% if can_manage_users %}
+          <div class="check-cell">
+            <input type="checkbox" class="item-check" data-id="{{ it.id }}">
+          </div>
+          {% endif %}
+
+          <div>
+            <a class="item-link" href="/items/{{ it.id }}">{{ it.name }}</a>
           </div>
           <div class="muted">{{ it.category }}</div>
-          <div class="muted">{{ it.unit }}</div>
-          <div class="muted">{{ it.prep_type }}</div>
-          <div class="muted">{{ it.supplier.name if it.supplier else "—" }}</div>
+          <div class="muted">{{ it.unit or '—' }}</div>
+          <div class="muted">{{ mode_label }}</div>
+          <div class="muted">{{ it.supplier.name if it.supplier else '—' }}</div>
 
           <div class="row-actions">
             {% if can_edit_inventory %}
-              <a class="btn small" href="/items/{{ it.id }}">Open</a>
-              <a class="btn small" href="/items/{{ it.id }}/edit">Edit</a>
-              <form method="POST" action="/items/{{ it.id }}/delete" class="inline">
-                <button class="btn small danger" type="submit"
-                        onclick="return confirm('Delete this item? (Only allowed if no history exists)')">
-                  Delete
+              <a class="icon-btn" href="/items/{{ it.id }}/edit" title="Edit {{ it.name }}">
+                <i class="fas fa-edit"></i>
+              </a>
+              <form method="POST" action="/items/{{ it.id }}/delete" style="display:inline;">
+                <button class="icon-btn danger" type="submit" title="Delete {{ it.name }}"
+                        onclick="return confirm('Delete {{ it.name }}?')">
+                  <i class="fas fa-trash"></i>
                 </button>
               </form>
-            {% else %}
-              <span class="muted smalltxt">view only</span>
             {% endif %}
           </div>
         </div>
       {% endfor %}
     </div>
+
+    <div id="noResults" class="empty" style="display:none;">No items match your search.</div>
   {% else %}
-    <div class="empty">No items yet.</div>
+    <div class="empty">No items yet. <a href="/items/new">Add your first item.</a></div>
   {% endif %}
 </section>
+
+<style>
+/* column layouts — Jinja-free so VS Code CSS linter is happy */
+.items-row { grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto; }
+.row-admin  { grid-template-columns: 32px 2fr 1fr 1fr 1fr 1fr auto; }
+.search-wrap  { position:relative; display:flex; align-items:center; }
+.search-icon  { position:absolute; left:10px; color:var(--text-muted); font-size:13px; pointer-events:none; }
+.search-live  { padding-left:32px !important; width:220px; }
+.item-link    { color:var(--text); font-weight:600; text-decoration:none; }
+.item-link:hover { color:var(--primary); }
+.icon-btn {
+  background:none; border:none; color:var(--text-muted); font-size:14px; cursor:pointer;
+  padding:6px 8px; border-radius:var(--radius-sm); transition:var(--transition);
+  display:inline-flex; align-items:center; text-decoration:none;
+}
+.icon-btn:hover        { color:var(--primary); background:rgba(37,99,235,.1); }
+.icon-btn.danger:hover { color:var(--danger);  background:rgba(185,39,58,.1); }
+.btn.danger { background:var(--danger); color:#fff; border-color:var(--danger); }
+.btn.danger:hover { opacity:.85; }
+.check-cell { display:flex; align-items:center; justify-content:center; }
+.check-cell input { cursor:pointer; width:15px; height:15px; }
+/* highlight checked rows */
+.item-row.row-selected { background: rgba(185,39,58,.06); }
+</style>
+
+<script>
+// ── Live search ───────────────────────────────────────────────
+document.getElementById('itemSearch')?.addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  let visible = 0;
+  document.querySelectorAll('.item-row').forEach(row => {
+    const show = !q || row.dataset.name.includes(q) || row.dataset.category.includes(q);
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('noResults').style.display = visible === 0 ? '' : 'none';
+});
+
+// ── Checkboxes + bulk bar (admin only) ───────────────────────
+const _isAdmin = document.getElementById('__pageFlags')?.dataset.admin === '1';
+if (_isAdmin) {
+  const selectAllEl   = document.getElementById('selectAll');
+  const bulkBar       = document.getElementById('bulkBar');
+  const bulkCountEl   = document.getElementById('bulkCount');
+  const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+  const bulkCancelBtn = document.getElementById('bulkCancelBtn');
+
+  function getChecked() {
+    return [...document.querySelectorAll('.item-check:checked')];
+  }
+
+  function updateBulkBar() {
+    const checked = getChecked();
+    const n = checked.length;
+    bulkBar.style.display = n > 0 ? 'flex' : 'none';
+    if (bulkCountEl) bulkCountEl.textContent = n + ' selected';
+    document.querySelectorAll('.item-row').forEach(row => {
+      const cb = row.querySelector('.item-check');
+      row.classList.toggle('row-selected', cb && cb.checked);
+    });
+    const all = document.querySelectorAll('.item-check');
+    if (selectAllEl) {
+      selectAllEl.indeterminate = n > 0 && n < all.length;
+      selectAllEl.checked = n > 0 && n === all.length;
+    }
+  }
+
+  selectAllEl?.addEventListener('change', function() {
+    document.querySelectorAll('.item-check').forEach(cb => {
+      const row = cb.closest('.item-row');
+      if (!row || row.style.display === 'none') return;
+      cb.checked = this.checked;
+    });
+    updateBulkBar();
+  });
+
+  document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('item-check')) updateBulkBar();
+  });
+
+  // Click anywhere on a row (except action buttons / links) toggles checkbox
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('.row-actions')) return;
+    if (e.target.closest('.item-check')) return;
+    if (e.target.closest('a')) return;
+    const row = e.target.closest('.item-row');
+    if (!row) return;
+    const cb = row.querySelector('.item-check');
+    if (!cb) return;
+    cb.checked = !cb.checked;
+    updateBulkBar();
+  });
+
+  bulkCancelBtn?.addEventListener('click', function() {
+    document.querySelectorAll('.item-check').forEach(cb => cb.checked = false);
+    if (selectAllEl) { selectAllEl.checked = false; selectAllEl.indeterminate = false; }
+    updateBulkBar();
+  });
+
+  bulkDeleteBtn?.addEventListener('click', async function() {
+    const checked = getChecked();
+    if (!checked.length) return;
+
+    const names = checked.map(cb => {
+      const row = cb.closest('.item-row');
+      return row ? row.querySelector('.item-link')?.textContent?.trim() : cb.dataset.id;
+    }).filter(Boolean);
+
+    if (!confirm(`Delete ${checked.length} item${checked.length > 1 ? 's' : ''}?\n\n${names.join('\n')}\n\nAll inventory history will also be deleted. This cannot be undone.`)) return;
+
+    const ids = checked.map(cb => parseInt(cb.dataset.id));
+    this.disabled = true;
+    this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting…';
+
+    try {
+      const r = await fetch('/items/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      const data = await r.json();
+      if (data.error) { alert('Error: ' + data.error); return; }
+
+      data.deleted.forEach(id => {
+        const row = document.querySelector(`.item-row[data-id="${id}"]`);
+        if (row) row.remove();
+      });
+
+      const remaining = document.querySelectorAll('.item-row').length;
+      document.getElementById('itemCount').textContent =
+        remaining + ' item' + (remaining !== 1 ? 's' : '');
+
+      if (selectAllEl) { selectAllEl.checked = false; selectAllEl.indeterminate = false; }
+      bulkBar.style.display = 'none';
+
+    } finally {
+      this.disabled = false;
+      this.innerHTML = '<i class="fas fa-trash"></i> Delete Selected';
+    }
+  });
+} // end admin block
+</script>
 
 {% endblock %}

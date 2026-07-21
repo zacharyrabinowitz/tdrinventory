@@ -1,254 +1,656 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="container-fluid py-3 beers-page">
+{# Tap data is embedded in data-* attributes so no Jinja lives inside <script> #}
+<div id="__tapData" hidden
+     data-main='{{ main_taps_data  | tojson }}'
+     data-lower='{{ lower_taps_data | tojson }}'></div>
 
-  <!-- HEADER -->
-  <div class="beers-header mb-3">
+<script>
+(function() {
+  const _d     = document.getElementById('__tapData');
+  const TAP_DATA = {
+    main:  JSON.parse(_d.dataset.main),
+    lower: JSON.parse(_d.dataset.lower)
+  };
+
+  // beer_id → { tap_id, bar, idx, pct }
+  window.BEER_ON_TAP = {};
+  Object.entries(TAP_DATA).forEach(([bar, taps]) => {
+    taps.forEach(t => {
+      if (t.beer_id) window.BEER_ON_TAP[t.beer_id] = { tap_id: t.id, bar, idx: t.idx, pct: t.pct };
+    });
+  });
+
+  // flat list of all taps for the dropdown
+  window.ALL_TAPS = [
+    ...TAP_DATA.main.map(t  => ({ id: t.id, label: `Main Bar · Tap ${t.idx}`,  bar: 'main',  idx: t.idx, beer_id: t.beer_id })),
+    ...TAP_DATA.lower.map(t => ({ id: t.id, label: `Lower Bar · Tap ${t.idx}`, bar: 'lower', idx: t.idx, beer_id: t.beer_id }))
+  ];
+})();
+</script>
+
+<!-- HEADER -->
+<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; flex-wrap:wrap;">
+  <div>
+    <h1 style="margin:0;">Bulk Edit Beers</h1>
+    <span class="muted">Edit fields and tap assignments for all beers at once</span>
+  </div>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a href="/beers" class="btn"><i class="fas fa-arrow-left"></i> Manage Beers</a>
+    <button type="button" class="btn" id="expandAllBtn">
+      <i class="fas fa-chevron-down"></i> Expand All
+    </button>
+    <button type="button" class="btn primary" id="saveAllBtn">
+      <i class="fas fa-save"></i> Save All Changes
+    </button>
+  </div>
+</div>
+
+<!-- BEER LIST -->
+<section class="card" style="padding:0;">
+  <div id="beers-table-body">
+    {% for beer in beers %}
+    <div class="be-beer-card" data-beer-id="{{ beer.id }}">
+
+      <!-- Main row -->
+      <div class="be-main-row">
+        <input class="bulk-input be-input-name" type="text"
+               data-field="name" value="{{ beer.name }}" placeholder="Beer name">
+        <input class="bulk-input be-input-brewery" type="text"
+               data-field="brewery" value="{{ beer.brewery or '' }}" placeholder="Brewery">
+        <div class="be-kegs-wrap">
+          <input class="bulk-input be-input-kegs" type="number" step="1" min="0"
+                 data-field="on_hand_kegs" value="{{ beer.on_hand_kegs or 0 }}" title="Kegs on hand">
+          <span class="be-kegs-lbl">kegs</span>
+        </div>
+        <div class="tap-assign-cell" data-beer-id="{{ beer.id }}"></div>
+        <button type="button" class="be-expand-btn" title="More details">
+          <i class="fas fa-chevron-down"></i>
+        </button>
+      </div>
+
+      <!-- Detail row (hidden by default) -->
+      <div class="be-detail-row" style="display:none;">
+        <div class="be-detail-field">
+          <label>Style</label>
+          <input class="bulk-input" type="text" data-field="style"
+                 value="{{ beer.style or '' }}" placeholder="—">
+        </div>
+        <div class="be-detail-field">
+          <label>ABV %</label>
+          <input class="bulk-input" type="number" step="0.1" min="0" max="30"
+                 data-field="abv" value="{{ beer.abv or '' }}" placeholder="—">
+        </div>
+        <div class="be-detail-field">
+          <label>Keg Size</label>
+          <select class="bulk-input" data-field="keg_size">
+            <option value="">—</option>
+            <option value="half" {% if beer.keg_size == 'half' %}selected{% endif %}>Half</option>
+            <option value="full" {% if beer.keg_size == 'full' %}selected{% endif %}>Full</option>
+          </select>
+        </div>
+        <div class="be-detail-field">
+          <label>Cups / Keg</label>
+          <input class="bulk-input" type="number" step="1" min="0"
+                 data-field="cups_per_keg" value="{{ beer.cups_per_keg or '' }}" placeholder="—">
+        </div>
+        <div class="be-detail-field">
+          <label>Cost $</label>
+          <input class="bulk-input" type="number" step="0.01" min="0"
+                 data-field="cost" value="{{ beer.cost or '' }}" placeholder="—">
+        </div>
+        <div class="be-detail-field">
+          <label>Price $</label>
+          <input class="bulk-input" type="number" step="0.01" min="0"
+                 data-field="price" value="{{ beer.price or '' }}" placeholder="—">
+        </div>
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- bottom save bar -->
+<div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px; margin-bottom:20px;">
+  <a href="/beers" class="btn"><i class="fas fa-arrow-left"></i> Back</a>
+  <button type="button" class="btn" id="expandAllBtn2">
+    <i class="fas fa-chevron-down"></i> Expand All
+  </button>
+  <button type="button" class="btn primary" id="saveAllBtn2">
+    <i class="fas fa-save"></i> Save All Changes
+  </button>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     TAP ASSIGNMENTS (single-column, ordered by tap)
+     ══════════════════════════════════════════════ -->
+<section class="card" style="margin-bottom:20px;">
+  <div class="cardhead">
     <div>
-      <h1 class="beers-title">Bulk Edit Beers</h1>
-      <div class="beers-subtitle">Edit multiple beers at once in a spreadsheet view</div>
-    </div>
-
-    <div class="beers-actions">
-      <a class="btn btn-outline-secondary" href="/beers">
-        <i class="fa-solid fa-arrow-left me-1"></i> Back to Manage Beers
-      </a>
-      <button class="btn btn-success" onclick="saveBulkEditBeers()">
-        <i class="fa-solid fa-floppy-disk me-1"></i> ✓ Save All Changes
-      </button>
+      <h2>Tap Assignments</h2>
+      <span class="muted">Click Save on any tap to update its assignment</span>
     </div>
   </div>
 
-  <!-- TABLE -->
-  <div class="beers-card">
-    <div style="overflow-x: auto;">
-      <table class="bulk-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Brewery</th>
-            <th>Style</th>
-            <th>ABV (%)</th>
-            <th>Keg Size</th>
-            <th>Cups/Keg</th>
-            <th>Cost</th>
-            <th>Price</th>
-            <th>Kegs On Hand</th>
-          </tr>
-        </thead>
-        <tbody id="beers-table-body">
-          {% for beer in beers %}
-          <tr data-beer-id="{{ beer.id }}">
-            <td>
-              <input class="bulk-input" type="text" data-field="name" value="{{ beer.name }}">
-            </td>
-            <td>
-              <input class="bulk-input" type="text" data-field="brewery" value="{{ beer.brewery or '' }}">
-            </td>
-            <td>
-              <input class="bulk-input" type="text" data-field="style" value="{{ beer.style or '' }}">
-            </td>
-            <td>
-              <input class="bulk-input" type="number" step="0.1" min="0" max="30" data-field="abv" 
-                     value="{{ beer.abv or '' }}">
-            </td>
-            <td>
-              <select class="bulk-input" data-field="keg_size">
-                <option value="">-- None --</option>
-                <option value="half" {% if beer.keg_size == 'half' %}selected{% endif %}>Half</option>
-                <option value="full" {% if beer.keg_size == 'full' %}selected{% endif %}>Full</option>
-              </select>
-            </td>
-            <td>
-              <input class="bulk-input" type="number" step="1" min="0" data-field="cups_per_keg" 
-                     value="{{ beer.cups_per_keg or '' }}">
-            </td>
-            <td>
-              <input class="bulk-input" type="number" step="0.01" min="0" data-field="cost" 
-                     value="{{ beer.cost or '' }}">
-            </td>
-            <td>
-              <input class="bulk-input" type="number" step="0.01" min="0" data-field="price" 
-                     value="{{ beer.price or '' }}">
-            </td>
-            <td>
-              <input class="bulk-input" type="number" step="1" min="0" data-field="on_hand_kegs" 
-                     value="{{ beer.on_hand_kegs or 0 }}">
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="beers-actions" style="margin-top:16px;">
-    <a class="btn btn-outline-secondary" href="/beers">Back to Manage Beers</a>
-    <button class="btn btn-success" onclick="saveBulkEditBeers()">
-      <i class="fa-solid fa-floppy-disk me-1"></i> ✓ Save All Changes
+  <div style="display:flex; border-bottom:2px solid var(--stroke);">
+    <button type="button" class="bm-tab bm-tab-active" data-panel="be-panel-main">
+      <i class="fas fa-beer"></i> Main Bar
+    </button>
+    <button type="button" class="bm-tab" data-panel="be-panel-lower">
+      <i class="fas fa-beer"></i> Lower Bar
     </button>
   </div>
 
+  <!-- Main bar -->
+  <div id="be-panel-main" class="bm-tap-panel">
+    <div class="bm-tap-grid">
+      {% for t in main_taps %}
+      <div class="bm-tap-row {% if t.beer_id %}bm-tap-assigned{% endif %}" data-tap-id="{{ t.id }}">
+        <span class="bm-tap-num">{{ loop.index }}</span>
+        <select class="input bm-tap-select" style="flex:1; min-width:0;">
+          <option value="">— Empty —</option>
+          {% for b in beers %}
+          <option value="{{ b.id }}" {% if t.beer_id == b.id %}selected{% endif %}>
+            {{ b.name }}{% if b.brewery %} · {{ b.brewery }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <input type="number" class="input bm-tap-pct" min="0" max="100" placeholder="%"
+               value="{{ t.percent_remaining if t.beer_id else '' }}" title="% remaining">
+        <button type="button" class="btn primary small bm-tap-save"
+                data-tap-id="{{ t.id }}" title="Save">
+          <i class="fas fa-check"></i>
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Lower bar -->
+  <div id="be-panel-lower" class="bm-tap-panel" style="display:none;">
+    <div class="bm-tap-grid">
+      {% for t in lower_taps %}
+      <div class="bm-tap-row {% if t.beer_id %}bm-tap-assigned{% endif %}" data-tap-id="{{ t.id }}">
+        <span class="bm-tap-num">{{ loop.index }}</span>
+        <select class="input bm-tap-select" style="flex:1; min-width:0;">
+          <option value="">— Empty —</option>
+          {% for b in beers %}
+          <option value="{{ b.id }}" {% if t.beer_id == b.id %}selected{% endif %}>
+            {{ b.name }}{% if b.brewery %} · {{ b.brewery }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <input type="number" class="input bm-tap-pct" min="0" max="100" placeholder="%"
+               value="{{ t.percent_remaining if t.beer_id else '' }}" title="% remaining">
+        <button type="button" class="btn primary small bm-tap-save"
+                data-tap-id="{{ t.id }}" title="Save">
+          <i class="fas fa-check"></i>
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- TAP ASSIGN POPUP (shared) -->
+<div id="tapPopup" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
+     z-index:2000; align-items:center; justify-content:center; padding:20px;"
+     onclick="if(event.target===this)closeTapPopup()">
+  <div style="background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+              width:100%; max-width:380px; box-shadow:var(--shadow);">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:18px 20px; border-bottom:1px solid var(--stroke);">
+      <h2 style="margin:0; font-size:17px;" id="tapPopupTitle">Assign Tap</h2>
+      <button type="button" onclick="closeTapPopup()"
+              style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px 8px;border-radius:4px;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div style="padding:20px;">
+      <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);display:block;margin-bottom:6px;">
+        Tap
+      </label>
+      <select id="tapPopupSelect" class="input" style="width:100%; margin-bottom:14px;">
+        <option value="">— Remove from tap —</option>
+      </select>
+      <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);display:block;margin-bottom:6px;">
+        % Remaining
+      </label>
+      <input type="number" id="tapPopupPct" class="input" style="width:100%;" min="0" max="100" value="100">
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; padding:16px 20px;
+                border-top:1px solid var(--stroke);">
+      <button type="button" class="btn" onclick="closeTapPopup()">Cancel</button>
+      <button type="button" class="btn primary" id="tapPopupSave">
+        <i class="fas fa-check"></i> Assign
+      </button>
+    </div>
+  </div>
 </div>
 
 <style>
-.bulk-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--card);
-  border: 1px solid var(--stroke);
-  border-radius: var(--r);
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-
-.bulk-table thead {
-  background: var(--card2);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.bulk-table th {
-  padding: 14px 16px;
-  text-align: left;
-  font-weight: 600;
-  border-bottom: 2px solid var(--stroke);
-  color: var(--text-muted);
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.bulk-table td {
-  padding: 10px 16px;
+/* ── Beer card list ── */
+.be-beer-card {
   border-bottom: 1px solid var(--stroke);
+  transition: background .15s;
 }
+.be-beer-card:last-child { border-bottom: none; }
 
-.bulk-table tbody tr:hover {
-  background: var(--card2);
-}
-
-.bulk-input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1.5px solid var(--stroke);
-  background: var(--card);
-  color: var(--text);
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: inherit;
-  transition: all 0.2s ease;
-}
-
-.bulk-input:hover {
-  border-color: #cbd5e1;
-}
-
-.bulk-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-light);
-}
-
-.bulk-input[type="number"] {
-  text-align: right;
-}
-
-/* Select dropdown styling */
-select.bulk-input {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  padding-right: 28px;
-  background-image:
-    linear-gradient(45deg, transparent 50%, #2563eb 50%),
-    linear-gradient(135deg, #2563eb 50%, transparent 50%);
-  background-position:
-    calc(100% - 8px) 50%,
-    calc(100% - 4px) 50%;
-  background-size: 4px 4px, 4px 4px;
-  background-repeat: no-repeat;
-  cursor: pointer;
-}
-
-select.bulk-input option {
-  background: var(--card);
-  color: var(--text);
-  padding: 4px 8px;
-}
-
-select.bulk-input option:hover {
-  background: var(--primary-light);
-  color: var(--primary-dark);
-}
-
-select.bulk-input optgroup {
-  background: var(--card);
-  color: var(--text);
-}
-
-.beers-actions {
+/* Main row: Name · Brewery · Kegs · On Tap · Expand */
+.be-main-row {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
 }
+.be-beer-card:hover .be-main-row { background: rgba(37,99,235,.03); }
+
+.be-input-name    { flex: 2; min-width: 0; font-weight: 600; }
+.be-input-brewery { flex: 1.5; min-width: 0; }
+.be-kegs-wrap     { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.be-input-kegs    { width: 64px !important; text-align: center; }
+.be-kegs-lbl      { font-size: 12px; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+
+.be-expand-btn {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  padding: 6px 8px; border-radius: var(--radius-sm); transition: var(--transition);
+  flex-shrink: 0; display: flex; align-items: center;
+}
+.be-expand-btn:hover { color: var(--primary); background: rgba(37,99,235,.1); }
+.be-expand-btn.open  { color: var(--primary); }
+.be-expand-btn.open i { transform: rotate(180deg); }
+.be-expand-btn i { transition: transform .2s ease; }
+
+/* Detail row (shown on expand) */
+.be-detail-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
+  gap: 10px;
+  padding: 0 18px 14px 18px;
+  border-top: 1px dashed var(--stroke);
+  margin-top: 0;
+}
+.be-detail-field { display: flex; flex-direction: column; gap: 4px; }
+.be-detail-field label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .be-main-row    { flex-wrap: wrap; }
+  .be-input-name, .be-input-brewery { flex: 1 1 40%; }
+  .be-detail-row  { grid-template-columns: 1fr 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  .be-detail-row  { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── Bulk inputs ── */
+.bulk-input {
+  width: 100%; padding: 7px 9px; border: 1.5px solid var(--stroke);
+  background: var(--card); color: var(--text); border-radius: var(--radius-sm);
+  font-size: 13px; font-family: inherit; transition: var(--transition);
+}
+.bulk-input:hover  { border-color: #cbd5e1; }
+.bulk-input:focus  { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,.12); }
+.text-right { text-align: right; }
+select.bulk-input  { cursor: pointer; }
+
+/* ── Tap assignment section (mirrors beers_manage) ── */
+.bm-tab {
+  flex: 1; padding: 13px 20px; border: none; background: none;
+  color: var(--text-muted); font-size: 14px; font-weight: 600;
+  cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: var(--transition); display: inline-flex; align-items: center;
+  gap: 7px; justify-content: center;
+}
+.bm-tab:hover { color: var(--text); background: rgba(255,255,255,.04); }
+.bm-tab-active { color: var(--primary); border-bottom-color: var(--primary); }
+.bm-tap-panel { padding: 16px; }
+.bm-tap-grid  { display: flex; flex-direction: column; gap: 6px; }
+.bm-tap-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--radius-md);
+  border: 1px solid var(--stroke); background: var(--card2); transition: var(--transition);
+}
+.bm-tap-row:hover { border-color: var(--primary); }
+.bm-tap-assigned { background: rgba(37,99,235,.05); border-color: rgba(37,99,235,.25); }
+.bm-tap-num {
+  font-size: 11px; font-weight: 800; color: var(--text-muted);
+  min-width: 24px; text-align: center; letter-spacing: .5px;
+}
+.bm-tap-assigned .bm-tap-num { color: var(--primary); }
+.bm-tap-pct { width: 64px !important; text-align: center; padding: 6px 6px !important; flex-shrink: 0; }
+.btn.primary.small { padding: 6px 12px; font-size: 12px; flex-shrink: 0; }
+
+/* ── Tap assign cell ── */
+.tap-assign-cell { display: flex; align-items: center; gap: 6px; }
+.tap-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
+  border-radius: 20px; font-size: 11px; font-weight: 700;
+  background: rgba(37,99,235,.15); color: var(--primary); cursor: pointer;
+  border: 1px solid rgba(37,99,235,.25); transition: var(--transition); white-space: nowrap;
+}
+.tap-badge:hover { background: rgba(37,99,235,.28); }
+.tap-empty-badge {
+  color: var(--text-muted); font-size: 11px; font-weight: 600; cursor: pointer;
+  padding: 3px 8px; border-radius: 20px; border: 1px dashed var(--stroke);
+  transition: var(--transition); white-space: nowrap;
+}
+.tap-empty-badge:hover { border-color: var(--primary); color: var(--primary); }
 </style>
 
 <script>
-async function saveBulkEditBeers() {
-  const table = document.getElementById("beers-table-body");
-  const rows = table.querySelectorAll("tr");
-  
-  const beers = [];
-  
-  rows.forEach(row => {
-    const beerId = parseInt(row.dataset.beerId);
-    const inputs = row.querySelectorAll(".bulk-input");
-    
-    const beerData = { id: beerId };
-    
-    inputs.forEach(input => {
-      const field = input.dataset.field;
-      let value = input.value.trim();
-      
-      // Handle empty values
-      if (value === "") {
-        beerData[field] = null;
+// ── Bar tab switching (tap assignment section) ──
+document.querySelectorAll('.bm-tab').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const section = this.closest('section');
+    section.querySelectorAll('.bm-tab').forEach(b => b.classList.remove('bm-tab-active'));
+    this.classList.add('bm-tab-active');
+    section.querySelectorAll('.bm-tap-panel').forEach(p => p.style.display = 'none');
+    document.getElementById(this.dataset.panel).style.display = '';
+  });
+});
+
+// ── Inline tap-row save (tap assignment section) ──
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.bm-tap-save');
+  if (!btn) return;
+  e.preventDefault();
+
+  const tapId  = btn.dataset.tapId;
+  const row    = btn.closest('.bm-tap-row');
+  const sel    = row.querySelector('.bm-tap-select');
+  const pctEl  = row.querySelector('.bm-tap-pct');
+  const beerId = sel.value;
+  const pct    = pctEl.value !== '' ? parseInt(pctEl.value) : 100;
+
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  btn.disabled  = true;
+
+  const fd = new FormData();
+  fd.append('tap_id',      tapId);
+  fd.append('beer_id',     beerId);
+  fd.append('set_percent', pct);
+  fd.append('format',      'json');
+
+  fetch('/beers/taps/assign', { method: 'POST', body: fd,
+    headers: { 'Accept': 'application/json' } })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        // update row style
+        if (beerId) {
+          row.classList.add('bm-tap-assigned');
+          row.querySelector('.bm-tap-num').style.color = 'var(--primary)';
+          if (!pctEl.value) pctEl.value = 100;
+          // update BEER_ON_TAP so table badges stay in sync
+          const tapEntry = ALL_TAPS.find(t => t.id === parseInt(tapId));
+          if (tapEntry) {
+            // remove old mapping for this tap
+            Object.keys(BEER_ON_TAP).forEach(k => {
+              if (BEER_ON_TAP[k].tap_id === parseInt(tapId)) delete BEER_ON_TAP[k];
+            });
+            tapEntry.beer_id = parseInt(beerId);
+            BEER_ON_TAP[parseInt(beerId)] = { tap_id: parseInt(tapId), bar: tapEntry.bar, idx: tapEntry.idx, pct };
+          }
+        } else {
+          row.classList.remove('bm-tap-assigned');
+          row.querySelector('.bm-tap-num').style.color = '';
+          pctEl.value = '';
+          const tapEntry = ALL_TAPS.find(t => t.id === parseInt(tapId));
+          if (tapEntry && tapEntry.beer_id) {
+            delete BEER_ON_TAP[tapEntry.beer_id];
+            tapEntry.beer_id = null;
+          }
+        }
+        renderTapCells();   // refresh the "On Tap" badges in the table
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        btn.style.background = 'var(--success)';
+        setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 1800);
       } else {
-        beerData[field] = value;
+        btn.innerHTML = '<i class="fas fa-times"></i>';
+        btn.style.background = 'var(--danger)';
+        setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 2000);
       }
+    })
+    .catch(() => {
+      btn.innerHTML = '<i class="fas fa-times"></i>';
+      btn.style.background = 'var(--danger)';
+      setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 2000);
     });
-    
+});
+
+// ── Render "On Tap" cells ──
+function renderTapCells() {
+  document.querySelectorAll('.tap-assign-cell').forEach(cell => {
+    const beerId = parseInt(cell.dataset.beerId);
+    const info   = BEER_ON_TAP[beerId];
+    if (info) {
+      const barLabel = info.bar === 'main' ? 'Main' : 'Lower';
+      cell.innerHTML =
+        `<span class="tap-badge" data-beer-id="${beerId}" onclick="openTapPopup(${beerId})">
+           <i class="fas fa-beer"></i> ${barLabel} #${info.idx}
+         </span>`;
+    } else {
+      cell.innerHTML =
+        `<span class="tap-empty-badge" data-beer-id="${beerId}" onclick="openTapPopup(${beerId})">
+           <i class="fas fa-plus"></i> Assign
+         </span>`;
+    }
+  });
+}
+renderTapCells();
+
+// ── Tap popup ──
+let popupBeerId = null;
+
+function openTapPopup(beerId) {
+  popupBeerId = beerId;
+
+  // Populate dropdown
+  const sel = document.getElementById('tapPopupSelect');
+  sel.innerHTML = '<option value="">— Remove from tap —</option>';
+  ALL_TAPS.forEach(t => {
+    const busy = t.beer_id && t.beer_id !== beerId;  // occupied by another beer
+    const label = t.label + (busy ? ' (occupied)' : '');
+    const opt = document.createElement('option');
+    opt.value    = t.id;
+    opt.textContent = label;
+    opt.disabled = !!busy;
+    if (BEER_ON_TAP[beerId] && BEER_ON_TAP[beerId].tap_id === t.id) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  // Pre-fill % from current assignment
+  const info = BEER_ON_TAP[beerId];
+  document.getElementById('tapPopupPct').value = info ? info.pct : 100;
+
+  // Set title
+  const row    = document.querySelector(`.be-beer-card[data-beer-id="${beerId}"]`);
+  const name   = row ? row.querySelector('[data-field="name"]').value : 'Beer';
+  document.getElementById('tapPopupTitle').textContent = 'Assign Tap — ' + name;
+
+  document.getElementById('tapPopup').style.display = 'flex';
+}
+
+function closeTapPopup() {
+  document.getElementById('tapPopup').style.display = 'none';
+  popupBeerId = null;
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTapPopup(); });
+
+document.getElementById('tapPopupSave').addEventListener('click', function() {
+  if (!popupBeerId) return;
+  const btn      = this;
+  const tapId    = document.getElementById('tapPopupSelect').value;
+  const pct      = parseInt(document.getElementById('tapPopupPct').value) || 100;
+  const beerId   = popupBeerId;
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+  // If assigning to a new tap, POST to assign
+  // If removing (tapId = ""), we need to clear current tap
+  const currentInfo = BEER_ON_TAP[beerId];
+
+  const doAssign = (tId, bId, percent) => {
+    const fd = new FormData();
+    fd.append('tap_id',      tId);
+    fd.append('beer_id',     bId || '');
+    fd.append('set_percent', percent);
+    fd.append('format',      'json');
+    return fetch('/beers/taps/assign', {
+      method: 'POST', body: fd, headers: { 'Accept': 'application/json' }
+    }).then(r => r.json());
+  };
+
+  // Steps: 1) clear old tap (if any and different), 2) assign new tap (if any)
+  const steps = [];
+
+  if (tapId) {
+    // Assigning to a specific tap
+    if (currentInfo && currentInfo.tap_id !== parseInt(tapId)) {
+      // Clear old tap first
+      steps.push(doAssign(currentInfo.tap_id, '', 0));
+    }
+    steps.push(doAssign(tapId, beerId, pct));
+  } else {
+    // Removing from tap
+    if (currentInfo) {
+      steps.push(doAssign(currentInfo.tap_id, '', 0));
+    }
+  }
+
+  Promise.all(steps)
+    .then(results => {
+      const allOk = results.every(r => r && r.success);
+      if (allOk) {
+        // Update local BEER_ON_TAP map
+        if (currentInfo) delete BEER_ON_TAP[beerId];
+        if (tapId) {
+          // Remove any other beer that was on this tap from the map
+          Object.keys(BEER_ON_TAP).forEach(k => {
+            if (BEER_ON_TAP[k].tap_id === parseInt(tapId)) delete BEER_ON_TAP[k];
+          });
+          // Also update ALL_TAPS entry
+          const tap = ALL_TAPS.find(t => t.id === parseInt(tapId));
+          if (tap) tap.beer_id = beerId;
+          BEER_ON_TAP[beerId] = { tap_id: parseInt(tapId), bar: ALL_TAPS.find(t => t.id === parseInt(tapId))?.bar, idx: ALL_TAPS.find(t => t.id === parseInt(tapId))?.idx, pct };
+        } else {
+          // Clear the tap in ALL_TAPS
+          if (currentInfo) { const tap = ALL_TAPS.find(t => t.id === currentInfo.tap_id); if (tap) tap.beer_id = null; }
+        }
+        renderTapCells();
+        closeTapPopup();
+        btn.innerHTML = '<i class="fas fa-check"></i> Assign';
+        btn.disabled = false;
+      } else {
+        alert('Error saving tap assignment.');
+        btn.innerHTML = '<i class="fas fa-check"></i> Assign';
+        btn.disabled = false;
+      }
+    })
+    .catch(() => {
+      alert('Network error.');
+      btn.innerHTML = '<i class="fas fa-check"></i> Assign';
+      btn.disabled = false;
+    });
+});
+
+// ── Save all beer fields (existing logic) ──
+async function saveBulkEditBeers() {
+  const tbody = document.getElementById('beers-table-body');
+  const rows  = tbody.querySelectorAll('.be-beer-card');
+  const beers = [];
+
+  rows.forEach(row => {
+    const beerId  = parseInt(row.dataset.beerId);
+    const beerData = { id: beerId };
+    row.querySelectorAll('.bulk-input').forEach(input => {
+      const field = input.dataset.field;
+      if (!field) return;
+      const val = input.value.trim();
+      beerData[field] = val === '' ? null : val;
+    });
     beers.push(beerData);
   });
 
-  // Disable all inputs while saving
-  document.querySelectorAll(".bulk-input").forEach(el => el.disabled = true);
-  
+  document.querySelectorAll('.bulk-input').forEach(el => el.disabled = true);
+  document.getElementById('saveAllBtn').disabled  = true;
+  document.getElementById('saveAllBtn2').disabled = true;
+
   try {
-    const response = await fetch("/beers/bulk-edit-save", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+    const r    = await fetch('/beers/bulk-edit-save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ beers })
     });
-
-    const result = await response.json();
-    
-    if (response.ok) {
-      alert(`Success! ${result.message}`);
-      window.location.href = "/beers";
+    const data = await r.json();
+    if (r.ok) {
+      alert(`✓ ${data.message}`);
+      window.location.href = '/beers';
     } else {
-      alert(`Error: ${result.error || "Unknown error"}`);
-      document.querySelectorAll(".bulk-input").forEach(el => el.disabled = false);
+      alert('Error: ' + (data.error || 'Unknown error'));
     }
-  } catch (error) {
-    console.error("Error:", error);
-    alert(`Error saving beers: ${error.message}`);
-    document.querySelectorAll(".bulk-input").forEach(el => el.disabled = false);
+  } catch (err) {
+    alert('Error saving: ' + err.message);
+  } finally {
+    document.querySelectorAll('.bulk-input').forEach(el => el.disabled = false);
+    document.getElementById('saveAllBtn').disabled  = false;
+    document.getElementById('saveAllBtn2').disabled = false;
   }
 }
+
+document.getElementById('saveAllBtn').addEventListener('click',  saveBulkEditBeers);
+document.getElementById('saveAllBtn2').addEventListener('click', saveBulkEditBeers);
+
+// ── Expand / collapse individual detail row ──
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.be-expand-btn');
+  if (!btn) return;
+  const card   = btn.closest('.be-beer-card');
+  const detail = card.querySelector('.be-detail-row');
+  const isOpen = detail.style.display !== 'none';
+  detail.style.display = isOpen ? 'none' : 'grid';
+  btn.classList.toggle('open', !isOpen);
+  syncExpandAllLabel();
+});
+
+// ── Expand All / Collapse All ──
+function setAllDetails(expand) {
+  document.querySelectorAll('.be-detail-row').forEach(d => {
+    d.style.display = expand ? 'grid' : 'none';
+  });
+  document.querySelectorAll('.be-expand-btn').forEach(b => {
+    b.classList.toggle('open', expand);
+  });
+  const icon  = expand ? 'fa-chevron-up'   : 'fa-chevron-down';
+  const label = expand ? 'Collapse All'     : 'Expand All';
+  ['expandAllBtn', 'expandAllBtn2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = `<i class="fas ${icon}"></i> ${label}`;
+    el.dataset.expanded = expand ? '1' : '';
+  });
+}
+
+function syncExpandAllLabel() {
+  const details  = document.querySelectorAll('.be-detail-row');
+  const openCount = [...details].filter(d => d.style.display !== 'none').length;
+  const allOpen  = openCount === details.length;
+  const allClosed = openCount === 0;
+  if (allOpen || allClosed) setAllDetails(allOpen);
+}
+
+['expandAllBtn', 'expandAllBtn2'].forEach(id => {
+  document.getElementById(id)?.addEventListener('click', function() {
+    setAllDetails(this.dataset.expanded !== '1');
+  });
+});
 </script>
 
 {% endblock %}

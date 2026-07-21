@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 import io
+import re
+import ast
+import operator
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta, timezone
@@ -90,6 +93,7 @@ def log_page_visits():
             'sales_edit': 'Sales Edit',
             'move_boxes': 'Move Boxes',
             'batch': 'Batch',
+            'settings_page': 'Settings',
         }
         
         page_title = page_names.get(request.endpoint, request.endpoint or 'Unknown')
@@ -123,7 +127,7 @@ def add_security_headers_response(response):
     # Content Security Policy - restrictive by default
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://cdnjs.cloudflare.com; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
         "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
         "font-src 'self' https://cdnjs.cloudflare.com; "
         "img-src 'self' data:; "
@@ -1024,6 +1028,226 @@ class Order(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class ItemSetting(db.Model):
+    """
+    Stores admin-managed dropdown lists for the item form.
+    setting_type = "category" | "unit"
+
+    Category-specific columns (NULL for unit rows):
+      inv_mode          — maps to prep_type: generic | generic_food | items | wings | raw_protein | portion_pack
+      default_sales_mode— simple | packs_4
+      has_reconcile     — participates in reconciliation workflow
+      has_locations     — tracks stock by bar location (main / lower)
+
+    Unit-specific columns (NULL for category rows):
+      abbreviation      — short label, e.g. "ea", "lb"
+    """
+    __tablename__ = "item_settings"
+
+    id                 = db.Column(db.Integer,     primary_key=True)
+    setting_type       = db.Column(db.String(50),  nullable=False)
+    value              = db.Column(db.String(100), nullable=False)
+    description        = db.Column(db.String(300), nullable=True)
+    display_order      = db.Column(db.Integer,     nullable=False, default=0)
+    created_at         = db.Column(db.DateTime,    nullable=False, default=datetime.utcnow)
+
+    # ── category properties ──────────────────────────────────
+    inv_mode           = db.Column(db.String(50),  nullable=True)   # maps to prep_type
+    default_sales_mode = db.Column(db.String(30),  nullable=True)   # simple | packs_4
+    has_reconcile      = db.Column(db.Boolean,     nullable=True, default=False)
+    has_locations      = db.Column(db.Boolean,     nullable=True, default=False)
+
+    # ── state / storage display labels (category rows) ──────────
+    state_label_raw       = db.Column(db.String(50), nullable=True)   # display label for "raw"
+    state_label_prepped   = db.Column(db.String(50), nullable=True)   # display label for "prepped"
+    storage_label_freezer = db.Column(db.String(50), nullable=True)   # display label for "freezer"
+    storage_label_cooler  = db.Column(db.String(50), nullable=True)   # display label for "cooler"
+    storage_label_out     = db.Column(db.String(50), nullable=True)   # display label for "out"
+
+    # ── unit properties ──────────────────────────────────────
+    abbreviation       = db.Column(db.String(20),  nullable=True)
+
+    __table_args__ = (db.UniqueConstraint("setting_type", "value", name="uq_item_setting"),)
+
+    def to_dict(self):
+        mode = InventoryMode.query.filter_by(slug=self.inv_mode).first() if self.inv_mode else None
+        return {
+            "id": self.id, "value": self.value,
+            "description": self.description or "",
+            "display_order": self.display_order,
+            # category behavior
+            "inv_mode": self.inv_mode or "",
+            "default_sales_mode": self.default_sales_mode or "simple",
+            "has_reconcile": bool(self.has_reconcile),
+            "has_locations": bool(self.has_locations),
+            # state / storage labels (fall back to sensible defaults if not set)
+            "state_label_raw":       self.state_label_raw       or "Raw",
+            "state_label_prepped":   self.state_label_prepped   or "Prepped",
+            "storage_label_freezer": self.storage_label_freezer or "Freezer",
+            "storage_label_cooler":  self.storage_label_cooler  or "Cooler",
+            "storage_label_out":     self.storage_label_out     or "Out",
+            # unit
+            "abbreviation": self.abbreviation or "",
+            # the category's Inventory Mode states/locations (for dynamic shelf-life UI)
+            "mode_engine": mode.engine if mode else "",
+            "mode_states": [s.to_dict() for s in mode.states] if mode else [],
+            "mode_locations": [l.to_dict() for l in mode.locations] if mode else [],
+        }
+
+
+class CategoryField(db.Model):
+    """
+    Admin-defined custom field attached to a category (matched by category
+    name string, same loose-coupling convention as Item.category).
+
+    field_type = "number" | "currency" | "text" | "formula"
+    formula (only for field_type="formula") is a restricted arithmetic
+    expression referencing other fields' field_key in the same category,
+    e.g. "cost_per_bottle / (bottle_size / 29.5735)".
+    """
+    __tablename__ = "category_fields"
+
+    id            = db.Column(db.Integer,   primary_key=True)
+    category      = db.Column(db.String(120), nullable=False)
+    field_key     = db.Column(db.String(60),  nullable=False)
+    label         = db.Column(db.String(100), nullable=False)
+    field_type    = db.Column(db.String(20),  nullable=False, default="number")
+    unit_suffix   = db.Column(db.String(20),  nullable=True)
+    formula       = db.Column(db.String(300), nullable=True)
+    display_order = db.Column(db.Integer,     nullable=False, default=0)
+    created_at    = db.Column(db.DateTime,    nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("category", "field_key", name="uq_category_field"),)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "category": self.category,
+            "field_key": self.field_key,
+            "label": self.label,
+            "field_type": self.field_type,
+            "unit_suffix": self.unit_suffix or "",
+            "formula": self.formula or "",
+            "display_order": self.display_order,
+        }
+
+
+class ItemFieldValue(db.Model):
+    """Stores one item's value for one CategoryField (formula fields don't get rows — they're computed)."""
+    __tablename__ = "item_field_values"
+
+    id                = db.Column(db.Integer, primary_key=True)
+    item_id           = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
+    category_field_id = db.Column(db.Integer, db.ForeignKey("category_fields.id"), nullable=False)
+    value             = db.Column(db.String(200), nullable=True)
+
+    __table_args__ = (db.UniqueConstraint("item_id", "category_field_id", name="uq_item_field_value"),)
+
+
+class InventoryMode(db.Model):
+    """
+    Admin-defined inventory tracking mode (replaces the old fixed prep_type
+    enum). `slug` is the stable key stored on Item.prep_type / ItemSetting.inv_mode.
+
+    engine:
+      "simple_count" — bare on-hand counter, no lots at all (today's "items" mode)
+      "lot_tracking" — full lot/state/location tracking with Prep + Reconcile
+
+    reconcile_style (lot_tracking only):
+      "unit_count"   — Reconcile consumes individual units from the sellable state's lots
+                       (today's wings/raw_protein/portion_pack/generic behavior)
+      "box_quantity" — Reconcile consumes raw box/case quantity × item.multiplier
+                       (today's generic_food behavior)
+    """
+    __tablename__ = "inventory_modes"
+
+    id       = db.Column(db.Integer, primary_key=True)
+    name     = db.Column(db.String(100), nullable=False)
+    slug     = db.Column(db.String(50),  nullable=False, unique=True)
+    engine   = db.Column(db.String(20),  nullable=False, default="lot_tracking")
+
+    reconcile_style     = db.Column(db.String(20), nullable=True)  # unit_count | box_quantity
+    on_hand_style       = db.Column(db.String(20), nullable=True)  # unit_count | box_quantity (independent of reconcile_style)
+    on_hand_state_key   = db.Column(db.String(60), nullable=True)
+    on_hand_location_key= db.Column(db.String(60), nullable=True)
+
+    default_sales_mode   = db.Column(db.String(30), nullable=False, default="simple")
+    default_has_reconcile= db.Column(db.Boolean, nullable=False, default=False)
+    default_has_locations= db.Column(db.Boolean, nullable=False, default=False)
+
+    display_order = db.Column(db.Integer, nullable=False, default=0)
+    created_at    = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    states    = db.relationship("InventoryModeState", backref="mode",
+                                 order_by="InventoryModeState.sort_order", cascade="all, delete-orphan")
+    locations = db.relationship("InventoryModeLocation", backref="mode",
+                                 order_by="InventoryModeLocation.sort_order", cascade="all, delete-orphan")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "slug": self.slug,
+            "engine": self.engine,
+            "reconcile_style": self.reconcile_style or "",
+            "on_hand_style": self.on_hand_style or "",
+            "on_hand_state_key": self.on_hand_state_key or "",
+            "on_hand_location_key": self.on_hand_location_key or "",
+            "default_sales_mode": self.default_sales_mode or "simple",
+            "default_has_reconcile": bool(self.default_has_reconcile),
+            "default_has_locations": bool(self.default_has_locations),
+            "states": [s.to_dict() for s in self.states],
+            "locations": [l.to_dict() for l in self.locations],
+        }
+
+
+class InventoryModeState(db.Model):
+    """One step in a mode's ordered state chain, e.g. Raw -> Prepped, or Unbrined -> Brined -> Fried."""
+    __tablename__ = "inventory_mode_states"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    mode_id    = db.Column(db.Integer, db.ForeignKey("inventory_modes.id"), nullable=False)
+    key        = db.Column(db.String(60),  nullable=False)
+    label      = db.Column(db.String(100), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    is_sellable= db.Column(db.Boolean, nullable=False, default=False)
+
+    __table_args__ = (db.UniqueConstraint("mode_id", "key", name="uq_mode_state_key"),)
+
+    def to_dict(self):
+        return {"id": self.id, "key": self.key, "label": self.label,
+                "sort_order": self.sort_order, "is_sellable": bool(self.is_sellable)}
+
+
+class InventoryModeLocation(db.Model):
+    """One storage location available to a mode, e.g. Freezer/Cooler/Out, or Walk-in/Reach-in/Line."""
+    __tablename__ = "inventory_mode_locations"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    mode_id    = db.Column(db.Integer, db.ForeignKey("inventory_modes.id"), nullable=False)
+    key        = db.Column(db.String(60),  nullable=False)
+    label      = db.Column(db.String(100), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
+    __table_args__ = (db.UniqueConstraint("mode_id", "key", name="uq_mode_location_key"),)
+
+    def to_dict(self):
+        return {"id": self.id, "key": self.key, "label": self.label, "sort_order": self.sort_order}
+
+
+class ItemShelfLife(db.Model):
+    """Per-item shelf-life day count for one (state, location) pair. Replaces the old fixed 6 columns on Item."""
+    __tablename__ = "item_shelf_life"
+
+    id         = db.Column(db.Integer, primary_key=True)
+    item_id    = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
+    state_key  = db.Column(db.String(60), nullable=False)
+    location_key= db.Column(db.String(60), nullable=False)
+    days       = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (db.UniqueConstraint("item_id", "state_key", "location_key", name="uq_item_shelf_life"),)
+
+
 class BeerOrder(db.Model):
     __tablename__ = "beer_orders"
     id = db.Column(db.Integer, primary_key=True)
@@ -1049,6 +1273,9 @@ class PrepBatch(db.Model):
 
     from_loc = db.Column(db.String(20), nullable=False, default="cooler")
     to_loc = db.Column(db.String(20), nullable=False, default="cooler")
+
+    from_state = db.Column(db.String(60), nullable=True)
+    to_state = db.Column(db.String(60), nullable=True)
 
     mode = db.Column(db.String(20), nullable=False, default="first_n")
     boxes_used = db.Column(db.Integer, nullable=False, default=0)
@@ -1210,6 +1437,70 @@ def to_int(val: str | None, default: int = 0) -> int:
     except Exception:
         return default
 
+def _to_float_or_none(val) -> float | None:
+    try:
+        if val is None or str(val).strip() == "":
+            return None
+        return float(val)
+    except Exception:
+        return None
+
+
+# ============================================================
+# CUSTOM FIELD FORMULAS (safe arithmetic evaluator — no eval())
+# ============================================================
+class FormulaError(Exception):
+    pass
+
+_FORMULA_BINOPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub,
+    ast.Mult: operator.mul, ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+}
+_FORMULA_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+
+def _eval_formula_node(node, values: dict):
+    if isinstance(node, ast.Expression):
+        return _eval_formula_node(node.body, values)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+            return float(node.value)
+        raise FormulaError("Only numeric literals are allowed")
+    if isinstance(node, ast.BinOp) and type(node.op) in _FORMULA_BINOPS:
+        left = _eval_formula_node(node.left, values)
+        right = _eval_formula_node(node.right, values)
+        if left is None or right is None:
+            return None
+        try:
+            return _FORMULA_BINOPS[type(node.op)](left, right)
+        except ZeroDivisionError:
+            return None
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _FORMULA_UNARYOPS:
+        operand = _eval_formula_node(node.operand, values)
+        if operand is None:
+            return None
+        return _FORMULA_UNARYOPS[type(node.op)](operand)
+    if isinstance(node, ast.Name):
+        if node.id not in values:
+            raise FormulaError(f"Unknown field reference: {node.id}")
+        v = values[node.id]
+        return None if v is None else float(v)
+    raise FormulaError("Unsupported expression in formula")
+
+def evaluate_formula(formula: str, values: dict):
+    """
+    Safely evaluate a restricted arithmetic expression (+ - * / ** and
+    parens) referencing field_key names in `values`. Returns a float, or
+    None if a referenced value is missing or a division by zero occurs.
+    Raises FormulaError for invalid syntax or disallowed constructs.
+    """
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        raise FormulaError("Invalid formula syntax")
+    return _eval_formula_node(tree, values)
+
+
 def parse_date(val: str | None, fallback: Optional[date]) -> Optional[date]:
     try:
         if not val or not val.strip():
@@ -1222,13 +1513,65 @@ def parse_required_date(val: str | None, fallback: date) -> date:
     d = parse_date(val, fallback)
     return d if d else fallback
 
-def norm_storage(val: str | None) -> str:
-    v = (val or "").strip().lower()
-    return v if v in {"freezer", "cooler", "out"} else "cooler"
+# ============================================================
+# INVENTORY MODE HELPERS (states / locations are now admin-defined
+# per InventoryMode, not a fixed raw/prepped x freezer/cooler/out set)
+# ============================================================
+def get_mode_by_slug(slug: str | None) -> Optional["InventoryMode"]:
+    if not slug:
+        return None
+    return InventoryMode.query.filter_by(slug=slug.strip().lower()).first()
 
-def norm_state(val: str | None) -> str:
+def get_item_mode(item: "Item") -> Optional["InventoryMode"]:
+    return get_mode_by_slug(item.prep_type if item else None)
+
+def mode_state_keys(mode: Optional["InventoryMode"]) -> list[str]:
+    return [s.key for s in mode.states] if mode else []
+
+def mode_location_keys(mode: Optional["InventoryMode"]) -> list[str]:
+    return [l.key for l in mode.locations] if mode else []
+
+def mode_sellable_state_key(mode: Optional["InventoryMode"]) -> Optional[str]:
+    if not mode:
+        return None
+    for s in mode.states:
+        if s.is_sellable:
+            return s.key
+    return mode.on_hand_state_key
+
+def mode_next_state_key(mode: Optional["InventoryMode"], current_key: str | None) -> Optional[str]:
+    """Next state after current_key in the mode's ordered chain, or None if terminal/unknown."""
+    keys = mode_state_keys(mode)
+    v = (current_key or "").strip().lower()
+    if v not in keys:
+        return None
+    idx = keys.index(v)
+    return keys[idx + 1] if idx + 1 < len(keys) else None
+
+def is_initial_state(item: Optional["Item"], state_key: str | None) -> bool:
+    """True if state_key is the item mode's first (not-yet-processed) state — generalizes today's `state == 'raw'`."""
+    mode = get_item_mode(item) if item else None
+    keys = mode_state_keys(mode)
+    first = keys[0] if keys else "raw"
+    return (state_key or "").strip().lower() == first
+
+def norm_state(val: str | None, item: Optional["Item"] = None) -> str:
+    """Validate a state value against the item's mode (falls back to raw/prepped for legacy callers with no item)."""
     v = (val or "").strip().lower()
-    return v if v in {"raw", "prepped"} else "raw"
+    mode = get_item_mode(item) if item else None
+    keys = mode_state_keys(mode) if mode else ["raw", "prepped"]
+    if v in keys:
+        return v
+    return keys[0] if keys else "raw"
+
+def norm_storage(val: str | None, item: Optional["Item"] = None) -> str:
+    """Validate a storage value against the item's mode (falls back to freezer/cooler/out for legacy callers with no item)."""
+    v = (val or "").strip().lower()
+    mode = get_item_mode(item) if item else None
+    keys = mode_location_keys(mode) if mode else ["freezer", "cooler", "out"]
+    if v in keys:
+        return v
+    return "cooler" if "cooler" in keys else (keys[0] if keys else "cooler")
 
 def compute_lot_expiration(item: Item, lot: InventoryLot) -> Optional[date]:
     if lot.expiration_override:
@@ -1237,21 +1580,8 @@ def compute_lot_expiration(item: Item, lot: InventoryLot) -> Optional[date]:
     storage = (lot.storage or "cooler").lower()
     state = (lot.state or "raw").lower()
 
-    days = None
-    if state == "raw":
-        if storage == "freezer":
-            days = item.raw_freezer_days
-        elif storage == "cooler":
-            days = item.raw_cooler_days
-        elif storage == "out":
-            days = item.raw_out_days
-    else:
-        if storage == "freezer":
-            days = item.prepped_freezer_days
-        elif storage == "cooler":
-            days = item.prepped_cooler_days
-        elif storage == "out":
-            days = item.prepped_out_days
+    row = ItemShelfLife.query.filter_by(item_id=item.id, state_key=state, location_key=storage).first()
+    days = row.days if row else None
 
     if not days or days <= 0:
         return None
@@ -1361,19 +1691,20 @@ def _safe_date(val):
 
 
 
-def _apply_reconcile_inventory(item_id: int, selected_lot_ids: list[int], actual_left: int) -> dict[str, dict[str, int]]:
+def _apply_reconcile_inventory(item_id: int, selected_lot_ids: list[int], actual_left: int,
+                                sellable_state: str = "prepped") -> dict[str, dict[str, int]]:
     """
-    Updates inventory_lots.count_units for the selected prepped lots so their total equals actual_left.
+    Updates inventory_lots.count_units for the selected sellable-state lots so their total equals actual_left.
     Saves FIFO distribution across the selected lots.
     Marks is_consumed=True for lots that become 0.
     Returns snapshot dict with before/after mappings for undo.
     """
-    # Pull FIFO lots (only prepped, not consumed)
+    # Pull FIFO lots (only the mode's sellable state, not consumed)
     lots = (
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item_id,
-            InventoryLot.state == "prepped",
+            InventoryLot.state == sellable_state,
             InventoryLot.id.in_(selected_lot_ids),
         )
         .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
@@ -1466,6 +1797,11 @@ def _clamp_percent(val):
         return 0
     return max(0, min(100, n))
 
+def _natural_sort_key(s: str):
+    """Natural (human) sort key: '10. Foo' sorts after '9. Bar', not before '2. Baz'."""
+    return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', s or '')]
+
+
 def _ensure_taps_exist():
     """
     Ensure we always have exactly two tap rows: main + lower.
@@ -1536,7 +1872,7 @@ def _beer_dashboard_rows():
     panic = []
     for row in low_on_tap:
         b = row["tap"].beer
-        if b and b.on_hand_keg <= 0 and row["tap"].percent_remaining <= 20:
+        if b and b.on_hand_kegs <= 0 and row["tap"].percent_remaining <= 20:
             panic.append(row)
 
     return {
@@ -1594,6 +1930,13 @@ def run_migrations():
     sqlite_add_column_if_missing("reconcile_records", "applied_lot_units", "TEXT")
 
     sqlite_add_column_if_missing("items", "on_hand_count", "INTEGER NOT NULL DEFAULT 0")
+    
+    # ✅ FIX: Set any NULL on_hand_count values to 0
+    try:
+        db.session.execute(text("UPDATE items SET on_hand_count = 0 WHERE on_hand_count IS NULL"))
+        db.session.commit()
+    except Exception:
+        pass
 
     sqlite_add_column_if_missing("inventory_lots", "count_units", "INTEGER")
     sqlite_add_column_if_missing("inventory_lots", "lot_label", "VARCHAR(60)")
@@ -1613,6 +1956,22 @@ def run_migrations():
     sqlite_add_column_if_missing("prep_batches", "notes", "VARCHAR(400)")
     sqlite_add_column_if_missing("prep_batches", "created_at", "DATETIME")
     sqlite_add_column_if_missing("prep_batches", "output_units", "INTEGER NOT NULL DEFAULT 0")
+    sqlite_add_column_if_missing("prep_batches", "from_state", "VARCHAR(60)")
+    sqlite_add_column_if_missing("prep_batches", "to_state", "VARCHAR(60)")
+    sqlite_add_column_if_missing("inventory_modes", "on_hand_style", "VARCHAR(20)")
+
+    # item_settings columns
+    sqlite_add_column_if_missing("item_settings", "description",        "VARCHAR(300)")
+    sqlite_add_column_if_missing("item_settings", "inv_mode",           "VARCHAR(50)")
+    sqlite_add_column_if_missing("item_settings", "default_sales_mode", "VARCHAR(30)")
+    sqlite_add_column_if_missing("item_settings", "has_reconcile",      "BOOLEAN DEFAULT 0")
+    sqlite_add_column_if_missing("item_settings", "has_locations",      "BOOLEAN DEFAULT 0")
+    sqlite_add_column_if_missing("item_settings", "abbreviation",       "VARCHAR(20)")
+    sqlite_add_column_if_missing("item_settings", "state_label_raw",       "VARCHAR(50)")
+    sqlite_add_column_if_missing("item_settings", "state_label_prepped",   "VARCHAR(50)")
+    sqlite_add_column_if_missing("item_settings", "storage_label_freezer", "VARCHAR(50)")
+    sqlite_add_column_if_missing("item_settings", "storage_label_cooler",  "VARCHAR(50)")
+    sqlite_add_column_if_missing("item_settings", "storage_label_out",     "VARCHAR(50)")
 
     # audit table safety (if older DB)
     sqlite_add_column_if_missing("audit_logs", "created_at", "DATETIME")
@@ -1620,9 +1979,132 @@ def run_migrations():
     sqlite_add_column_if_missing("audit_logs", "ip", "VARCHAR(60)")
     sqlite_add_column_if_missing("audit_logs", "user_agent", "VARCHAR(240)")
 
-def fifo_reduce_prepped_lots(item_id: int, lot_ids: list[int], units_to_reduce: int) -> list[dict]:
+def seed_item_settings():
     """
-    Reduce count_units across the given prepped lots in FIFO order.
+    One-time seed: populate item_settings from live data if the table is empty.
+    Runs at startup after db.create_all() so new installs get sensible defaults.
+    """
+    DEFAULT_CATEGORIES = ["Food", "Alcohol", "NA Beverages"]
+    DEFAULT_UNITS = ["each", "case", "lb", "oz", "box", "bag"]
+
+    # -- Categories --
+    if not ItemSetting.query.filter_by(setting_type="category").first():
+        # Merge defaults + anything already used in the items table
+        live_cats = [r[0] for r in db.session.execute(
+            text("SELECT DISTINCT category FROM items ORDER BY category")
+        ).fetchall() if r[0]]
+        all_cats = list(dict.fromkeys(DEFAULT_CATEGORIES + live_cats))  # preserve order, dedupe
+        for i, name in enumerate(all_cats):
+            db.session.add(ItemSetting(setting_type="category", value=name, display_order=i))
+        db.session.commit()
+
+    # -- Units --
+    if not ItemSetting.query.filter_by(setting_type="unit").first():
+        live_units = [r[0] for r in db.session.execute(
+            text("SELECT DISTINCT unit FROM items ORDER BY unit")
+        ).fetchall() if r[0]]
+        all_units = list(dict.fromkeys(DEFAULT_UNITS + live_units))
+        for i, name in enumerate(all_units):
+            db.session.add(ItemSetting(setting_type="unit", value=name, display_order=i))
+        db.session.commit()
+
+
+# Legacy prep_type -> (states, locations, reconcile_style, on_hand) definition.
+# Keys are IDENTICAL to today's literal raw/prepped/freezer/cooler/out strings so
+# existing Item.prep_type / ItemSetting.inv_mode / InventoryLot rows need zero migration.
+_LEGACY_STATES = [("raw", "Raw"), ("prepped", "Prepped")]
+_LEGACY_LOCATIONS = [("freezer", "Freezer"), ("cooler", "Cooler"), ("out", "Out")]
+
+_LEGACY_MODES = [
+    # slug,          name,             engine,          reconcile_style, on_hand_style,   on_hand_state, on_hand_location
+    ("items",        "Simple Count",   "simple_count",  None,            None,            None,      None),
+    ("generic",      "Box / Case",     "lot_tracking",  "unit_count",    "box_quantity",  "raw",     "cooler"),
+    ("generic_food", "Prep Food",      "lot_tracking",  "box_quantity",  "box_quantity",  "raw",     "cooler"),
+    ("wings",        "Wings Prep",     "lot_tracking",  "unit_count",    "unit_count",    "prepped", "cooler"),
+    ("raw_protein",  "Raw Protein",    "lot_tracking",  "unit_count",    "unit_count",    "prepped", "cooler"),
+    ("portion_pack", "Portion Packs",  "lot_tracking",  "unit_count",    "unit_count",    "prepped", "cooler"),
+]
+
+def seed_inventory_modes():
+    """
+    One-time seed: create the 6 built-in InventoryMode rows (matching today's
+    fixed prep_type behavior exactly) if the table is empty, then backfill
+    ItemShelfLife rows from each Item's old 6 fixed shelf-life columns so
+    compute_lot_expiration keeps returning identical values with zero manual
+    migration. Runs at startup after db.create_all().
+    """
+    if InventoryMode.query.first():
+        return
+
+    # Pull any category-level label customizations already set (e.g. a category
+    # that renamed "Raw"/"Cooler" etc.) so those aren't lost in the move to
+    # per-mode labels. First category found with a given inv_mode + a custom
+    # label wins; uncustomized slots fall back to the default English label.
+    cat_rows = ItemSetting.query.filter_by(setting_type="category").all()
+    custom_labels_by_mode: dict[str, dict] = {}
+    for c in cat_rows:
+        if not c.inv_mode:
+            continue
+        slot = custom_labels_by_mode.setdefault(c.inv_mode, {})
+        for key, val in (
+            ("raw", c.state_label_raw), ("prepped", c.state_label_prepped),
+            ("freezer", c.storage_label_freezer), ("cooler", c.storage_label_cooler),
+            ("out", c.storage_label_out),
+        ):
+            if val and key not in slot:
+                slot[key] = val
+
+    for slug, name, engine, reconcile_style, on_hand_style, on_hand_state, on_hand_loc in _LEGACY_MODES:
+        mode = InventoryMode(
+            name=name, slug=slug, engine=engine,
+            reconcile_style=reconcile_style,
+            on_hand_style=on_hand_style,
+            on_hand_state_key=on_hand_state,
+            on_hand_location_key=on_hand_loc,
+            default_sales_mode="simple",
+            display_order=len(_LEGACY_MODES),
+        )
+        db.session.add(mode)
+        db.session.flush()
+
+        if engine == "lot_tracking":
+            labels = custom_labels_by_mode.get(slug, {})
+            for i, (key, default_label) in enumerate(_LEGACY_STATES):
+                db.session.add(InventoryModeState(
+                    mode_id=mode.id, key=key, label=labels.get(key, default_label),
+                    sort_order=i, is_sellable=(key == "prepped"),
+                ))
+            for i, (key, default_label) in enumerate(_LEGACY_LOCATIONS):
+                db.session.add(InventoryModeLocation(
+                    mode_id=mode.id, key=key, label=labels.get(key, default_label), sort_order=i,
+                ))
+
+    db.session.commit()
+
+    # Backfill ItemShelfLife from the old fixed columns for every existing item
+    # (skip if already backfilled — this whole function only runs once anyway
+    # since it's gated by the InventoryMode.query.first() check above, but stay
+    # idempotent in case it's ever invoked again against a partially-seeded DB).
+    if ItemShelfLife.query.first():
+        return
+    shelf_map = [
+        ("raw", "freezer", "raw_freezer_days"), ("raw", "cooler", "raw_cooler_days"), ("raw", "out", "raw_out_days"),
+        ("prepped", "freezer", "prepped_freezer_days"), ("prepped", "cooler", "prepped_cooler_days"),
+        ("prepped", "out", "prepped_out_days"),
+    ]
+    for item in Item.query.all():
+        for state_key, loc_key, col in shelf_map:
+            days = getattr(item, col, None)
+            if days is None:
+                continue
+            db.session.add(ItemShelfLife(item_id=item.id, state_key=state_key, location_key=loc_key, days=days))
+    db.session.commit()
+
+
+def fifo_reduce_prepped_lots(item_id: int, lot_ids: list[int], units_to_reduce: int,
+                              sellable_state: str = "prepped") -> list[dict]:
+    """
+    Reduce count_units across the given sellable-state lots in FIFO order.
     Returns a list of {"lot_id": int, "used": int, "before": int, "after": int}.
     Raises ValueError if inventory isn't sufficient.
     """
@@ -1633,7 +2115,7 @@ def fifo_reduce_prepped_lots(item_id: int, lot_ids: list[int], units_to_reduce: 
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item_id,
-            InventoryLot.state == "prepped",
+            InventoryLot.state == sellable_state,
             InventoryLot.is_consumed == False,
             InventoryLot.id.in_(lot_ids),
         )
@@ -1782,7 +2264,7 @@ def logout():
 def beers_dashboard():
     ensure_beer_taps()
 
-    beers = Beer.query.order_by(Beer.brewery.asc().nullslast(), Beer.name.asc()).all()
+    beers = sorted(Beer.query.all(), key=lambda b: _natural_sort_key(b.name))
 
     main_taps = BeerTap.query.filter_by(bar_location="main").order_by(BeerTap.id.asc()).all()
     lower_taps = BeerTap.query.filter_by(bar_location="lower").order_by(BeerTap.id.asc()).all()
@@ -1837,7 +2319,20 @@ def assign_beer_to_tap():
     tap.notes = notes.strip() if notes else None
 
     db.session.commit()
+
+    # ── JSON response (AJAX callers) ──
+    if request.headers.get("Accept", "").startswith("application/json") or \
+       request.form.get("format") == "json":
+        beer_name = tap.beer.name if tap.beer else None
+        return jsonify(success=True, tap_id=tap.id, beer_id=tap.beer_id,
+                       beer_name=beer_name, percent=tap.percent_remaining)
+
     flash("Tap updated.", "success")
+    redirect_to = request.form.get("redirect_to", "")
+    if redirect_to == "manage":
+        return redirect(url_for("beers_manage"))
+    if redirect_to == "bulk_edit":
+        return redirect(url_for("beers_bulk_edit"))
     return redirect(url_for("beers_dashboard"))
 
 
@@ -1983,8 +2478,20 @@ def beers_bulk_edit():
     if guard:
         return guard
 
-    beers = Beer.query.order_by(Beer.name.asc()).all()
-    return render_template("beers_bulk_edit.html", beers=beers)
+    beers = sorted(Beer.query.all(), key=lambda b: _natural_sort_key(b.name))
+    _ensure_taps_exist()
+    main_taps  = BeerTap.query.filter_by(bar_location="main").order_by(BeerTap.id.asc()).all()
+    lower_taps = BeerTap.query.filter_by(bar_location="lower").order_by(BeerTap.id.asc()).all()
+
+    # Serializable tap data for the front-end (avoids Jinja loops inside <script>)
+    main_taps_data  = [{"id": t.id, "idx": i + 1, "beer_id": t.beer_id,
+                        "pct": t.percent_remaining} for i, t in enumerate(main_taps)]
+    lower_taps_data = [{"id": t.id, "idx": i + 1, "beer_id": t.beer_id,
+                        "pct": t.percent_remaining} for i, t in enumerate(lower_taps)]
+
+    return render_template("beers_bulk_edit.html", beers=beers,
+                           main_taps=main_taps, lower_taps=lower_taps,
+                           main_taps_data=main_taps_data, lower_taps_data=lower_taps_data)
 
 @app.post("/beers/bulk-edit-save")
 def beers_bulk_edit_save():
@@ -2100,11 +2607,14 @@ def beers_manage():
         flash("Beer added.", "success")
         return redirect("/beers")
 
-    beers = Beer.query.order_by(Beer.name.asc()).all()
+    beers = sorted(Beer.query.all(), key=lambda b: _natural_sort_key(b.name))
     _ensure_taps_exist()
-    taps = BeerTap.query.order_by(BeerTap.bar_location.asc()).all()
+    main_taps  = BeerTap.query.filter_by(bar_location="main").order_by(BeerTap.id.asc()).all()
+    lower_taps = BeerTap.query.filter_by(bar_location="lower").order_by(BeerTap.id.asc()).all()
 
-    return render_template("beers_manage.html", beers=beers, taps=taps, can_edit_inventory=can_edit_inventory)
+    return render_template("beers_manage.html", beers=beers,
+                           main_taps=main_taps, lower_taps=lower_taps,
+                           can_edit_inventory=can_edit_inventory)
 
 
 @app.route("/beers/taps/cups_preview", methods=["POST"])
@@ -3150,7 +3660,7 @@ def api_get_beers():
     if guard:
         return guard
     
-    beers = Beer.query.order_by(Beer.name.asc()).all()
+    beers = sorted(Beer.query.all(), key=lambda b: _natural_sort_key(b.name or ''))
     beers_data = [
         {
             'id': b.id,
@@ -3187,7 +3697,59 @@ def order_items():
     categories = db.session.query(Item.category).distinct().order_by(Item.category.asc()).all()
     categories = [c[0] for c in categories if c[0]]
 
-    return render_template("order.html", items=items, categories=categories, q=q, category_filter=category_filter)
+    # ── Compute actual on-hand from live lot data ────────────────
+    # Start with on_hand_count (used by simple-count items)
+    on_hand = {i.id: (i.on_hand_count or 0) for i in items}
+
+    item_id_list = [i.id for i in items]
+    upb_map = {i.id: int(i.default_units_per_box or 1) for i in items}
+
+    # Bucket items by their mode's on_hand_style/on_hand_state/on_hand_location
+    # (replaces the old hardcoded prep_type tuples — works for any admin-defined mode too)
+    modes_by_slug = {m.slug: m for m in InventoryMode.query.all()}
+    box_qty_by_loc: dict[str, list[int]] = {}
+    unit_count_by_key: dict[tuple[str, str], list[int]] = {}
+    for i in items:
+        mode = modes_by_slug.get((i.prep_type or "").lower())
+        if not mode or mode.engine != "lot_tracking" or not mode.on_hand_style:
+            continue
+        loc = mode.on_hand_location_key or "cooler"
+        if mode.on_hand_style == "box_quantity":
+            box_qty_by_loc.setdefault(loc, []).append(i.id)
+        else:
+            state = mode.on_hand_state_key or "prepped"
+            unit_count_by_key.setdefault((state, loc), []).append(i.id)
+
+    if item_id_list:
+        # box_quantity style: sum raw-lot quantity in the on-hand location × units_per_box
+        for loc, ids in box_qty_by_loc.items():
+            rows = db.session.query(
+                InventoryLot.item_id,
+                func.coalesce(func.sum(InventoryLot.quantity), 0)
+            ).filter(
+                InventoryLot.item_id.in_(ids),
+                InventoryLot.storage == loc,
+                InventoryLot.is_consumed == False
+            ).group_by(InventoryLot.item_id).all()
+            for item_id, qty in rows:
+                on_hand[item_id] = int(round(float(qty or 0) * upb_map.get(item_id, 1)))
+
+        # unit_count style: sum sellable-state lot count_units in the on-hand location
+        for (state, loc), ids in unit_count_by_key.items():
+            rows = db.session.query(
+                InventoryLot.item_id,
+                func.coalesce(func.sum(InventoryLot.count_units), 0)
+            ).filter(
+                InventoryLot.item_id.in_(ids),
+                InventoryLot.state == state,
+                InventoryLot.storage == loc,
+                InventoryLot.is_consumed == False
+            ).group_by(InventoryLot.item_id).all()
+            for item_id, units in rows:
+                on_hand[item_id] = int(units or 0)
+
+    return render_template("order.html", items=items, categories=categories,
+                           q=q, category_filter=category_filter, on_hand=on_hand)
 
 @app.post("/items/<int:item_id>/update-onhand")
 def update_item_onhand(item_id):
@@ -3470,8 +4032,10 @@ def items_bulk():
 
     items = Item.query.order_by(Item.category.asc(), Item.name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
-    
-    return render_template("items_bulk.html", items=items, suppliers=suppliers)
+    categories, units = _item_form_options()
+
+    return render_template("items_bulk.html", items=items, suppliers=suppliers,
+                           categories=categories, units=units)
 
 @app.post("/items/bulk-save")
 def items_bulk_save():
@@ -3547,6 +4111,139 @@ def items_bulk_save():
         traceback.print_exc()
         return {"error": str(e)}, 500
 
+def _item_form_options():
+    """Return (categories, units) lists for the item form dropdowns."""
+    cats  = ItemSetting.query.filter_by(setting_type="category").order_by(
+        ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
+    units = ItemSetting.query.filter_by(setting_type="unit").order_by(
+        ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
+    return [c.value for c in cats], [u.value for u in units]
+
+
+_CAT_CFG_DEFAULTS = {
+    "inv_mode": "", "default_sales_mode": "simple",
+    "has_reconcile": True, "has_locations": False,
+    "description": "", "abbreviation": "",
+    # state / storage labels — shown in dropdowns and lot tables
+    "state_label_raw": "Raw", "state_label_prepped": "Prepped",
+    "storage_label_freezer": "Freezer", "storage_label_cooler": "Cooler", "storage_label_out": "Out",
+}
+
+def _get_cat_cfg(category_name: str) -> dict:
+    """
+    Return the ItemSetting config dict for a category name.
+    Falls back to safe defaults when the category isn't in the settings table yet.
+    """
+    row = ItemSetting.query.filter_by(setting_type="category", value=category_name).first()
+    if row:
+        return row.to_dict()
+    # Legacy / unconfigured category — derive sane defaults from prep_type
+    return dict(_CAT_CFG_DEFAULTS)
+
+
+def _get_cat_fields(category_name: str) -> list["CategoryField"]:
+    """Return the admin-defined custom fields for a category, in display order."""
+    return (CategoryField.query.filter_by(category=category_name)
+            .order_by(CategoryField.display_order.asc(), CategoryField.id.asc()).all())
+
+
+def _format_field_value(value: float | str | None, field_type: str, unit_suffix: str) -> str:
+    """Render a custom field's raw value for display, e.g. '$0.42/oz', '1750 mL'."""
+    if value is None:
+        return "—"
+    suffix = (unit_suffix or "").strip()
+    if field_type in ("number", "currency", "formula"):
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            return "—"
+        is_money = field_type == "currency" or suffix.startswith("$")
+        if is_money:
+            rest = suffix[1:] if suffix.startswith("$") else ""
+            return f"${num:,.2f}{rest}"
+        # plain number: trim trailing zeros, keep the suffix
+        text_val = f"{num:,.4f}".rstrip("0").rstrip(".")
+        return f"{text_val} {suffix}".strip()
+    return str(value)
+
+
+def _get_item_custom_fields(item: "Item") -> list[dict]:
+    """
+    Build the display-ready list of custom field entries for an item's category:
+    each dict has label/field_type/unit_suffix/value(raw)/display_value(formatted str).
+    Formula fields are computed live from the item's other stored values.
+    """
+    fields = _get_cat_fields(item.category)
+    if not fields:
+        return []
+
+    values = {v.category_field_id: v.value for v in
+              ItemFieldValue.query.filter_by(item_id=item.id).all()}
+
+    # raw values keyed by field_key, for formula evaluation (non-formula fields only)
+    by_key = {}
+    for f in fields:
+        if f.field_type != "formula":
+            by_key[f.field_key] = _to_float_or_none(values.get(f.id)) if f.field_type != "text" else values.get(f.id)
+
+    out = []
+    for f in fields:
+        if f.field_type == "formula":
+            try:
+                computed = evaluate_formula(f.formula or "", by_key)
+            except FormulaError:
+                computed = None
+            raw_value = computed
+        else:
+            raw_value = values.get(f.id)
+        out.append({
+            "label": f.label,
+            "field_type": f.field_type,
+            "unit_suffix": f.unit_suffix or "",
+            "value": raw_value,
+            "display_value": _format_field_value(raw_value, f.field_type, f.unit_suffix or ""),
+        })
+    return out
+
+
+def _save_item_custom_fields(item: "Item", category: str, form) -> None:
+    """Upsert ItemFieldValue rows from submitted `cf_<field_key>` form fields (formula fields are skipped)."""
+    for f in _get_cat_fields(category):
+        if f.field_type == "formula":
+            continue
+        raw = form.get(f"cf_{f.field_key}")
+        value = (raw or "").strip() if f.field_type == "text" else _to_float_or_none(raw)
+        row = ItemFieldValue.query.filter_by(item_id=item.id, category_field_id=f.id).first()
+        if value in (None, ""):
+            if row:
+                db.session.delete(row)
+            continue
+        if row:
+            row.value = str(value)
+        else:
+            db.session.add(ItemFieldValue(item_id=item.id, category_field_id=f.id, value=str(value)))
+
+
+def _save_item_shelf_life(item: "Item", mode: Optional["InventoryMode"], form) -> None:
+    """Upsert ItemShelfLife rows from submitted `sl_<state_key>_<location_key>` form fields."""
+    if not mode:
+        return
+    for state in mode.states:
+        for loc in mode.locations:
+            field_name = f"sl_{state.key}_{loc.key}"
+            days = to_int(form.get(field_name), 0) if (form.get(field_name) or "").strip() else None
+            row = ItemShelfLife.query.filter_by(
+                item_id=item.id, state_key=state.key, location_key=loc.key).first()
+            if days is None or days <= 0:
+                if row:
+                    db.session.delete(row)
+                continue
+            if row:
+                row.days = days
+            else:
+                db.session.add(ItemShelfLife(item_id=item.id, state_key=state.key, location_key=loc.key, days=days))
+
+
 @app.get("/items/new")
 def item_new():
     guard = require_inventory_edit()
@@ -3554,7 +4251,11 @@ def item_new():
         return guard
 
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
-    return render_template("item_form.html", item=None, suppliers=suppliers)
+    categories, units = _item_form_options()
+    return render_template("item_form.html", item=None, suppliers=suppliers,
+                           categories=categories, units=units, cat_cfg={},
+                           category_fields=[], field_values={},
+                           mode_states=[], mode_locations=[], shelf_life={})
 
 @app.post("/items/new")
 def item_new_post():
@@ -3646,6 +4347,9 @@ def item_new_post():
     db.session.add(item)
     db.session.flush()
 
+    _save_item_custom_fields(item, category, request.form)
+    _save_item_shelf_life(item, get_item_mode(item), request.form)
+
     audit_log(
         action="create",
         entity_type="Item",
@@ -3680,7 +4384,25 @@ def item_edit(item_id: int):
 
     item = Item.query.get_or_404(item_id)
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
-    return render_template("item_form.html", item=item, suppliers=suppliers)
+    categories, units = _item_form_options()
+    cat_cfg = _get_cat_cfg(item.category)
+
+    category_fields = _get_cat_fields(item.category)
+    values_by_field_id = {v.category_field_id: v.value for v in
+                          ItemFieldValue.query.filter_by(item_id=item.id).all()}
+    field_values = {f.field_key: values_by_field_id.get(f.id) for f in category_fields}
+
+    inv_mode = get_item_mode(item)
+    shelf_life = {f"{sl.state_key}_{sl.location_key}": sl.days for sl in
+                  ItemShelfLife.query.filter_by(item_id=item.id).all()}
+
+    return render_template("item_form.html", item=item, suppliers=suppliers,
+                           categories=categories, units=units, cat_cfg=cat_cfg,
+                           category_fields=[f.to_dict() for f in category_fields],
+                           field_values=field_values,
+                           mode_states=[s.to_dict() for s in inv_mode.states] if inv_mode else [],
+                           mode_locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else [],
+                           shelf_life=shelf_life)
 
 @app.post("/items/<int:item_id>/edit")
 def item_edit_post(item_id: int):
@@ -3769,6 +4491,9 @@ def item_edit_post(item_id: int):
     # ✅ ITEMS SETTINGS
     item.on_hand_count = to_int(request.form.get("on_hand_count"), 0)
 
+    _save_item_custom_fields(item, category, request.form)
+    _save_item_shelf_life(item, get_item_mode(item), request.form)
+
     after = {
         "name": item.name,
         "category": item.category,
@@ -3841,6 +4566,72 @@ def item_delete(item_id: int):
     return redirect("/items")
 
 
+def _cascade_delete_item(item):
+    """
+    Hard-delete an item and ALL associated data in dependency order:
+      ReconcileConsumption → ReconcileRecord → PrepBatch
+      → InventoryLot → Order → Item
+    """
+    # 1. ReconcileConsumption rows (FK to both ReconcileRecord and InventoryLot)
+    lot_ids = [l.id for l in InventoryLot.query.filter_by(item_id=item.id).all()]
+    rec_ids = [r.id for r in ReconcileRecord.query.filter_by(item_id=item.id).all()]
+    if rec_ids:
+        ReconcileConsumption.query.filter(
+            ReconcileConsumption.rec_id.in_(rec_ids)
+        ).delete(synchronize_session=False)
+    if lot_ids:
+        ReconcileConsumption.query.filter(
+            ReconcileConsumption.lot_id.in_(lot_ids)
+        ).delete(synchronize_session=False)
+
+    # 2. ReconcileRecord
+    ReconcileRecord.query.filter_by(item_id=item.id).delete(synchronize_session=False)
+
+    # 3. PrepBatch
+    PrepBatch.query.filter_by(item_id=item.id).delete(synchronize_session=False)
+
+    # 4. InventoryLot
+    InventoryLot.query.filter_by(item_id=item.id).delete(synchronize_session=False)
+
+    # 5. Orders referencing this item
+    Order.query.filter_by(item_id=item.id).delete(synchronize_session=False)
+
+    # 6. The item itself
+    db.session.delete(item)
+
+
+@app.post("/items/bulk-delete")
+def items_bulk_delete():
+    guard = require_admin()
+    if guard:
+        return jsonify(error="Admin required"), 403
+
+    data = request.get_json() or {}
+    ids  = [int(i) for i in (data.get("ids") or []) if str(i).isdigit()]
+    if not ids:
+        return jsonify(error="No item IDs provided"), 400
+
+    deleted, skipped = [], []
+    try:
+        for item_id in ids:
+            item = Item.query.get(item_id)
+            if not item:
+                skipped.append({"id": item_id, "reason": "not found"})
+                continue
+            audit_log(action="delete", entity_type="Item", entity_id=item.id,
+                      message="Admin bulk delete (with cascade)",
+                      details={"name": item.name, "category": item.category})
+            _cascade_delete_item(item)
+            deleted.append(item_id)
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(error=str(e)), 500
+
+    return jsonify(success=True, deleted=deleted, skipped=skipped)
+
+
 # ============================================================
 # ITEM HUB
 # ============================================================
@@ -3857,6 +4648,9 @@ def item_hub(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
+    on_hand_loc = (inv_mode.on_hand_location_key if inv_mode and inv_mode.on_hand_location_key else None) or "cooler"
+    sellable_state = mode_sellable_state_key(inv_mode) or "prepped"
 
     # ✅ Get all non-consumed lots for calculations
     all_lots = (
@@ -3868,50 +4662,41 @@ def item_hub(item_id: int):
         .all()
     )
 
-    # ✅ Calculate totals by storage location
-    totals = {
-        "freezer_boxes": 0,
-        "cooler_boxes": 0,
-        "out_boxes": 0,
-        "freezer_units": 0,
-        "cooler_units": 0,
-        "out_units": 0,
-    }
+    # ✅ Calculate totals by storage location (dynamic per the item's mode locations)
+    loc_keys = mode_location_keys(inv_mode) or ["freezer", "cooler", "out"]
+    totals = {}
+    for lk in loc_keys:
+        totals[f"{lk}_boxes"] = 0
+        totals[f"{lk}_units"] = 0
 
     units_per_box = int(item.default_units_per_box or 1)
 
     for lot in all_lots:
         # Use actual quantity without rounding (preserves fractional boxes = fractional units)
         lot_quantity = lot.quantity or 1.0
-        
+
         # For display: box_count for box totals
         box_count = int(round(lot_quantity))
         if box_count < 1:
             box_count = 1
-        
+
         # For units: calculate from actual quantity (don't round quantity first)
         lot_units = int(round(lot_quantity * units_per_box))
-        
-        if lot.storage == "freezer":
-            totals["freezer_boxes"] += box_count
-            totals["freezer_units"] += lot_units
-        elif lot.storage == "cooler":
-            totals["cooler_boxes"] += box_count
-            totals["cooler_units"] += lot_units
-        else:
-            totals["out_boxes"] += box_count
-            totals["out_units"] += lot_units
 
-    cooler_boxes_available = totals["cooler_boxes"]
-    cooler_units_available = totals["cooler_units"]
+        loc = lot.storage if lot.storage in loc_keys else (loc_keys[-1] if loc_keys else "out")
+        totals[f"{loc}_boxes"] = totals.get(f"{loc}_boxes", 0) + box_count
+        totals[f"{loc}_units"] = totals.get(f"{loc}_units", 0) + lot_units
 
-    # ✅ Units available = total prepped units not consumed (what you can sell from)
+    cooler_boxes_available = totals.get(f"{on_hand_loc}_boxes", 0)
+    cooler_units_available = totals.get(f"{on_hand_loc}_units", 0)
+
+    # ✅ Units available = total sellable-state units not consumed (what you can sell from)
     prepped_units_available = (
         db.session.query(func.coalesce(func.sum(InventoryLot.count_units), 0))
         .filter(
             InventoryLot.item_id == item.id,
-            InventoryLot.state == "prepped",
-            InventoryLot.storage == "cooler",
+            InventoryLot.state == sellable_state,
+            InventoryLot.storage == on_hand_loc,
             InventoryLot.is_consumed == False
         )
         .scalar()
@@ -3921,13 +4706,13 @@ def item_hub(item_id: int):
     except Exception:
         prepped_units_available = 0
 
-    # ✅ Expiring soon = cooler lots (raw or prepped) that have an expiration date within next 2 days
+    # ✅ Expiring soon = on-hand-location lots (any state) that have an expiration date within next 2 days
     #    (and not consumed)
     cooler_lots = (
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item.id,
-            InventoryLot.storage == "cooler",
+            InventoryLot.storage == on_hand_loc,
             InventoryLot.is_consumed == False
         )
         .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
@@ -3950,15 +4735,22 @@ def item_hub(item_id: int):
     expiring_soon = sorted(expiring_soon, key=lambda r: (r["days_left"], r["lot"].id))[:8]
     expiring_soon_count = len(expiring_soon)
 
+    cat_cfg = _get_cat_cfg(item.category)
+    custom_fields = _get_item_custom_fields(item)
+
     return render_template(
         "item_hub.html",
         item=item,
+        cat_cfg=cat_cfg,
+        custom_fields=custom_fields,
         prepped_units_available=prepped_units_available,
         cooler_boxes_available=cooler_boxes_available,
         cooler_units_available=cooler_units_available,
         totals=totals,
         expiring_soon=expiring_soon,
-        expiring_soon_count=expiring_soon_count
+        expiring_soon_count=expiring_soon_count,
+        mode_obj=inv_mode,
+        locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else [],
     )
 
 
@@ -4427,10 +5219,10 @@ def item_move_boxes(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
+    location_keys = mode_location_keys(inv_mode)
 
-    from_loc = (request.args.get("from") or "freezer").strip().lower()
-    if from_loc not in {"freezer", "cooler", "out"}:
-        from_loc = "freezer"
+    from_loc = norm_storage(request.args.get("from"), item)
 
     rows = (
         InventoryLot.query
@@ -4453,18 +5245,17 @@ def item_move_boxes(item_id: int):
         left = days_left(exp)
         view_rows.append({"lot": lot, "expires_on": exp, "days_left": left})
 
-    default_to = "cooler"
-    if from_loc == "cooler":
-        default_to = "freezer"
-    if from_loc == "out":
-        default_to = "cooler"
+    # Smart default: suggest the first other location in the mode's list.
+    other_locs = [k for k in location_keys if k != from_loc]
+    default_to = other_locs[0] if other_locs else from_loc
 
     return render_template(
         "move_boxes.html",
         item=item,
         from_loc=from_loc,
         rows=view_rows,
-        default_to=default_to
+        default_to=default_to,
+        locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else []
     )
 
 @app.post("/items/<int:item_id>/move_boxes")
@@ -4475,8 +5266,8 @@ def item_move_boxes_post(item_id: int):
 
     item = Item.query.get_or_404(item_id)
 
-    from_loc = norm_storage(request.form.get("from_loc"))
-    to_loc = norm_storage(request.form.get("to_loc"))
+    from_loc = norm_storage(request.form.get("from_loc"), item)
+    to_loc = norm_storage(request.form.get("to_loc"), item)
     if to_loc == from_loc:
         flash("Destination location must be different.", "error")
         return redirect(f"/items/{item.id}/move_boxes?from={from_loc}")
@@ -4577,6 +5368,7 @@ def item_lots(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
 
     # Only fetch active (non-consumed) lots for display
     lots = (
@@ -4593,15 +5385,11 @@ def item_lots(item_id: int):
         .all()
     )
 
-    totals = {
-        "freezer_boxes": 0,
-        "cooler_boxes": 0,
-        "out_boxes": 0,
-        "freezer_units": 0,
-        "cooler_units": 0,
-        "out_units": 0,
-        "count": len(lots),
-    }
+    loc_keys = mode_location_keys(inv_mode) or ["freezer", "cooler", "out"]
+    totals = {"count": len(lots)}
+    for lk in loc_keys:
+        totals[f"{lk}_boxes"] = 0
+        totals[f"{lk}_units"] = 0
 
     rows = []
     for lot in lots:
@@ -4612,20 +5400,18 @@ def item_lots(item_id: int):
         if box_count < 1:
             box_count = 1
 
-        if lot.storage == "freezer":
-            totals["freezer_boxes"] += box_count
-            totals["freezer_units"] += int(lot.count_units or 0)
-        elif lot.storage == "cooler":
-            totals["cooler_boxes"] += box_count
-            totals["cooler_units"] += int(lot.count_units or 0)
-        else:
-            totals["out_boxes"] += box_count
-            totals["out_units"] += int(lot.count_units or 0)
+        loc = lot.storage if lot.storage in loc_keys else (loc_keys[-1] if loc_keys else "out")
+        totals[f"{loc}_boxes"] = totals.get(f"{loc}_boxes", 0) + box_count
+        totals[f"{loc}_units"] = totals.get(f"{loc}_units", 0) + int(lot.count_units or 0)
 
         rows.append({"lot": lot, "expires_on": exp, "days_left": left})
 
     start_num = next_lot_number(item.id)
-    return render_template("item_lots.html", item=item, rows=rows, totals=totals, start_num=start_num)
+    cat_cfg = _get_cat_cfg(item.category)
+    return render_template("item_lots.html", item=item, rows=rows, totals=totals,
+                           start_num=start_num, cat_cfg=cat_cfg, inv_mode=inv_mode,
+                           states=[s.to_dict() for s in inv_mode.states] if inv_mode else [],
+                           locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else [])
 
 
 
@@ -4658,8 +5444,8 @@ def lot_new_post(item_id: int):
     item = Item.query.get_or_404(item_id)
 
     received_date = parse_required_date(request.form.get("received_date"), date.today())
-    state = norm_state(request.form.get("state"))
-    storage = norm_storage(request.form.get("storage"))
+    state = norm_state(request.form.get("state"), item)
+    storage = norm_storage(request.form.get("storage"), item)
 
     lot_number_raw = (request.form.get("lot_number") or "").strip()
     lot_number = to_int(lot_number_raw, 0) if lot_number_raw else None
@@ -4669,7 +5455,7 @@ def lot_new_post(item_id: int):
 
     count_units_raw = (request.form.get("count_units") or "").strip()
     count_units = to_int(count_units_raw, 0) if count_units_raw else None
-    if state == "raw" and count_units is not None and count_units <= 0:
+    if is_initial_state(item, state) and count_units is not None and count_units <= 0:
         count_units = None
 
     # Get quantity - default to 1 if not provided
@@ -4767,12 +5553,15 @@ def lot_bulk(item_id: int):
 
     item = Item.query.get_or_404(item_id)
     start_num = next_lot_number(item.id)
+    inv_mode = get_item_mode(item)
 
     return render_template(
         "lot_bulk.html",
         item=item,
         today=date.today().strftime("%Y-%m-%d"),
-        start_num=start_num
+        start_num=start_num,
+        states=[s.to_dict() for s in inv_mode.states] if inv_mode else [],
+        locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else []
     )
 
 @app.post("/items/<int:item_id>/lots/bulk")
@@ -4784,7 +5573,7 @@ def lot_bulk_post(item_id: int):
     item = Item.query.get_or_404(item_id)
 
     received_date = parse_required_date(request.form.get("received_date"), date.today())
-    state = norm_state(request.form.get("state"))
+    state = norm_state(request.form.get("state"), item)
 
     lot_numbers = request.form.getlist("lot_number[]")
     lot_labels = request.form.getlist("lot_label[]")
@@ -4810,7 +5599,7 @@ def lot_bulk_post(item_id: int):
     for i in range(n):
         ln_raw = (safe_get(lot_numbers, i) or "").strip()
         ll_raw = (safe_get(lot_labels, i) or "").strip()
-        st_raw = norm_storage(safe_get(storages, i))
+        st_raw = norm_storage(safe_get(storages, i), item)
         cu_raw = (safe_get(count_units_list, i) or "").strip()
         nt_raw = (safe_get(notes_list, i) or "").strip()
 
@@ -4835,7 +5624,7 @@ def lot_bulk_post(item_id: int):
             except Exception:
                 count_units = None
 
-        if state == "raw" and (count_units is not None and count_units <= 0):
+        if is_initial_state(item, state) and (count_units is not None and count_units <= 0):
             count_units = None
 
         if lot_number is not None:
@@ -4886,7 +5675,11 @@ def lot_edit(lot_id: int):
 
     lot = InventoryLot.query.get_or_404(lot_id)
     item = Item.query.get_or_404(lot.item_id)
-    return render_template("lot_edit.html", lot=lot, item=item)
+    cat_cfg = _get_cat_cfg(item.category)
+    inv_mode = get_item_mode(item)
+    return render_template("lot_edit.html", lot=lot, item=item, cat_cfg=cat_cfg,
+                           states=[s.to_dict() for s in inv_mode.states] if inv_mode else [],
+                           locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else [])
 
 @app.post("/lots/<int:lot_id>/edit")
 def lot_edit_post(lot_id: int):
@@ -4908,8 +5701,8 @@ def lot_edit_post(lot_id: int):
     }
 
     lot.received_date = parse_required_date(request.form.get("received_date"), lot.received_date or date.today())
-    lot.state = norm_state(request.form.get("state"))
-    lot.storage = norm_storage(request.form.get("storage"))
+    lot.state = norm_state(request.form.get("state"), item)
+    lot.storage = norm_storage(request.form.get("storage"), item)
 
     lot_number_raw = (request.form.get("lot_number") or "").strip()
     lot_label_raw = (request.form.get("lot_label") or "").strip()
@@ -4937,7 +5730,7 @@ def lot_edit_post(lot_id: int):
     cu_raw = (request.form.get("count_units") or "").strip()
     if cu_raw:
         lot.count_units = to_int(cu_raw, 0)
-        if lot.state == "raw" and lot.count_units <= 0:
+        if is_initial_state(item, lot.state) and lot.count_units <= 0:
             lot.count_units = None
     else:
         lot.count_units = None
@@ -5063,6 +5856,86 @@ def lots_bulk_delete(item_id: int):
 # ============================================================
 # PREP + RECONCILE
 # ============================================================
+
+@app.get("/lots")
+def view_all_lots():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    q = (request.args.get("q") or "").strip()
+    category_filter = (request.args.get("category") or "").strip()
+    storage_filter = (request.args.get("storage") or "").strip()
+    state_filter = (request.args.get("state") or "").strip()
+
+    query = InventoryLot.query.filter(InventoryLot.is_consumed == False)
+
+    if q or category_filter:
+        query = query.join(Item)
+        if q:
+            query = query.filter(Item.name.ilike(f"%{q}%"))
+        if category_filter:
+            query = query.filter(Item.category == category_filter)
+
+    if storage_filter:
+        query = query.filter(InventoryLot.storage == storage_filter)
+
+    if state_filter:
+        query = query.filter(InventoryLot.state == state_filter)
+
+    lots = (
+        query
+        .order_by(
+            InventoryLot.received_date.asc(),
+            InventoryLot.lot_number.asc().nulls_last(),
+            InventoryLot.id.asc()
+        )
+        .all()
+    )
+
+    # Build display rows with expiration info
+    lot_rows = []
+    for lot in lots:
+        item = Item.query.get(lot.item_id)
+        if not item:
+            continue
+        exp = compute_lot_expiration(item, lot)
+        lot_rows.append({
+            "lot": lot,
+            "item": item,
+            "expires_on": exp,
+            "days_left": days_left(exp),
+            "units": int(round(lot.quantity or 1.0)) if is_initial_state(item, lot.state) else int(lot.count_units or 0)
+        })
+
+    # Get filter options for dropdowns
+    categories = db.session.execute(
+        text("SELECT DISTINCT category FROM items ORDER BY category")
+    ).fetchall()
+    category_list = [row[0] for row in categories if row[0]]
+
+    # Distinct values actually in use (works for any admin-defined states/locations)
+    storage_list = [row[0] for row in db.session.execute(
+        text("SELECT DISTINCT storage FROM inventory_lots WHERE storage IS NOT NULL ORDER BY storage")
+    ).fetchall() if row[0]]
+    state_list = [row[0] for row in db.session.execute(
+        text("SELECT DISTINCT state FROM inventory_lots WHERE state IS NOT NULL ORDER BY state")
+    ).fetchall() if row[0]]
+
+    return render_template(
+        "lots.html",
+        lot_rows=lot_rows,
+        q=q,
+        category_filter=category_filter,
+        storage_filter=storage_filter,
+        state_filter=state_filter,
+        categories=category_list,
+        storage_options=storage_list,
+        state_options=state_list,
+    )
+
+
+
 @app.get("/items/<int:item_id>/prep")
 def prep_home(item_id: int):
     guard = require_view_access()
@@ -5070,16 +5943,23 @@ def prep_home(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
+    state_keys = mode_state_keys(inv_mode)
 
-    from_loc = (request.args.get("from") or "cooler").strip().lower()
-    if from_loc not in {"freezer", "cooler", "out"}:
-        from_loc = "cooler"
+    from_loc = norm_storage(request.args.get("from"), item)
+
+    # Which state are we prepping FROM? Defaults to the mode's first (initial)
+    # state — identical to today's fixed "raw" for every 2-state legacy mode.
+    from_state = (request.args.get("from_state") or "").strip().lower()
+    if from_state not in state_keys:
+        from_state = state_keys[0] if state_keys else "raw"
+    to_state = mode_next_state_key(inv_mode, from_state) or "prepped"
 
     raw_boxes = (
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item.id,
-            InventoryLot.state == "raw",
+            InventoryLot.state == from_state,
             InventoryLot.storage == from_loc,
             InventoryLot.is_consumed == False
         )
@@ -5104,7 +5984,11 @@ def prep_home(item_id: int):
         .all()
     )
 
-    default_to = "cooler"
+    default_to = (inv_mode.on_hand_location_key if inv_mode and inv_mode.on_hand_location_key else None) or "cooler"
+    # Only surface a "from state" picker when the mode has more than 2 stages —
+    # keeps today's 2-state UX (raw -> prepped) completely unchanged otherwise.
+    state_choices = [s.to_dict() for s in inv_mode.states[:-1]] if inv_mode and len(state_keys) > 2 else []
+
     return render_template(
         "prep.html",
         item=item,
@@ -5113,17 +5997,15 @@ def prep_home(item_id: int):
         default_to=default_to,
         box_rows=box_rows,
         history=history,
-        edit_batch=None
+        edit_batch=None,
+        from_state=from_state,
+        to_state=to_state,
+        state_choices=state_choices,
     )
 
-def _prepped_expiration(item: Item, prep_date: date, to_loc: str):
-    days = None
-    if to_loc == "freezer":
-        days = item.prepped_freezer_days
-    elif to_loc == "cooler":
-        days = item.prepped_cooler_days
-    elif to_loc == "out":
-        days = item.prepped_out_days
+def _prepped_expiration(item: Item, prep_date: date, to_loc: str, to_state: str = "prepped"):
+    row = ItemShelfLife.query.filter_by(item_id=item.id, state_key=to_state, location_key=to_loc).first()
+    days = row.days if row else None
 
     if not days or days <= 0:
         return None, 0
@@ -5138,10 +6020,18 @@ def prep_create(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
 
     prep_date = parse_required_date(request.form.get("prep_date"), date.today())
-    from_loc = norm_storage(request.form.get("from_loc"))
-    to_loc = norm_storage(request.form.get("to_loc"))
+    from_loc = norm_storage(request.form.get("from_loc"), item)
+    to_loc = norm_storage(request.form.get("to_loc"), item)
+
+    from_state = norm_state(request.form.get("from_state"), item)
+    to_state = mode_next_state_key(inv_mode, from_state)
+    if not to_state:
+        # Legacy 2-state modes never post a from_state — fall back to raw->prepped.
+        from_state, to_state = "raw", "prepped"
+
     mode = (request.form.get("mode") or "first_n").strip().lower()
     if mode not in {"first_n", "selected"}:
         mode = "first_n"
@@ -5157,7 +6047,7 @@ def prep_create(item_id: int):
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item.id,
-            InventoryLot.state == "raw",
+            InventoryLot.state == from_state,
             InventoryLot.storage == from_loc,
             InventoryLot.is_consumed == False
         )
@@ -5186,7 +6076,7 @@ def prep_create(item_id: int):
             InventoryLot.query
             .filter(
                 InventoryLot.item_id == item.id,
-                InventoryLot.state == "raw",
+                InventoryLot.state == from_state,
                 InventoryLot.storage == from_loc,
                 InventoryLot.is_consumed == False,
                 InventoryLot.id.in_(ids_int),
@@ -5209,11 +6099,11 @@ def prep_create(item_id: int):
         quantity=1.0,
         count_units=produced_units,
         storage=to_loc,
-        state="prepped",
+        state=to_state,
         is_consumed=False,
         notes="Auto-created by Prep"
     )
-    expires_on, shelf_days = _prepped_expiration(item, prep_date, to_loc)
+    expires_on, shelf_days = _prepped_expiration(item, prep_date, to_loc, to_state)
     prepped_lot.expiration_override = expires_on
 
     db.session.add(prepped_lot)
@@ -5224,6 +6114,8 @@ def prep_create(item_id: int):
         prep_date=prep_date,
         from_loc=from_loc,
         to_loc=to_loc,
+        from_state=from_state,
+        to_state=to_state,
         mode=mode,
         boxes_used=len(chosen_ids),
         source_lot_ids=",".join(str(x) for x in sorted(chosen_ids)),
@@ -5247,13 +6139,15 @@ def prep_create(item_id: int):
             "produced_units": produced_units,
             "from_loc": from_loc,
             "to_loc": to_loc,
+            "from_state": from_state,
+            "to_state": to_state,
             "source_lot_ids": chosen_ids,
             "created_prepped_lot_id": prepped_lot.id
         }
     )
 
     db.session.commit()
-    flash("Prep saved. Raw boxes marked consumed and prepped lot created.", "success")
+    flash("Prep saved. Boxes marked consumed and the next-stage lot was created.", "success")
     return redirect(f"/items/{item.id}/prep?from={from_loc}")
 
 @app.post("/prep/<int:batch_id>/delete")
@@ -5310,6 +6204,10 @@ def reconcile_home(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
+    on_hand_loc = (inv_mode.on_hand_location_key if inv_mode and inv_mode.on_hand_location_key else None) or "cooler"
+    sellable_state = mode_sellable_state_key(inv_mode) or "prepped"
+    reconcile_style = (inv_mode.reconcile_style if inv_mode else None) or "unit_count"
 
     # ✅ Get all non-consumed lots for calculations
     all_lots = (
@@ -5321,16 +6219,14 @@ def reconcile_home(item_id: int):
         .all()
     )
 
-    # ✅ Calculate totals by storage location
-    totals = {
-        "freezer_boxes": 0,
-        "cooler_boxes": 0,
-        "out_boxes": 0,
-        "freezer_units": 0,
-        "cooler_units": 0,
-        "out_units": 0,
-        "starting_units": 0,
-    }
+    # ✅ Calculate totals by storage location (dynamic per the item's mode locations —
+    # legacy modes always have freezer/cooler/out, so totals["freezer_boxes"] etc.
+    # still exist exactly as before; a custom mode gets its own location-keyed entries)
+    loc_keys = mode_location_keys(inv_mode) or ["freezer", "cooler", "out"]
+    totals = {"starting_units": 0}
+    for lk in loc_keys:
+        totals[f"{lk}_boxes"] = 0
+        totals[f"{lk}_units"] = 0
 
     units_per_box = int(item.default_units_per_box or 1)
 
@@ -5338,38 +6234,32 @@ def reconcile_home(item_id: int):
         # Skip lots with 0 or negative quantity
         lot_quantity = lot.quantity or 1.0
         box_count = int(round(lot_quantity))
-        
+
         if box_count < 1:
             # Mark very small quantities as consumed if not already
             if lot_quantity <= 0 and not lot.is_consumed:
                 lot.is_consumed = True
             continue
-        
+
         # Calculate units from actual quantity (don't round quantity first)
         lot_units = int(round(lot_quantity * units_per_box))
-        
-        # Track total units for generic_food reconcile
+
+        # Track total units for box_quantity-style reconcile
         totals["starting_units"] += lot_units
-        
-        if lot.storage == "freezer":
-            totals["freezer_boxes"] += box_count
-            totals["freezer_units"] += lot_units
-        elif lot.storage == "cooler":
-            totals["cooler_boxes"] += box_count
-            totals["cooler_units"] += lot_units
-        else:
-            totals["out_boxes"] += box_count
-            totals["out_units"] += lot_units
 
-    cooler_boxes_available = totals["cooler_boxes"]
-    cooler_units_available = totals["cooler_units"]
+        loc = lot.storage if lot.storage in loc_keys else (loc_keys[-1] if loc_keys else "out")
+        totals[f"{loc}_boxes"] = totals.get(f"{loc}_boxes", 0) + box_count
+        totals[f"{loc}_units"] = totals.get(f"{loc}_units", 0) + lot_units
 
-    # ✅ For generic_food: starting units already in totals
+    cooler_boxes_available = totals.get(f"{on_hand_loc}_boxes", 0)
+    cooler_units_available = totals.get(f"{on_hand_loc}_units", 0)
+
+    # ✅ For unit_count reconcile: starting units already in totals
     prepped_lots = (
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item.id,
-            InventoryLot.state == "prepped",
+            InventoryLot.state == sellable_state,
             InventoryLot.is_consumed == False
         )
         .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
@@ -5386,12 +6276,12 @@ def reconcile_home(item_id: int):
             "units": int(lot.count_units or 0)
         })
 
-    # ✅ Expiring soon = cooler lots that have an expiration within next 0-4 days
+    # ✅ Expiring soon = on-hand-location lots that have an expiration within next 0-4 days
     cooler_lots = (
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item.id,
-            InventoryLot.storage == "cooler",
+            InventoryLot.storage == on_hand_loc,
             InventoryLot.is_consumed == False
         )
         .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
@@ -5421,9 +6311,9 @@ def reconcile_home(item_id: int):
         .all()
     )
 
-    # ✅ For generic_food: provide available lots for box selection
+    # ✅ For box_quantity reconcile: provide available lots for box selection
     available_lots_for_selection = []
-    if (item.prep_type or "").lower() == "generic_food":
+    if reconcile_style == "box_quantity":
         available_lots_for_selection = (
             InventoryLot.query
             .filter(
@@ -5447,6 +6337,9 @@ def reconcile_home(item_id: int):
         history=history,
         available_lots_for_selection=available_lots_for_selection,
         rec=None,
+        inv_mode=inv_mode,
+        locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else [],
+        reconcile_style=reconcile_style,
     )
 
 
@@ -5534,10 +6427,13 @@ def reconcile_create(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
+    reconcile_style = (inv_mode.reconcile_style if inv_mode else None) or "unit_count"
+    sellable_state = mode_sellable_state_key(inv_mode) or "prepped"
     event_date = parse_required_date(request.form.get("event_date"), date.today())
 
-    # ✅ GENERIC_FOOD: Simple reconcile (no prep required)
-    if (item.prep_type or "").lower() == "generic_food":
+    # ✅ box_quantity style (e.g. legacy generic_food): simple reconcile (no prep required)
+    if reconcile_style == "box_quantity":
         actual_units = to_int(request.form.get("actual_units"), 0)
         orders_sold = to_int(request.form.get("orders_sold"), 0)
         notes = (request.form.get("notes") or "").strip() or None
@@ -5645,8 +6541,8 @@ def reconcile_create(item_id: int):
         flash("Reconcile saved and inventory updated.", "success")
         return redirect(f"/items/{item.id}/reconcile")
 
-    # ✅ OTHER PREP TYPES: Prepped lot reconcile
-    # Selected prepped lots (required for inventory updates)
+    # ✅ unit_count style: sellable-state lot reconcile
+    # Selected sellable-state lots (required for inventory updates)
     selected_ids = unique_ints(request.form.getlist("prepped_lot_ids"))
 
     selected_lots = []
@@ -5655,7 +6551,7 @@ def reconcile_create(item_id: int):
             InventoryLot.query
             .filter(
                 InventoryLot.item_id == item.id,
-                InventoryLot.state == "prepped",
+                InventoryLot.state == sellable_state,
                 InventoryLot.is_consumed == False,
                 InventoryLot.id.in_(selected_ids),
             )
@@ -5708,7 +6604,7 @@ def reconcile_create(item_id: int):
     db.session.flush()  # so rec.id exists
 
     # ✅ APPLY INVENTORY: set selected lots total = actual_units (FIFO distribution)
-    snapshot = _apply_reconcile_inventory(item.id, selected_ids, actual_units)
+    snapshot = _apply_reconcile_inventory(item.id, selected_ids, actual_units, sellable_state)
     rec.applied_lot_units = json.dumps(snapshot, ensure_ascii=False)
 
     audit_log(
@@ -5758,8 +6654,9 @@ def reconcile_apply(rec_id: int):
         flash("Sales units are 0 — nothing to apply.", "error")
         return redirect(f"/items/{item.id}/reconcile")
 
+    sellable_state = mode_sellable_state_key(get_item_mode(item)) or "prepped"
     try:
-        moves = fifo_reduce_prepped_lots(item.id, lot_ids, units_to_reduce)
+        moves = fifo_reduce_prepped_lots(item.id, lot_ids, units_to_reduce, sellable_state)
     except ValueError as e:
         flash(str(e), "error")
         return redirect(f"/items/{item.id}/reconcile")
@@ -5847,13 +6744,16 @@ def reconcile_edit(rec_id: int, item_id: int | None = None):
         return guard
 
     rec, item = _load_reconcile_or_404(rec_id)
+    inv_mode = get_item_mode(item)
+    sellable_state = mode_sellable_state_key(inv_mode) or "prepped"
+    reconcile_style = (inv_mode.reconcile_style if inv_mode else None) or "unit_count"
 
-    # build list of current available prepped lots
+    # build list of current available sellable-state lots
     prepped_lots = (
         InventoryLot.query
         .filter(
             InventoryLot.item_id == item.id,
-            InventoryLot.state == "prepped",
+            InventoryLot.state == sellable_state,
             InventoryLot.is_consumed == False
         )
         .order_by(InventoryLot.received_date.asc(), InventoryLot.id.asc())
@@ -5873,11 +6773,11 @@ def reconcile_edit(rec_id: int, item_id: int | None = None):
             "selected": lot.id in set(selected_ids)
         })
 
-    # ✅ For generic_food: provide available lots for box selection during edit
+    # ✅ For box_quantity style: provide available lots for box selection during edit
     available_lots_for_selection = []
     current_selected_lot_ids = []
     current_units_on_hand = 0
-    if (item.prep_type or "").lower() == "generic_food":
+    if reconcile_style == "box_quantity":
         available_lots_for_selection = (
             InventoryLot.query
             .filter(
@@ -5914,11 +6814,14 @@ def reconcile_edit_post(rec_id: int):
 
     rec = ReconcileRecord.query.get_or_404(rec_id)
     item = Item.query.get_or_404(rec.item_id)
+    inv_mode = get_item_mode(item)
+    reconcile_style = (inv_mode.reconcile_style if inv_mode else None) or "unit_count"
+    sellable_state = mode_sellable_state_key(inv_mode) or "prepped"
 
     event_date = parse_required_date(request.form.get("event_date"), rec.event_date or date.today())
 
-    # ✅ GENERIC_FOOD: Simple reconcile edit
-    if (item.prep_type or "").lower() == "generic_food":
+    # ✅ box_quantity style: simple reconcile edit
+    if reconcile_style == "box_quantity":
         # Undo old inventory effect first
         if rec.applied_lot_units:
             try:
@@ -6021,7 +6924,7 @@ def reconcile_edit_post(rec_id: int):
         flash("Count record updated.", "success")
         return redirect(f"/items/{item.id}/reconcile")
 
-    # ✅ OTHER PREP TYPES: Prepped lot reconcile edit
+    # ✅ unit_count style: sellable-state lot reconcile edit
     lot_ids_list = request.form.getlist("prepped_lot_ids") or []
     selected_ids = [int(x) for x in lot_ids_list if x.strip().isdigit()]
     selected_lots = []
@@ -6030,7 +6933,7 @@ def reconcile_edit_post(rec_id: int):
             InventoryLot.query
             .filter(
                 InventoryLot.item_id == item.id,
-                InventoryLot.state == "prepped",
+                InventoryLot.state == sellable_state,
                 InventoryLot.is_consumed == False,
                 InventoryLot.id.in_(selected_ids),
             )
@@ -6089,7 +6992,7 @@ def reconcile_edit_post(rec_id: int):
     rec.notes = notes
 
     # ✅ Re-apply inventory using the edited values
-    snapshot_new = _apply_reconcile_inventory(item.id, selected_ids, actual_units)
+    snapshot_new = _apply_reconcile_inventory(item.id, selected_ids, actual_units, sellable_state)
     rec.applied_lot_units = json.dumps(snapshot_new, ensure_ascii=False)
 
     audit_log(
@@ -6126,9 +7029,11 @@ def reconcile_delete(rec_id: int):
     rec = ReconcileRecord.query.get_or_404(rec_id)
     item_id = rec.item_id
     item = Item.query.get_or_404(item_id)
+    inv_mode = get_item_mode(item)
+    reconcile_style = (inv_mode.reconcile_style if inv_mode else None) or "unit_count"
 
-    # 📸 For generic_food: Restore to BEFORE state, then re-apply remaining reconciles
-    if (item.prep_type or "").lower() == "generic_food":
+    # 📸 For box_quantity style: Restore to BEFORE state, then re-apply remaining reconciles
+    if reconcile_style == "box_quantity":
         # Step 1: Restore lots to their state BEFORE this reconcile was applied
         if rec.applied_lot_units:
             try:
@@ -6500,12 +7405,415 @@ def audit_history():
 
 
 # ============================================================
+# SETTINGS
+# ============================================================
+
+@app.get("/settings")
+def settings_page():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+    categories = ItemSetting.query.filter_by(setting_type="category").order_by(
+        ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
+    units = ItemSetting.query.filter_by(setting_type="unit").order_by(
+        ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
+    return render_template("settings.html", categories=categories, units=units)
+
+
+def _apply_setting_fields(row, data):
+    """Apply all editable fields from a JSON payload onto an ItemSetting row."""
+    row.description = (data.get("description") or "").strip() or None
+    if row.setting_type == "category":
+        mode = (data.get("inv_mode") or "").strip().lower()
+        row.inv_mode = mode if get_mode_by_slug(mode) else None
+        sm = (data.get("default_sales_mode") or "simple").strip().lower()
+        row.default_sales_mode = sm if sm in ("simple", "packs_4") else "simple"
+        row.has_reconcile = bool(data.get("has_reconcile"))
+        row.has_locations = bool(data.get("has_locations"))
+        # state / storage labels — store None when blank so defaults kick in
+        def _lbl(key): return (data.get(key) or "").strip() or None
+        row.state_label_raw       = _lbl("state_label_raw")
+        row.state_label_prepped   = _lbl("state_label_prepped")
+        row.storage_label_freezer = _lbl("storage_label_freezer")
+        row.storage_label_cooler  = _lbl("storage_label_cooler")
+        row.storage_label_out     = _lbl("storage_label_out")
+    elif row.setting_type == "unit":
+        row.abbreviation = (data.get("abbreviation") or "").strip() or None
+
+
+@app.post("/settings/item-options/add")
+def settings_add_option():
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+    data = request.get_json() or {}
+    stype = (data.get("type") or "").strip().lower()
+    value = (data.get("value") or "").strip()
+    if stype not in ("category", "unit") or not value:
+        return jsonify(error="Invalid input"), 400
+    if ItemSetting.query.filter_by(setting_type=stype, value=value).first():
+        return jsonify(error="Already exists"), 409
+    max_order = db.session.query(db.func.max(ItemSetting.display_order)).filter_by(
+        setting_type=stype).scalar() or 0
+    row = ItemSetting(setting_type=stype, value=value, display_order=max_order + 1)
+    _apply_setting_fields(row, data)
+    db.session.add(row)
+    db.session.commit()
+    return jsonify(success=True, **row.to_dict())
+
+
+@app.post("/settings/item-options/<int:opt_id>/edit")
+def settings_edit_option(opt_id):
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+    row = ItemSetting.query.get_or_404(opt_id)
+    data = request.get_json() or {}
+    value = (data.get("value") or "").strip()
+    if not value:
+        return jsonify(error="Value required"), 400
+    clash = ItemSetting.query.filter_by(setting_type=row.setting_type, value=value).first()
+    if clash and clash.id != opt_id:
+        return jsonify(error="Already exists"), 409
+    row.value = value
+    _apply_setting_fields(row, data)
+    db.session.commit()
+    return jsonify(success=True, **row.to_dict())
+
+
+@app.get("/settings/categories.json")
+def settings_categories_json():
+    """Return all categories with their properties as JSON (used by item form)."""
+    cats = ItemSetting.query.filter_by(setting_type="category").order_by(
+        ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
+    return jsonify([c.to_dict() for c in cats])
+
+
+@app.post("/settings/item-options/<int:opt_id>/delete")
+def settings_delete_option(opt_id):
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+    row = ItemSetting.query.get_or_404(opt_id)
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify(success=True)
+
+
+# ============================================================
+# CATEGORY CUSTOM FIELDS (Settings > Edit Category)
+# ============================================================
+_VALID_FIELD_TYPES = {"number", "currency", "text", "formula"}
+
+def _slugify_field_key(label: str) -> str:
+    key = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
+    return key or "field"
+
+def _unique_field_key(category: str, label: str, exclude_id: int | None = None) -> str:
+    base = _slugify_field_key(label)
+    key = base
+    n = 2
+    while True:
+        q = CategoryField.query.filter_by(category=category, field_key=key)
+        if exclude_id is not None:
+            q = q.filter(CategoryField.id != exclude_id)
+        if not q.first():
+            return key
+        key = f"{base}_{n}"
+        n += 1
+
+
+@app.get("/settings/category-fields.json")
+def settings_category_fields_json():
+    """Return all custom fields grouped by category, e.g. {'Liquor': [...]}. Used by the item form."""
+    fields = CategoryField.query.order_by(
+        CategoryField.category.asc(), CategoryField.display_order.asc(), CategoryField.id.asc()).all()
+    grouped: dict[str, list] = {}
+    for f in fields:
+        grouped.setdefault(f.category, []).append(f.to_dict())
+    return jsonify(grouped)
+
+
+@app.post("/settings/category-fields/add")
+def settings_add_category_field():
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+
+    data = request.get_json() or {}
+    category = (data.get("category") or "").strip()
+    label = (data.get("label") or "").strip()
+    field_type = (data.get("field_type") or "").strip().lower()
+    unit_suffix = (data.get("unit_suffix") or "").strip() or None
+    formula = (data.get("formula") or "").strip() or None
+
+    if not category or not label:
+        return jsonify(error="Category and label are required"), 400
+    if field_type not in _VALID_FIELD_TYPES:
+        return jsonify(error="Invalid field type"), 400
+    if field_type == "formula":
+        if not formula:
+            return jsonify(error="Formula is required for a formula field"), 400
+        existing = _get_cat_fields(category)
+        dummy_values = {f.field_key: 1.0 for f in existing if f.field_type in ("number", "currency")}
+        try:
+            evaluate_formula(formula, dummy_values)
+        except FormulaError as e:
+            return jsonify(error=f"Formula error: {e}"), 400
+    else:
+        formula = None
+
+    max_order = db.session.query(db.func.max(CategoryField.display_order)).filter_by(
+        category=category).scalar() or 0
+
+    row = CategoryField(
+        category=category,
+        field_key=_unique_field_key(category, label),
+        label=label,
+        field_type=field_type,
+        unit_suffix=unit_suffix,
+        formula=formula,
+        display_order=max_order + 1,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify(success=True, **row.to_dict())
+
+
+@app.post("/settings/category-fields/<int:field_id>/edit")
+def settings_edit_category_field(field_id):
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+
+    row = CategoryField.query.get_or_404(field_id)
+    data = request.get_json() or {}
+    label = (data.get("label") or "").strip()
+    field_type = (data.get("field_type") or "").strip().lower()
+    unit_suffix = (data.get("unit_suffix") or "").strip() or None
+    formula = (data.get("formula") or "").strip() or None
+
+    if not label:
+        return jsonify(error="Label is required"), 400
+    if field_type not in _VALID_FIELD_TYPES:
+        return jsonify(error="Invalid field type"), 400
+    if field_type == "formula":
+        if not formula:
+            return jsonify(error="Formula is required for a formula field"), 400
+        existing = _get_cat_fields(row.category)
+        dummy_values = {f.field_key: 1.0 for f in existing
+                        if f.field_type in ("number", "currency") and f.id != row.id}
+        try:
+            evaluate_formula(formula, dummy_values)
+        except FormulaError as e:
+            return jsonify(error=f"Formula error: {e}"), 400
+    else:
+        formula = None
+
+    row.label = label
+    row.field_type = field_type
+    row.unit_suffix = unit_suffix
+    row.formula = formula
+    db.session.commit()
+    return jsonify(success=True, **row.to_dict())
+
+
+@app.post("/settings/category-fields/<int:field_id>/delete")
+def settings_delete_category_field(field_id):
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+
+    row = CategoryField.query.get_or_404(field_id)
+    ItemFieldValue.query.filter_by(category_field_id=row.id).delete()
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify(success=True)
+
+
+# ============================================================
+# INVENTORY MODES (Settings > Inventory Modes)
+# ============================================================
+def _unique_mode_slug(name: str, exclude_id: int | None = None) -> str:
+    base = _slugify_field_key(name)
+    slug = base
+    n = 2
+    while True:
+        q = InventoryMode.query.filter_by(slug=slug)
+        if exclude_id is not None:
+            q = q.filter(InventoryMode.id != exclude_id)
+        if not q.first():
+            return slug
+        slug = f"{base}_{n}"
+        n += 1
+
+
+def _sync_mode_states_locations(mode: "InventoryMode", states_in: list, locations_in: list):
+    """Diff-and-sync submitted state/location rows against existing ones, matched by key when present."""
+    existing_states = {s.key: s for s in mode.states}
+    seen_keys = set()
+    for i, s in enumerate(states_in or []):
+        label = (s.get("label") or "").strip()
+        if not label:
+            continue
+        key = (s.get("key") or "").strip().lower()
+        if key and key in existing_states:
+            row = existing_states[key]
+            row.label = label
+            row.sort_order = i
+            row.is_sellable = bool(s.get("is_sellable"))
+            seen_keys.add(key)
+        else:
+            new_key = _slugify_field_key(label)
+            n = 2
+            while new_key in existing_states or new_key in seen_keys:
+                new_key = f"{_slugify_field_key(label)}_{n}"
+                n += 1
+            db.session.add(InventoryModeState(
+                mode_id=mode.id, key=new_key, label=label, sort_order=i,
+                is_sellable=bool(s.get("is_sellable"))))
+            seen_keys.add(new_key)
+    for key, row in existing_states.items():
+        if key not in seen_keys:
+            db.session.delete(row)
+
+    existing_locs = {l.key: l for l in mode.locations}
+    seen_loc_keys = set()
+    for i, l in enumerate(locations_in or []):
+        label = (l.get("label") or "").strip()
+        if not label:
+            continue
+        key = (l.get("key") or "").strip().lower()
+        if key and key in existing_locs:
+            row = existing_locs[key]
+            row.label = label
+            row.sort_order = i
+            seen_loc_keys.add(key)
+        else:
+            new_key = _slugify_field_key(label)
+            n = 2
+            while new_key in existing_locs or new_key in seen_loc_keys:
+                new_key = f"{_slugify_field_key(label)}_{n}"
+                n += 1
+            db.session.add(InventoryModeLocation(
+                mode_id=mode.id, key=new_key, label=label, sort_order=i))
+            seen_loc_keys.add(new_key)
+    for key, row in existing_locs.items():
+        if key not in seen_loc_keys:
+            db.session.delete(row)
+
+
+@app.get("/settings/inventory-modes.json")
+def settings_inventory_modes_json():
+    modes = InventoryMode.query.order_by(InventoryMode.display_order.asc(), InventoryMode.id.asc()).all()
+    return jsonify([m.to_dict() for m in modes])
+
+
+@app.post("/settings/inventory-modes/add")
+def settings_add_inventory_mode():
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    engine = (data.get("engine") or "lot_tracking").strip().lower()
+    if not name:
+        return jsonify(error="Name is required"), 400
+    if engine not in ("simple_count", "lot_tracking"):
+        return jsonify(error="Invalid engine"), 400
+
+    reconcile_style = (data.get("reconcile_style") or "unit_count").strip().lower()
+    if reconcile_style not in ("unit_count", "box_quantity"):
+        reconcile_style = "unit_count"
+
+    max_order = db.session.query(db.func.max(InventoryMode.display_order)).scalar() or 0
+    mode = InventoryMode(
+        name=name, slug=_unique_mode_slug(name), engine=engine,
+        reconcile_style=reconcile_style if engine == "lot_tracking" else None,
+        on_hand_style=reconcile_style if engine == "lot_tracking" else None,
+        default_sales_mode="simple",
+        display_order=max_order + 1,
+    )
+    db.session.add(mode)
+    db.session.flush()
+
+    if engine == "lot_tracking":
+        _sync_mode_states_locations(mode, data.get("states") or [], data.get("locations") or [])
+        db.session.flush()
+        # on-hand state = the sellable one if marked, else the last state (matches legacy "prepped" convention)
+        sellable = next((s.key for s in mode.states if s.is_sellable), None)
+        mode.on_hand_state_key = sellable or (mode.states[-1].key if mode.states else None)
+        mode.on_hand_location_key = mode.locations[0].key if mode.locations else None
+
+    db.session.commit()
+    return jsonify(success=True, **mode.to_dict())
+
+
+@app.post("/settings/inventory-modes/<int:mode_id>/edit")
+def settings_edit_inventory_mode(mode_id):
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+
+    mode = InventoryMode.query.get_or_404(mode_id)
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify(error="Name is required"), 400
+
+    reconcile_style = (data.get("reconcile_style") or "unit_count").strip().lower()
+    if reconcile_style not in ("unit_count", "box_quantity"):
+        reconcile_style = "unit_count"
+
+    mode.name = name
+    if mode.engine == "lot_tracking":
+        mode.reconcile_style = reconcile_style
+        mode.on_hand_style = reconcile_style
+        _sync_mode_states_locations(mode, data.get("states") or [], data.get("locations") or [])
+        db.session.flush()
+        sellable = next((s.key for s in mode.states if s.is_sellable), None)
+        mode.on_hand_state_key = sellable or (mode.states[-1].key if mode.states else None)
+        if mode.on_hand_location_key not in [l.key for l in mode.locations]:
+            mode.on_hand_location_key = mode.locations[0].key if mode.locations else None
+
+    db.session.commit()
+    return jsonify(success=True, **mode.to_dict())
+
+
+@app.post("/settings/inventory-modes/<int:mode_id>/delete")
+def settings_delete_inventory_mode(mode_id):
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+
+    mode = InventoryMode.query.get_or_404(mode_id)
+
+    in_use_category = ItemSetting.query.filter_by(setting_type="category", inv_mode=mode.slug).first()
+    in_use_item = Item.query.filter_by(prep_type=mode.slug).first()
+    if in_use_category or in_use_item:
+        return jsonify(error="This mode is still assigned to a category or item — reassign those first."), 409
+
+    db.session.delete(mode)
+    db.session.commit()
+    return jsonify(success=True)
+
+
+# ============================================================
 # INIT DB + MIGRATE + SEED
 # ============================================================
 with app.app_context():
     db.create_all()
     try:
         run_migrations()
+    except Exception:
+        pass
+    try:
+        seed_item_settings()
+    except Exception:
+        pass
+    try:
+        seed_inventory_modes()
     except Exception:
         pass
 

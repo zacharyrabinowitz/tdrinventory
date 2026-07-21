@@ -5,17 +5,16 @@
   <div class="cardhead">
     <div>
       <h1>{{ category_name }}</h1>
-      <span class="muted">Items in this category</span>
+      <span class="muted">{{ items|length }} item{{ 's' if items|length != 1 else '' }}</span>
     </div>
 
     <div class="actions">
-      <form method="GET" action="/category/{{ category_name }}" class="inline">
-        <input class="input" name="q" placeholder="Search {{ category_name }}..." value="{{ q or '' }}">
-        <button class="btn" type="submit">Search</button>
-      </form>
-
+      <div class="search-wrap">
+        <i class="fas fa-search search-icon"></i>
+        <input class="input search-live" id="catSearch" placeholder="Search…" autocomplete="off">
+      </div>
       {% if can_edit_inventory %}
-        <a class="btn primary" href="/items/new">Add Item</a>
+        <a class="btn primary" href="/items/new"><i class="fas fa-plus"></i> Add Item</a>
       {% endif %}
     </div>
   </div>
@@ -31,31 +30,68 @@
     <div class="content">
       {% if items and items|length > 0 %}
         <div class="table">
-          <div class="row head" style="grid-template-columns: 1.2fr .8fr .6fr;">
-            <div>Item</div><div>Prep Type</div><div></div>
+          <div class="row head" style="grid-template-columns: 2fr 1fr auto;">
+            <div>Item</div>
+            <div>Prep Type</div>
+            <div></div>
           </div>
 
           {% for it in items %}
-            <div class="row" style="grid-template-columns: 1.2fr .8fr .6fr;">
-              <div class="strong">{{ it.name }}</div>
+            <div class="row item-row" style="grid-template-columns: 2fr 1fr auto;"
+                 data-name="{{ it.name.lower() }}">
+              <div>
+                <a class="item-link" href="/items/{{ it.id }}">{{ it.name }}</a>
+              </div>
               <div class="muted">{{ it.prep_type }}</div>
               <div class="row-actions">
-                <a class="btn small" href="/items/{{ it.id }}">Open</a>
                 {% if can_edit_inventory %}
-                  <a class="btn small" href="/items/{{ it.id }}/edit">Edit</a>
-                  <form method="POST" action="/items/{{ it.id }}/delete" class="inline">
-                    <button class="btn small danger" type="submit" onclick="return confirm('Delete this item?')">Delete</button>
+                  <a class="icon-btn" href="/items/{{ it.id }}/edit" title="Edit">
+                    <i class="fas fa-edit"></i>
+                  </a>
+                  <form method="POST" action="/items/{{ it.id }}/delete" style="display:inline;">
+                    <button class="icon-btn danger" type="submit" title="Delete"
+                            onclick="return confirm('Delete {{ it.name }}?')">
+                      <i class="fas fa-trash"></i>
+                    </button>
                   </form>
                 {% endif %}
               </div>
             </div>
           {% endfor %}
         </div>
+        <div id="noResults" class="empty" style="display:none;">No items match.</div>
       {% else %}
-        <div class="empty">No items found in {{ category_name }}.</div>
+        <div class="empty">No items in {{ category_name }}.</div>
       {% endif %}
     </div>
   </div>
 </section>
+
+<style>
+.search-wrap { position: relative; display: flex; align-items: center; }
+.search-icon { position: absolute; left: 10px; color: var(--text-muted); font-size: 13px; pointer-events: none; }
+.search-live { padding-left: 32px !important; width: 200px; }
+.item-link { color: var(--text); font-weight: 600; text-decoration: none; }
+.item-link:hover { color: var(--primary); }
+.icon-btn { background: none; border: none; color: var(--text-muted); font-size: 14px; cursor: pointer;
+  padding: 6px 8px; border-radius: var(--radius-sm); transition: var(--transition);
+  display: inline-flex; align-items: center; text-decoration: none; }
+.icon-btn:hover { color: var(--primary); background: rgba(37,99,235,0.1); }
+.icon-btn.danger:hover { color: var(--danger); background: rgba(185,39,58,0.1); }
+</style>
+
+<script>
+document.getElementById('catSearch')?.addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  let visible = 0;
+  document.querySelectorAll('.item-row').forEach(row => {
+    const show = !q || (row.dataset.name || '').includes(q);
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const el = document.getElementById('noResults');
+  if (el) el.style.display = visible === 0 ? '' : 'none';
+});
+</script>
 
 {% endblock %}

@@ -3,24 +3,37 @@
 
 {# Treat missing prep_type safely #}
 {% set prep_type_lower = (item.prep_type or '')|lower %}
-{% set is_generic = (prep_type_lower == 'generic') %}
-{% set is_generic_food = (prep_type_lower == 'generic_food') %}
-{% set is_wings = (prep_type_lower == 'wings') %}
+{% set has_locations = (cat_cfg.has_locations if cat_cfg else false) %}
+
+{# ── States / locations come from the item's Inventory Mode (Settings > Inventory Modes) ── #}
+{% set states = states or [] %}
+{% set locations = locations or [] %}
+
+{# Back-compat label lookups for legacy 2-state/3-location modes (still used by the lots table below) #}
+{% set lbl_raw      = (cat_cfg.state_label_raw       if cat_cfg else None) or 'Raw' %}
+{% set lbl_prepped  = (cat_cfg.state_label_prepped   if cat_cfg else None) or 'Prepped' %}
+{% set lbl_freezer  = (cat_cfg.storage_label_freezer if cat_cfg else None) or 'Freezer' %}
+{% set lbl_cooler   = (cat_cfg.storage_label_cooler  if cat_cfg else None) or 'Cooler' %}
+{% set lbl_out      = (cat_cfg.storage_label_out     if cat_cfg else None) or 'Out' %}
 
 {# Pull on-hand directly from Item model (no undefined vars) #}
 {% set mb = (item.main_bar_on_hand if item.main_bar_on_hand is not none else 0) %}
 {% set lb = (item.low_bar_on_hand if item.low_bar_on_hand is not none else 0) %}
 {% set total_on_hand = mb + lb %}
 
-{# For generic items, treat "cooler boxes" as "Main Bar Cooler" analytics (your generic overflow) #}
-{% set main_bar_cooler_boxes = totals.cooler_boxes if totals and totals.cooler_boxes is not none else 0 %}
+{# key -> label maps, built from the mode's actual states/locations #}
+{% set loc_label_map = {} %}
+{% for loc in locations %}{% set _ = loc_label_map.update({loc.key: loc.label}) %}{% endfor %}
+{% set state_label_map = {} %}
+{% for st in states %}{% set _ = state_label_map.update({st.key: st.label}) %}{% endfor %}
 
 <section class="card">
   <div class="cardhead">
     <div>
       <h1>Receive / Boxes • {{ item.name }}</h1>
       <span class="muted">
-        Track boxes by location (freezer/cooler/out). {% if is_generic %}Generic items also use bar on-hand.{% elif is_generic_food %}Food items tracked in cooler, freezer, out.{% elif is_wings %}Wings boxes tracked in cooler, freezer, out.{% endif %}
+        Track boxes by location{% if locations %} ({{ locations|map(attribute='label')|join('/') }}){% endif %}.
+        {% if has_locations %}This category also uses bar on-hand.{% endif %}
       </span>
     </div>
     <div class="actions">
@@ -30,88 +43,35 @@
     </div>
   </div>
 
-  {# ✅ ANALYTICS #}
-  {% if is_generic %}
-    <div class="grid3">
-      <div class="card mini">
-        <div class="muted">Main Bar Cooler (Boxes)</div>
-        <div class="big">{{ main_bar_cooler_boxes }}</div>
-        <div class="muted smalltxt">Overflow boxes tracked via Receive / Boxes</div>
-      </div>
-
+  {# ✅ ANALYTICS — one card per location this item's Inventory Mode defines #}
+  <div class="grid3">
+    {% if has_locations %}
       <div class="card mini">
         <div class="muted">Main Bar On Hand (Units)</div>
         <div class="big">{{ mb }}</div>
         <div class="muted smalltxt">Set on the Item page (On Hand)</div>
       </div>
-
       <div class="card mini">
         <div class="muted">Low Bar On Hand (Units)</div>
         <div class="big">{{ lb }}</div>
         <div class="muted smalltxt">Set on the Item page (On Hand)</div>
       </div>
-    </div>
-  {% elif is_generic_food %}
-    <div class="grid3">
+    {% endif %}
+    {% for loc in locations %}
       <div class="card mini">
-        <div class="muted">Cooler Boxes</div>
-        <div class="big">{{ totals.cooler_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">Ready to use</div>
+        <div class="muted">{{ loc.label }} Boxes</div>
+        <div class="big">{{ totals[loc.key ~ '_boxes'] if totals else 0 }}</div>
+        <div class="muted smalltxt">Not consumed</div>
       </div>
-
-      <div class="card mini">
-        <div class="muted">Freezer Boxes</div>
-        <div class="big">{{ totals.freezer_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">Reserve stock</div>
-      </div>
-
-      <div class="card mini">
-        <div class="muted">Out Boxes</div>
-        <div class="big">{{ totals.out_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">In use</div>
-      </div>
-    </div>
-  {% elif is_wings %}
-    <div class="grid3">
-      <div class="card mini">
-        <div class="muted">Raw Boxes (Cooler)</div>
-        <div class="big">{{ totals.cooler_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">Ready to prep</div>
-      </div>
-
-      <div class="card mini">
-        <div class="muted">Raw Boxes (Freezer)</div>
-        <div class="big">{{ totals.freezer_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">Reserve stock</div>
-      </div>
-
+    {% endfor %}
+    {% if not locations %}
       <div class="card mini">
         <div class="muted">Prepped Units (Available)</div>
         <div class="big">{{ prepped_units_available }}</div>
         <div class="muted smalltxt">Ready to use</div>
       </div>
-    </div>
-  {% else %}
-    <div class="grid3">
-      <div class="card mini">
-        <div class="muted">Cooler Boxes Available</div>
-        <div class="big">{{ totals.cooler_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">Not consumed</div>
-      </div>
-
-      <div class="card mini">
-        <div class="muted">Freezer Boxes Available</div>
-        <div class="big">{{ totals.freezer_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">Not consumed</div>
-      </div>
-
-      <div class="card mini">
-        <div class="muted">Out Boxes Available</div>
-        <div class="big">{{ totals.out_boxes if totals else 0 }}</div>
-        <div class="muted smalltxt">Not consumed</div>
-      </div>
-    </div>
-  {% endif %}
+    {% endif %}
+  </div>
 
   <div style="height:14px;"></div>
 
@@ -146,20 +106,26 @@
         </div>
 
         <div class="grid3" style="margin-top:10px;">
+          {% set default_loc_key = 'cooler' if locations|selectattr('key', 'equalto', 'cooler')|list else (locations[0].key if locations else 'cooler') %}
           <div class="field">
             <label>Storage</label>
             <select class="input" name="storage" required>
+              {% for loc in locations %}
+              <option value="{{ loc.key }}" {% if loc.key == default_loc_key %}selected{% endif %}>{{ loc.label }}</option>
+              {% else %}
               <option value="cooler" selected>Cooler</option>
-              <option value="freezer">Freezer</option>
-              <option value="out">Out</option>
+              {% endfor %}
             </select>
           </div>
 
           <div class="field">
             <label>State</label>
             <select class="input" name="state" required>
+              {% for st in states %}
+              <option value="{{ st.key }}" {% if loop.first %}selected{% endif %}>{{ st.label }}</option>
+              {% else %}
               <option value="raw" selected>Raw</option>
-              <option value="prepped">Prepped</option>
+              {% endfor %}
             </select>
           </div>
 
@@ -227,8 +193,12 @@
             {% endif %}
           </div>
 
-          <div class="muted">{{ lot.storage or "—" }}</div>
-          <div class="muted">{{ lot.state or "—" }}</div>
+          <div class="muted">{{
+            loc_label_map.get(lot.storage, lot.storage or '—')
+          }}</div>
+          <div class="muted">{{
+            state_label_map.get(lot.state, lot.state or '—')
+          }}</div>
 
           <div class="muted">
             {{ (lot.quantity or 1.0) }}

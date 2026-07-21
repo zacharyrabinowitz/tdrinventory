@@ -1,0 +1,943 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:24px; flex-wrap:wrap;">
+  <div>
+    <h1 style="margin:0;">Settings</h1>
+    <span class="muted">Configure categories, units, and their behaviors</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     CATEGORIES
+     ══════════════════════════════════════════════ -->
+<section class="card" style="margin-bottom:20px;">
+  <div class="cardhead">
+    <div>
+      <h2>Item Categories</h2>
+      <span class="muted">Each category defines how its items are tracked, prepped, and reconciled</span>
+    </div>
+    <button type="button" class="btn primary" onclick="openModal('add','category',null)">
+      <i class="fas fa-plus"></i> New Category
+    </button>
+  </div>
+
+  <div style="padding:0 20px 20px;">
+    <div id="cat-list">
+      {% for c in categories %}
+      <div class="opt-row" data-id="{{ c.id }}" data-type="category"
+           data-value="{{ c.value }}"
+           data-description="{{ c.description or '' }}"
+           data-inv-mode="{{ c.inv_mode or '' }}"
+           data-sales-mode="{{ c.default_sales_mode or 'simple' }}"
+           data-has-reconcile="{{ '1' if c.has_reconcile else '' }}"
+           data-has-locations="{{ '1' if c.has_locations else '' }}"
+           data-state-label-raw="{{ c.state_label_raw or '' }}"
+           data-state-label-prepped="{{ c.state_label_prepped or '' }}"
+           data-storage-label-freezer="{{ c.storage_label_freezer or '' }}"
+           data-storage-label-cooler="{{ c.storage_label_cooler or '' }}"
+           data-storage-label-out="{{ c.storage_label_out or '' }}">
+        <div class="opt-info">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span class="opt-value">{{ c.value }}</span>
+            {% if c.inv_mode %}
+            <span class="opt-badge">{{ {
+              'generic':      'Box / Case',
+              'generic_food': 'Prep Food',
+              'items':        'Simple Count',
+              'wings':        'Wings Prep',
+              'raw_protein':  'Raw Protein',
+              'portion_pack': 'Portion Packs'
+            }.get(c.inv_mode, c.inv_mode) }}</span>
+            {% endif %}
+            {% if c.has_reconcile %}<span class="opt-badge badge-green">Reconcile</span>{% endif %}
+            {% if c.has_locations %}<span class="opt-badge badge-blue">Locations</span>{% endif %}
+          </div>
+          {% if c.description %}
+          <span class="opt-desc">{{ c.description }}</span>
+          {% endif %}
+        </div>
+        <div class="opt-actions">
+          <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
+          <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted" style="padding-top:12px;">No categories yet — click New Category to add one.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     INVENTORY MODES
+     ══════════════════════════════════════════════ -->
+<section class="card" style="margin-bottom:20px;">
+  <div class="cardhead">
+    <div>
+      <h2>Inventory Modes</h2>
+      <span class="muted">Define how a category's stock is tracked — its own states (e.g. Raw → Prepped, or a longer chain) and storage locations</span>
+    </div>
+    <button type="button" class="btn primary" onclick="openModeModal(null)">
+      <i class="fas fa-plus"></i> New Mode
+    </button>
+  </div>
+
+  <div style="padding:0 20px 20px;">
+    <div id="mode-list"><p class="muted smalltxt">Loading…</p></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     UNITS
+     ══════════════════════════════════════════════ -->
+<section class="card" style="margin-bottom:20px;">
+  <div class="cardhead">
+    <div>
+      <h2>Item Units</h2>
+      <span class="muted">Units of measurement used in the Add / Edit Item form</span>
+    </div>
+    <button type="button" class="btn primary" onclick="openModal('add','unit',null)">
+      <i class="fas fa-plus"></i> New Unit
+    </button>
+  </div>
+
+  <div style="padding:0 20px 20px;">
+    <div id="unit-list">
+      {% for u in units %}
+      <div class="opt-row" data-id="{{ u.id }}" data-type="unit"
+           data-value="{{ u.value }}"
+           data-description="{{ u.description or '' }}"
+           data-abbreviation="{{ u.abbreviation or '' }}">
+        <div class="opt-info">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="opt-value">{{ u.value }}</span>
+            {% if u.abbreviation %}
+            <span class="opt-badge">{{ u.abbreviation }}</span>
+            {% endif %}
+          </div>
+          {% if u.description %}
+          <span class="opt-desc">{{ u.description }}</span>
+          {% endif %}
+        </div>
+        <div class="opt-actions">
+          <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
+          <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>
+      {% else %}
+      <p class="muted" style="padding-top:12px;">No units yet — click New Unit to add one.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     ADD / EDIT MODAL
+     ══════════════════════════════════════════════ -->
+<div id="optModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+     z-index:2000; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;"
+     onclick="if(event.target===this)closeModal()">
+  <div style="background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+              width:100%; max-width:480px; box-shadow:var(--shadow); position:relative;">
+
+    <!-- Header -->
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:18px 20px; border-bottom:1px solid var(--stroke);">
+      <h2 style="margin:0; font-size:17px;" id="modalTitle">Add Category</h2>
+      <button type="button" onclick="closeModal()"
+              style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px 8px;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:20px; display:flex; flex-direction:column; gap:18px;">
+
+      <!-- Name -->
+      <div class="s-field">
+        <label>Name <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="mName" class="input" placeholder="e.g. Food">
+      </div>
+
+      <!-- Description -->
+      <div class="s-field">
+        <label>Description <span class="s-opt">optional</span></label>
+        <textarea id="mDesc" class="input" rows="2" style="resize:vertical;"
+                  placeholder="Notes about what belongs here…"></textarea>
+      </div>
+
+      <!-- ── CATEGORY FIELDS ── -->
+      <div id="catFields">
+        <hr style="border:none; border-top:1px solid var(--stroke); margin:0 0 18px;">
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 14px;">Inventory Behavior</p>
+
+        <div class="s-field" style="margin-bottom:14px;">
+          <label>Inventory Mode</label>
+          <select id="mInvMode" class="input">
+            <option value="">— not set —</option>
+            <option value="items">Simple Count — just track how many you have</option>
+            <option value="generic">Box / Case Tracking — receive by box/case</option>
+            <option value="generic_food">Prep-Based Food — raw stock → prep batches</option>
+            <option value="wings">Wings Prep — batch prep with portion tracking</option>
+            <option value="raw_protein">Raw Protein — raw protein with shelf life</option>
+            <option value="portion_pack">Portion Packs — pre-portioned frozen/chilled packs</option>
+          </select>
+        </div>
+
+        <div class="s-field" style="margin-bottom:14px;">
+          <label>Default Sales Mode</label>
+          <select id="mSalesMode" class="input">
+            <option value="simple">Simple — enter units sold manually</option>
+            <option value="packs_4">Packs (4 counters) — track by pack sizes</option>
+          </select>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:4px;">
+          <label class="s-check">
+            <input type="checkbox" id="mHasReconcile">
+            <span>
+              <strong>Requires Reconciliation</strong>
+              <span class="s-check-sub">Items can be reconciled — compare expected vs. actual counts</span>
+            </span>
+          </label>
+          <label class="s-check">
+            <input type="checkbox" id="mHasLocations">
+            <span>
+              <strong>Track by Bar Location</strong>
+              <span class="s-check-sub">Differentiate stock between Main Bar and Lower Bar</span>
+            </span>
+          </label>
+        </div>
+
+        <hr style="border:none; border-top:1px solid var(--stroke); margin:6px 0 14px;">
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 4px;">State &amp; Storage Labels
+          <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
+            — rename what shows in dropdowns and lot lists</span></p>
+        <p class="muted smalltxt" style="margin:0 0 12px;">Leave blank to use the default (Raw / Prepped / Freezer / Cooler / Out).</p>
+
+        <div class="grid2" style="gap:10px; margin-bottom:10px;">
+          <div class="s-field">
+            <label>Unprepped / Received label</label>
+            <input type="text" id="mLblRaw" class="input" placeholder="Raw">
+          </div>
+          <div class="s-field">
+            <label>Prepped / Ready label</label>
+            <input type="text" id="mLblPrepped" class="input" placeholder="Prepped">
+          </div>
+        </div>
+        <div class="grid3" style="gap:10px;">
+          <div class="s-field">
+            <label>Freezer label</label>
+            <input type="text" id="mLblFreezer" class="input" placeholder="Freezer">
+          </div>
+          <div class="s-field">
+            <label>Cooler label</label>
+            <input type="text" id="mLblCooler" class="input" placeholder="Cooler">
+          </div>
+          <div class="s-field">
+            <label>Out label</label>
+            <input type="text" id="mLblOut" class="input" placeholder="Out">
+          </div>
+        </div>
+
+        <!-- ── CUSTOM FIELDS (edit mode only — needs a saved category) ── -->
+        <div id="customFieldsSection" style="display:none;">
+          <hr style="border:none; border-top:1px solid var(--stroke); margin:14px 0 14px;">
+          <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                    color:var(--text-muted); margin:0 0 4px;">Custom Fields
+            <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
+              — track whatever this category needs (bottle size, cost, computed values…)</span></p>
+
+          <div id="cf-list" style="display:flex; flex-direction:column; gap:6px; margin:10px 0;"></div>
+
+          <div style="background:var(--card2); border:1px solid var(--stroke); border-radius:var(--radius-md); padding:12px;">
+            <div class="grid2" style="gap:10px; margin-bottom:10px;">
+              <div class="s-field">
+                <label>Field Label</label>
+                <input type="text" id="cfLabel" class="input" placeholder='e.g. "Bottle Size"'>
+              </div>
+              <div class="s-field">
+                <label>Type</label>
+                <select id="cfType" class="input">
+                  <option value="number">Number</option>
+                  <option value="currency">Currency ($)</option>
+                  <option value="text">Text</option>
+                  <option value="formula">Formula (computed)</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid2" style="gap:10px;">
+              <div class="s-field">
+                <label>Unit Suffix <span class="s-opt">optional, e.g. "mL", "$/oz"</span></label>
+                <input type="text" id="cfSuffix" class="input" placeholder='e.g. "mL"'>
+              </div>
+              <div class="s-field" id="cfFormulaField" style="display:none;">
+                <label>Formula <span class="s-opt">use other fields' keys, e.g. cost_per_bottle / (bottle_size / 29.5735)</span></label>
+                <input type="text" id="cfFormula" class="input" placeholder="cost_per_bottle / (bottle_size / 29.5735)">
+              </div>
+            </div>
+            <div class="actions" style="justify-content:flex-end; margin-top:10px;">
+              <button type="button" class="btn small" id="cfCancelEditBtn" style="display:none;">Cancel</button>
+              <button type="button" class="btn small primary" id="cfSaveBtn"><i class="fas fa-plus"></i> Add Field</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── UNIT FIELDS ── -->
+      <div id="unitFields" style="display:none;">
+        <hr style="border:none; border-top:1px solid var(--stroke); margin:0 0 18px;">
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 14px;">Unit Details</p>
+
+        <div class="s-field">
+          <label>Abbreviation <span class="s-opt">optional</span></label>
+          <input type="text" id="mAbbr" class="input" placeholder='e.g. "ea", "lb", "cs"'>
+        </div>
+      </div>
+
+    </div><!-- /body -->
+
+    <!-- Footer -->
+    <div style="display:flex; gap:10px; justify-content:flex-end;
+                padding:14px 20px; border-top:1px solid var(--stroke);">
+      <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+      <button type="button" class="btn primary" id="modalSaveBtn">
+        <i class="fas fa-check"></i> Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     INVENTORY MODE MODAL
+     ══════════════════════════════════════════════ -->
+<div id="modeModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+     z-index:2000; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;"
+     onclick="if(event.target===this)closeModeModal()">
+  <div style="background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+              width:100%; max-width:560px; box-shadow:var(--shadow); position:relative;">
+
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:18px 20px; border-bottom:1px solid var(--stroke);">
+      <h2 style="margin:0; font-size:17px;" id="modeModalTitle">New Inventory Mode</h2>
+      <button type="button" onclick="closeModeModal()"
+              style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px 8px;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <div style="padding:20px; display:flex; flex-direction:column; gap:18px;">
+      <div class="s-field">
+        <label>Mode Name <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="modeName" class="input" placeholder='e.g. "Marinated Meats"'>
+      </div>
+
+      <div class="s-field">
+        <label>How does this mode track stock?</label>
+        <select id="modeEngine" class="input">
+          <option value="simple_count">Simple Count — just track how many you have, no lots</option>
+          <option value="lot_tracking">Lot Tracking — receive boxes, optional Prep stages, Reconcile</option>
+        </select>
+      </div>
+
+      <div id="modeLotFields">
+        <hr style="border:none; border-top:1px solid var(--stroke); margin:0 0 14px;">
+
+        <div class="s-field" style="margin-bottom:14px;">
+          <label>Reconcile Style</label>
+          <select id="modeReconcileStyle" class="input">
+            <option value="unit_count">Track individual units in a stage (needs a Prep step)</option>
+            <option value="box_quantity">Track raw box/case quantity directly (no Prep step)</option>
+          </select>
+        </div>
+
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 4px;">Stages
+          <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
+            — the order stock moves through, e.g. Raw → Prepped. Mark the LAST one Sellable.</span></p>
+        <div id="modeStatesList" style="display:flex; flex-direction:column; gap:6px; margin:8px 0;"></div>
+        <button type="button" class="btn small" onclick="addModeRow('modeStatesList','state')"><i class="fas fa-plus"></i> Add Stage</button>
+
+        <hr style="border:none; border-top:1px solid var(--stroke); margin:16px 0 14px;">
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 4px;">Storage Locations</p>
+        <div id="modeLocationsList" style="display:flex; flex-direction:column; gap:6px; margin:8px 0;"></div>
+        <button type="button" class="btn small" onclick="addModeRow('modeLocationsList','location')"><i class="fas fa-plus"></i> Add Location</button>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end;
+                padding:14px 20px; border-top:1px solid var(--stroke);">
+      <button type="button" class="btn" onclick="closeModeModal()">Cancel</button>
+      <button type="button" class="btn primary" id="modeModalSaveBtn">
+        <i class="fas fa-check"></i> Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     STYLES
+     ══════════════════════════════════════════════ -->
+<style>
+.opt-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-radius: var(--radius-md); border: 1px solid var(--stroke);
+  background: var(--card2); margin-bottom: 8px; gap: 12px;
+}
+.opt-info { display:flex; flex-direction:column; gap:4px; flex:1; min-width:0; }
+.opt-value { font-size:14px; font-weight:700; color:var(--text); }
+.opt-desc  { font-size:12px; color:var(--text-muted); line-height:1.4; }
+.opt-badge {
+  display:inline-block; font-size:11px; font-weight:700; padding:2px 8px;
+  border-radius:20px; background:rgba(100,116,139,.15); color:var(--text-muted);
+  border:1px solid var(--stroke); white-space:nowrap;
+}
+.badge-green { background:rgba(34,197,94,.12); color:#16a34a; border-color:rgba(34,197,94,.3); }
+.badge-blue  { background:rgba(37,99,235,.12); color:var(--primary); border-color:rgba(37,99,235,.3); }
+.opt-actions { display:flex; gap:6px; flex-shrink:0; }
+.btn.small   { padding:5px 11px; font-size:12px; }
+.btn.danger  { background:var(--danger); color:#fff; border-color:var(--danger); }
+.btn.danger:hover { opacity:.85; }
+
+/* modal form helpers */
+.s-field { display:flex; flex-direction:column; gap:6px; }
+.s-field label { font-size:12px; font-weight:700; text-transform:uppercase;
+                 letter-spacing:.4px; color:var(--text-muted); }
+.s-opt { font-size:11px; font-weight:400; text-transform:none; letter-spacing:0; }
+.s-check {
+  display:flex; align-items:flex-start; gap:10px; cursor:pointer;
+  padding:10px 12px; border-radius:var(--radius-md); border:1px solid var(--stroke);
+  background:var(--card2); transition:var(--transition);
+}
+.s-check:hover { border-color:var(--primary); }
+.s-check input[type=checkbox] { margin-top:2px; flex-shrink:0; width:16px; height:16px; cursor:pointer; }
+.s-check strong { display:block; font-size:13px; font-weight:700; color:var(--text); }
+.s-check-sub  { display:block; font-size:12px; color:var(--text-muted); margin-top:2px; }
+</style>
+
+<!-- ══════════════════════════════════════════════
+     SCRIPT
+     ══════════════════════════════════════════════ -->
+<script>
+// ── Helpers ──────────────────────────────────────────────────
+let _mode = 'add', _stype = 'category', _editRow = null;
+
+async function apiPost(url, body) {
+  const r = await fetch(url, {
+    method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+    body: JSON.stringify(body)
+  });
+  return r.json();
+}
+
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg, ok=true) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  Object.assign(t.style, {
+    position:'fixed', bottom:'24px', right:'24px', zIndex:9999,
+    background: ok ? 'var(--success)' : 'var(--danger)',
+    color:'#fff', padding:'10px 18px', borderRadius:'8px',
+    fontWeight:600, fontSize:'14px', boxShadow:'0 4px 16px rgba(0,0,0,.2)',
+    transition:'opacity .3s'
+  });
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.style.opacity=0; setTimeout(()=>t.remove(),300); }, 2500);
+}
+
+const INV_MODE_LABEL = {
+  generic:      'Box / Case',
+  generic_food: 'Prep Food',
+  items:        'Simple Count',
+  wings:        'Wings Prep',
+  raw_protein:  'Raw Protein',
+  portion_pack: 'Portion Packs'
+};
+
+// ── Row builder ───────────────────────────────────────────────
+function buildCatRow(d) {
+  const badges = [];
+  if (d.inv_mode) badges.push(`<span class="opt-badge">${escHtml(INV_MODE_LABEL[d.inv_mode]||d.inv_mode)}</span>`);
+  if (d.has_reconcile) badges.push('<span class="opt-badge badge-green">Reconcile</span>');
+  if (d.has_locations) badges.push('<span class="opt-badge badge-blue">Locations</span>');
+
+  const row = document.createElement('div');
+  row.className = 'opt-row';
+  row.dataset.id                 = d.id;
+  row.dataset.type               = 'category';
+  row.dataset.value              = d.value;
+  row.dataset.description        = d.description||'';
+  row.dataset.invMode            = d.inv_mode||'';
+  row.dataset.salesMode          = d.default_sales_mode||'simple';
+  row.dataset.hasReconcile       = d.has_reconcile ? '1' : '';
+  row.dataset.hasLocations       = d.has_locations ? '1' : '';
+  row.dataset.stateLabelRaw      = d.state_label_raw      ||'';
+  row.dataset.stateLabelPrepped  = d.state_label_prepped  ||'';
+  row.dataset.storageLabelFreezer= d.storage_label_freezer||'';
+  row.dataset.storageLabelCooler = d.storage_label_cooler ||'';
+  row.dataset.storageLabelOut    = d.storage_label_out    ||'';
+  row.innerHTML = `
+    <div class="opt-info">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="opt-value">${escHtml(d.value)}</span>
+        ${badges.join('')}
+      </div>
+      ${d.description ? `<span class="opt-desc">${escHtml(d.description)}</span>` : ''}
+    </div>
+    <div class="opt-actions">
+      <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
+      <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
+    </div>`;
+  return row;
+}
+
+function buildUnitRow(d) {
+  const row = document.createElement('div');
+  row.className = 'opt-row';
+  row.dataset.id           = d.id;
+  row.dataset.type         = 'unit';
+  row.dataset.value        = d.value;
+  row.dataset.description  = d.description||'';
+  row.dataset.abbreviation = d.abbreviation||'';
+  row.innerHTML = `
+    <div class="opt-info">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="opt-value">${escHtml(d.value)}</span>
+        ${d.abbreviation ? `<span class="opt-badge">${escHtml(d.abbreviation)}</span>` : ''}
+      </div>
+      ${d.description ? `<span class="opt-desc">${escHtml(d.description)}</span>` : ''}
+    </div>
+    <div class="opt-actions">
+      <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
+      <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
+    </div>`;
+  return row;
+}
+
+// ── Open / close modal ────────────────────────────────────────
+function openModal(mode, type, row) {
+  _mode = mode; _stype = type; _editRow = row;
+
+  document.getElementById('modalTitle').textContent =
+    (mode === 'add' ? 'New ' : 'Edit ') + (type === 'category' ? 'Category' : 'Unit');
+  document.getElementById('catFields').style.display  = type === 'category' ? '' : 'none';
+  document.getElementById('unitFields').style.display = type === 'unit'     ? '' : 'none';
+
+  if (mode === 'edit' && row) {
+    document.getElementById('mName').value     = row.dataset.value        || '';
+    document.getElementById('mDesc').value     = row.dataset.description  || '';
+    if (type === 'category') {
+      document.getElementById('mInvMode').value          = row.dataset.invMode      || '';
+      document.getElementById('mSalesMode').value        = row.dataset.salesMode    || 'simple';
+      document.getElementById('mHasReconcile').checked   = row.dataset.hasReconcile === '1';
+      document.getElementById('mHasLocations').checked   = row.dataset.hasLocations === '1';
+      document.getElementById('mLblRaw').value     = row.dataset.stateLabelRaw      || '';
+      document.getElementById('mLblPrepped').value = row.dataset.stateLabelPrepped  || '';
+      document.getElementById('mLblFreezer').value = row.dataset.storageLabelFreezer|| '';
+      document.getElementById('mLblCooler').value  = row.dataset.storageLabelCooler || '';
+      document.getElementById('mLblOut').value     = row.dataset.storageLabelOut    || '';
+    } else {
+      document.getElementById('mAbbr').value = row.dataset.abbreviation || '';
+    }
+  } else {
+    document.getElementById('mName').value     = '';
+    document.getElementById('mDesc').value     = '';
+    document.getElementById('mInvMode').value  = '';
+    document.getElementById('mSalesMode').value= 'simple';
+    document.getElementById('mHasReconcile').checked = false;
+    document.getElementById('mHasLocations').checked = false;
+    document.getElementById('mLblRaw').value     = '';
+    document.getElementById('mLblPrepped').value = '';
+    document.getElementById('mLblFreezer').value = '';
+    document.getElementById('mLblOut').value     = '';
+    document.getElementById('mLblCooler').value  = '';
+    document.getElementById('mAbbr').value     = '';
+  }
+
+  // Custom fields only make sense once a category is saved (needs a name to attach to)
+  const cfSection = document.getElementById('customFieldsSection');
+  if (type === 'category' && mode === 'edit' && row) {
+    cfSection.style.display = '';
+    _cfCategory = row.dataset.value;
+    resetCfForm();
+    loadCustomFields(_cfCategory);
+  } else {
+    cfSection.style.display = 'none';
+    _cfCategory = null;
+  }
+
+  document.getElementById('optModal').style.display = 'flex';
+  setTimeout(()=> document.getElementById('mName').focus(), 60);
+}
+
+function closeModal() {
+  document.getElementById('optModal').style.display = 'none';
+  _editRow = null;
+}
+
+// ── Custom Fields (per-category, edit-modal only) ─────────────
+let _cfCategory = null, _cfEditId = null;
+
+const CF_TYPE_LABEL = { number: 'Number', currency: 'Currency', text: 'Text', formula: 'Formula' };
+
+function resetCfForm() {
+  _cfEditId = null;
+  document.getElementById('cfLabel').value   = '';
+  document.getElementById('cfType').value    = 'number';
+  document.getElementById('cfSuffix').value  = '';
+  document.getElementById('cfFormula').value = '';
+  document.getElementById('cfFormulaField').style.display = 'none';
+  document.getElementById('cfSaveBtn').innerHTML = '<i class="fas fa-plus"></i> Add Field';
+  document.getElementById('cfCancelEditBtn').style.display = 'none';
+}
+
+function renderCfList(fields) {
+  const list = document.getElementById('cf-list');
+  if (!fields.length) {
+    list.innerHTML = '<p class="muted smalltxt" style="margin:0;">No custom fields yet.</p>';
+    return;
+  }
+  list.innerHTML = fields.map(f => `
+    <div class="opt-row" data-cf-id="${f.id}" style="margin-bottom:0;">
+      <div class="opt-info">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="opt-value">${escHtml(f.label)}</span>
+          <span class="opt-badge">${escHtml(CF_TYPE_LABEL[f.field_type] || f.field_type)}</span>
+          ${f.unit_suffix ? `<span class="opt-badge">${escHtml(f.unit_suffix)}</span>` : ''}
+        </div>
+        ${f.field_type === 'formula' && f.formula ? `<span class="opt-desc">= ${escHtml(f.formula)}</span>` : ''}
+      </div>
+      <div class="opt-actions">
+        <button type="button" class="btn small cf-edit-btn"><i class="fas fa-pencil-alt"></i></button>
+        <button type="button" class="btn small danger cf-delete-btn"><i class="fas fa-trash"></i></button>
+      </div>
+    </div>`).join('');
+}
+
+async function loadCustomFields(category) {
+  const list = document.getElementById('cf-list');
+  list.innerHTML = '<p class="muted smalltxt" style="margin:0;">Loading…</p>';
+  try {
+    const r = await fetch('/settings/category-fields.json');
+    const map = await r.json();
+    _cfFields = map[category] || [];
+    renderCfList(_cfFields);
+  } catch (e) {
+    list.innerHTML = '<p class="muted smalltxt" style="margin:0;">Could not load fields.</p>';
+  }
+}
+let _cfFields = [];
+
+document.getElementById('cfType').addEventListener('change', function() {
+  document.getElementById('cfFormulaField').style.display = this.value === 'formula' ? '' : 'none';
+});
+
+document.getElementById('cfCancelEditBtn').addEventListener('click', resetCfForm);
+
+document.getElementById('cfSaveBtn').addEventListener('click', async function() {
+  if (!_cfCategory) return;
+  const label = document.getElementById('cfLabel').value.trim();
+  if (!label) { document.getElementById('cfLabel').focus(); return; }
+
+  const payload = {
+    category: _cfCategory,
+    label,
+    field_type: document.getElementById('cfType').value,
+    unit_suffix: document.getElementById('cfSuffix').value.trim(),
+    formula: document.getElementById('cfFormula').value.trim(),
+  };
+
+  const url = _cfEditId
+    ? `/settings/category-fields/${_cfEditId}/edit`
+    : `/settings/category-fields/add`;
+  const data = await apiPost(url, payload);
+  if (data.error) { showToast(data.error, false); return; }
+
+  showToast(_cfEditId ? 'Field updated.' : 'Field added.');
+  resetCfForm();
+  loadCustomFields(_cfCategory);
+});
+
+document.addEventListener('click', function(e) {
+  const editBtn = e.target.closest('.cf-edit-btn');
+  const delBtn  = e.target.closest('.cf-delete-btn');
+  if (!editBtn && !delBtn) return;
+
+  const row = e.target.closest('[data-cf-id]');
+  const id = parseInt(row.dataset.cfId, 10);
+  const field = _cfFields.find(f => f.id === id);
+  if (!field) return;
+
+  if (editBtn) {
+    _cfEditId = id;
+    document.getElementById('cfLabel').value   = field.label;
+    document.getElementById('cfType').value    = field.field_type;
+    document.getElementById('cfSuffix').value  = field.unit_suffix || '';
+    document.getElementById('cfFormula').value = field.formula || '';
+    document.getElementById('cfFormulaField').style.display = field.field_type === 'formula' ? '' : 'none';
+    document.getElementById('cfSaveBtn').innerHTML = '<i class="fas fa-check"></i> Save Field';
+    document.getElementById('cfCancelEditBtn').style.display = '';
+    document.getElementById('cfLabel').focus();
+  } else if (delBtn) {
+    if (!confirm(`Delete the "${field.label}" field? Any values stored on items will be removed too.`)) return;
+    apiPost(`/settings/category-fields/${id}/delete`, {}).then(data => {
+      if (data.error) { showToast(data.error, false); return; }
+      showToast(`"${field.label}" deleted.`);
+      if (_cfEditId === id) resetCfForm();
+      loadCustomFields(_cfCategory);
+    });
+  }
+});
+
+// ── Edit delegation ───────────────────────────────────────────
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.opt-edit-btn');
+  if (!btn) return;
+  const row = btn.closest('.opt-row');
+  openModal('edit', row.dataset.type, row);
+});
+
+// ── Delete delegation ─────────────────────────────────────────
+document.addEventListener('click', async function(e) {
+  const btn = e.target.closest('.opt-delete-btn');
+  if (!btn) return;
+  const row = btn.closest('.opt-row');
+  if (!confirm(`Delete "${row.dataset.value}"? Items already using it keep their value but it won't appear in dropdowns.`)) return;
+  const data = await apiPost(`/settings/item-options/${row.dataset.id}/delete`, {});
+  if (data.error) { showToast(data.error, false); return; }
+  row.remove();
+  showToast(`"${row.dataset.value}" deleted.`);
+});
+
+// ── Save ─────────────────────────────────────────────────────
+document.getElementById('modalSaveBtn').addEventListener('click', async function() {
+  const name = document.getElementById('mName').value.trim();
+  if (!name) { document.getElementById('mName').focus(); return; }
+
+  const payload = {
+    type: _stype, value: name,
+    description:        document.getElementById('mDesc').value.trim(),
+    inv_mode:           document.getElementById('mInvMode').value,
+    default_sales_mode: document.getElementById('mSalesMode').value,
+    has_reconcile:      document.getElementById('mHasReconcile').checked,
+    has_locations:      document.getElementById('mHasLocations').checked,
+    state_label_raw:       document.getElementById('mLblRaw').value.trim(),
+    state_label_prepped:   document.getElementById('mLblPrepped').value.trim(),
+    storage_label_freezer: document.getElementById('mLblFreezer').value.trim(),
+    storage_label_cooler:  document.getElementById('mLblCooler').value.trim(),
+    storage_label_out:     document.getElementById('mLblOut').value.trim(),
+    abbreviation:       document.getElementById('mAbbr').value.trim(),
+  };
+
+  let data;
+  if (_mode === 'add') {
+    data = await apiPost('/settings/item-options/add', payload);
+  } else {
+    data = await apiPost(`/settings/item-options/${_editRow.dataset.id}/edit`, payload);
+  }
+  if (data.error) { showToast(data.error, false); return; }
+
+  if (_mode === 'add') {
+    const listEl = document.getElementById(_stype === 'category' ? 'cat-list' : 'unit-list');
+    listEl.appendChild(_stype === 'category' ? buildCatRow(data) : buildUnitRow(data));
+    showToast(`"${data.value}" added.`);
+  } else {
+    // replace the row in-place
+    const newRow = _stype === 'category' ? buildCatRow(data) : buildUnitRow(data);
+    _editRow.replaceWith(newRow);
+    showToast('Saved.');
+  }
+  closeModal();
+});
+
+// ── Keyboard ─────────────────────────────────────────────────
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+document.getElementById('mName').addEventListener('keydown', e => {
+  if (e.key==='Enter') document.getElementById('modalSaveBtn').click();
+});
+
+// ══════════════════════════════════════════════
+// INVENTORY MODES
+// ══════════════════════════════════════════════
+let _modes = [];
+let _modeEditId = null;
+
+function engineLabel(m) {
+  return m.engine === 'simple_count' ? 'Simple Count' : 'Lot Tracking';
+}
+
+function buildModeRow(m) {
+  const row = document.createElement('div');
+  row.className = 'opt-row';
+  row.dataset.id = m.id;
+  const stageInfo = m.engine === 'lot_tracking'
+    ? `<span class="opt-badge">${m.states.length} stage${m.states.length===1?'':'s'}</span><span class="opt-badge">${m.locations.length} location${m.locations.length===1?'':'s'}</span>`
+    : '';
+  row.innerHTML = `
+    <div class="opt-info">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="opt-value">${escHtml(m.name)}</span>
+        <span class="opt-badge badge-blue">${engineLabel(m)}</span>
+        ${stageInfo}
+      </div>
+      ${m.engine === 'lot_tracking' && m.states.length ? `<span class="opt-desc">${m.states.map(s => escHtml(s.label)).join(' → ')}</span>` : ''}
+    </div>
+    <div class="opt-actions">
+      <button type="button" class="btn small mode-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
+      <button type="button" class="btn small danger mode-delete-btn"><i class="fas fa-trash"></i></button>
+    </div>`;
+  return row;
+}
+
+async function loadModes() {
+  const list = document.getElementById('mode-list');
+  try {
+    const r = await fetch('/settings/inventory-modes.json');
+    _modes = await r.json();
+    list.innerHTML = '';
+    if (!_modes.length) {
+      list.innerHTML = '<p class="muted smalltxt">No modes yet — click New Mode to add one.</p>';
+    } else {
+      _modes.forEach(m => list.appendChild(buildModeRow(m)));
+    }
+    // Populate the category modal's Inventory Mode dropdown with any modes
+    // not already present as a static option (keeps the 6 built-ins first).
+    const sel = document.getElementById('mInvMode');
+    const existingValues = new Set(Array.from(sel.options).map(o => o.value));
+    _modes.forEach(m => {
+      if (!existingValues.has(m.slug)) {
+        const opt = document.createElement('option');
+        opt.value = m.slug;
+        opt.textContent = m.name;
+        sel.appendChild(opt);
+      }
+    });
+  } catch (e) {
+    list.innerHTML = '<p class="muted smalltxt">Could not load modes.</p>';
+  }
+}
+loadModes();
+
+function modeRowHtml(kind, label, isSellable) {
+  const sellableHtml = kind === 'state'
+    ? `<label style="display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px;color:var(--text-muted);">
+         <input type="radio" name="modeSellableRadio" ${isSellable ? 'checked' : ''}> Sellable
+       </label>`
+    : '';
+  return `
+    <div class="mode-row" style="display:flex;gap:8px;align-items:center;">
+      <input type="text" class="input mode-row-label" value="${escHtml(label || '')}" placeholder="Label" style="flex:1;">
+      ${sellableHtml}
+      <button type="button" class="btn small danger" onclick="this.closest('.mode-row').remove()"><i class="fas fa-trash"></i></button>
+    </div>`;
+}
+
+function addModeRow(listId, kind, label, isSellable) {
+  const list = document.getElementById(listId);
+  const div = document.createElement('div');
+  div.innerHTML = modeRowHtml(kind, label, isSellable);
+  list.appendChild(div.firstElementChild);
+}
+
+function collectModeRows(listId, kind) {
+  const rows = document.querySelectorAll(`#${listId} .mode-row`);
+  return Array.from(rows).map(row => {
+    const label = row.querySelector('.mode-row-label').value.trim();
+    const out = { label };
+    if (kind === 'state') {
+      const radio = row.querySelector('input[type=radio]');
+      out.is_sellable = radio ? radio.checked : false;
+    }
+    return out;
+  }).filter(r => r.label);
+}
+
+function toggleModeEngineFields() {
+  const isLot = document.getElementById('modeEngine').value === 'lot_tracking';
+  document.getElementById('modeLotFields').style.display = isLot ? '' : 'none';
+}
+document.getElementById('modeEngine').addEventListener('change', toggleModeEngineFields);
+
+function openModeModal(mode) {
+  _modeEditId = mode ? mode.id : null;
+  document.getElementById('modeModalTitle').textContent = mode ? 'Edit Inventory Mode' : 'New Inventory Mode';
+  document.getElementById('modeName').value = mode ? mode.name : '';
+  document.getElementById('modeEngine').value = mode ? mode.engine : 'lot_tracking';
+  document.getElementById('modeReconcileStyle').value = (mode && mode.reconcile_style) || 'unit_count';
+
+  const statesList = document.getElementById('modeStatesList');
+  const locsList = document.getElementById('modeLocationsList');
+  statesList.innerHTML = '';
+  locsList.innerHTML = '';
+  if (mode && mode.engine === 'lot_tracking') {
+    mode.states.forEach(s => addModeRow('modeStatesList', 'state', s.label, s.is_sellable));
+    mode.locations.forEach(l => addModeRow('modeLocationsList', 'location', l.label));
+  } else if (!mode) {
+    addModeRow('modeStatesList', 'state', 'Raw', false);
+    addModeRow('modeStatesList', 'state', 'Prepped', true);
+    addModeRow('modeLocationsList', 'location', 'Cooler');
+  }
+
+  toggleModeEngineFields();
+  document.getElementById('modeModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('modeName').focus(), 60);
+}
+
+function closeModeModal() {
+  document.getElementById('modeModal').style.display = 'none';
+  _modeEditId = null;
+}
+
+document.getElementById('modeModalSaveBtn').addEventListener('click', async function() {
+  const name = document.getElementById('modeName').value.trim();
+  if (!name) { document.getElementById('modeName').focus(); return; }
+
+  const engine = document.getElementById('modeEngine').value;
+  const payload = {
+    name,
+    engine,
+    reconcile_style: document.getElementById('modeReconcileStyle').value,
+    states: engine === 'lot_tracking' ? collectModeRows('modeStatesList', 'state') : [],
+    locations: engine === 'lot_tracking' ? collectModeRows('modeLocationsList', 'location') : [],
+  };
+
+  const url = _modeEditId ? `/settings/inventory-modes/${_modeEditId}/edit` : '/settings/inventory-modes/add';
+  const data = await apiPost(url, payload);
+  if (data.error) { showToast(data.error, false); return; }
+
+  showToast(_modeEditId ? 'Mode updated.' : 'Mode added.');
+  closeModeModal();
+  loadModes();
+});
+
+document.addEventListener('click', function(e) {
+  const editBtn = e.target.closest('.mode-edit-btn');
+  const delBtn = e.target.closest('.mode-delete-btn');
+  if (!editBtn && !delBtn) return;
+  const row = e.target.closest('.opt-row');
+  const id = parseInt(row.dataset.id, 10);
+  const mode = _modes.find(m => m.id === id);
+  if (!mode) return;
+
+  if (editBtn) {
+    openModeModal(mode);
+  } else if (delBtn) {
+    if (!confirm(`Delete "${mode.name}"? Categories/items using it must be reassigned first.`)) return;
+    apiPost(`/settings/inventory-modes/${id}/delete`, {}).then(data => {
+      if (data.error) { showToast(data.error, false); return; }
+      showToast(`"${mode.name}" deleted.`);
+      loadModes();
+    });
+  }
+});
+</script>
+
+{% endblock %}

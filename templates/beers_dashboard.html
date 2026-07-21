@@ -1,421 +1,595 @@
 {% extends "base.html" %}
 {% block content %}
 
-{# =========================
-   QUICK ANALYTICS (JINJA)
-   ========================= #}
-{% set ns = namespace(total_on_tap=0, low_percent=0, empty_taps=0, low_kegs=0) %}
-
-{% for t in main_taps %}
+{# ── Analytics ── #}
+{% set ns = namespace(total=0, low=0, empty=0, low_kegs=0) %}
+{% for t in main_taps + lower_taps %}
   {% if t.beer %}
-    {% set ns.total_on_tap = ns.total_on_tap + 1 %}
-    {% if (t.percent_remaining or 0) <= 20 %}{% set ns.low_percent = ns.low_percent + 1 %}{% endif %}
+    {% set ns.total = ns.total + 1 %}
+    {% if (t.percent_remaining or 0) <= 20 %}{% set ns.low = ns.low + 1 %}{% endif %}
     {% if (t.beer.on_hand_kegs or 0) <= 1 %}{% set ns.low_kegs = ns.low_kegs + 1 %}{% endif %}
   {% else %}
-    {% set ns.empty_taps = ns.empty_taps + 1 %}
+    {% set ns.empty = ns.empty + 1 %}
   {% endif %}
 {% endfor %}
 
-{% for t in lower_taps %}
-  {% if t.beer %}
-    {% set ns.total_on_tap = ns.total_on_tap + 1 %}
-    {% if (t.percent_remaining or 0) <= 20 %}{% set ns.low_percent = ns.low_percent + 1 %}{% endif %}
-    {% if (t.beer.on_hand_kegs or 0) <= 1 %}{% set ns.low_kegs = ns.low_kegs + 1 %}{% endif %}
-  {% else %}
-    {% set ns.empty_taps = ns.empty_taps + 1 %}
-  {% endif %}
-{% endfor %}
+{# Pass tap data to JS #}
+<script>
+const MAIN_TAPS  = [{% for t in main_taps  %}{ id:{{ t.id }}, idx:{{ loop.index }}, bar:"main"  }{% if not loop.last %},{% endif %}{% endfor %}];
+const LOWER_TAPS = [{% for t in lower_taps %}{ id:{{ t.id }}, idx:{{ loop.index }}, bar:"lower" }{% if not loop.last %},{% endif %}{% endfor %}];
+const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }}, brewery:{{ (b.brewery or '')|tojson }}, style:{{ (b.style or '')|tojson }}, abv:{{ b.abv or 'null' }}, kegs:{{ b.on_hand_kegs or 0 }}, keg_size:{{ (b.keg_size or '')|tojson }} }{% if not loop.last %},{% endif %}{% endfor %}];
+</script>
 
-<div class="container-fluid py-3 beer-page">
-
-  <!-- HEADER / ACTIONS -->
-  <div class="beer-header mb-3">
-    <div>
-      <h1 class="beer-title">Beer Dashboard</h1>
-      <div class="beer-subtitle">Main Bar + Lower Bar taps. Update % full and save.</div>
-    </div>
-    <div class="beer-actions">
-      <a class="btn btn-outline-secondary" href="/beers">
-        <i class="fa-solid fa-beer-mug-empty me-1"></i> Manage Beers
-      </a>
-      <button class="btn btn-primary" type="submit" form="tapsSaveForm">
-        <i class="fa-solid fa-floppy-disk me-1"></i> Save Changes
-      </button>
-    </div>
+<!-- ═══════════════════════════════════════════════
+     HEADER
+     ═══════════════════════════════════════════════ -->
+<div class="tap-header">
+  <div>
+    <h1>Beer Taps</h1>
+    <p class="muted">Tap a card to adjust % remaining</p>
   </div>
-
-  <!-- ANALYTICS GRID -->
-  <div class="beer-analytics mb-3">
-    <div class="beer-card">
-      <div class="beer-card-body">
-        <div class="beer-stat">
-          <div>
-            <div class="beer-stat-label">Beers on Tap</div>
-            <div class="beer-stat-value">{{ ns.total_on_tap }}</div>
-          </div>
-          <div class="beer-stat-icon text-primary"><i class="fa-solid fa-tap"></i></div>
-        </div>
-        <div class="beer-stat-foot">Across Main + Lower.</div>
-      </div>
-    </div>
-
-    <div class="beer-card">
-      <div class="beer-card-body">
-        <div class="beer-stat">
-          <div>
-            <div class="beer-stat-label">Low % Full</div>
-            <div class="beer-stat-value">{{ ns.low_percent }}</div>
-          </div>
-          <div class="beer-stat-icon text-warning"><i class="fa-solid fa-triangle-exclamation"></i></div>
-        </div>
-        <div class="beer-stat-foot">20% or less.</div>
-      </div>
-    </div>
-
-    <div class="beer-card">
-      <div class="beer-card-body">
-        <div class="beer-stat">
-          <div>
-            <div class="beer-stat-label">Empty Taps</div>
-            <div class="beer-stat-value">{{ ns.empty_taps }}</div>
-          </div>
-          <div class="beer-stat-icon text-secondary"><i class="fa-solid fa-circle-minus"></i></div>
-        </div>
-        <div class="beer-stat-foot">No beer assigned.</div>
-      </div>
-    </div>
-
-    <div class="beer-card">
-      <div class="beer-card-body">
-        <div class="beer-stat">
-          <div>
-            <div class="beer-stat-label">Low Kegs</div>
-            <div class="beer-stat-value">{{ ns.low_kegs }}</div>
-          </div>
-          <div class="beer-stat-icon text-danger"><i class="fa-solid fa-box-open"></i></div>
-        </div>
-        <div class="beer-stat-foot">1 keg or less.</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ADD TO TAP -->
-  <div class="beer-card mb-3">
-    <div class="beer-card-head">
-      <div>
-        <div class="beer-card-title">Add Beer to Tap</div>
-        <div class="beer-card-subtitle">Pick bar + tap, choose beer, optionally set % full. “Both bars” mirrors the same tap #.</div>
-      </div>
-    </div>
-
-    <div class="beer-card-body">
-      <form method="POST" action="{{ url_for('assign_beer_to_tap') }}" id="assignForm">
-
-        <div class="row g-3 align-items-end">
-          <div class="col-12 col-md-4 col-xl-2">
-            <label class="form-label">Bar</label>
-            <select name="bar_pick" id="bar_pick" class="form-select" required>
-              <option value="main">Main Bar</option>
-              <option value="lower">Lower Bar</option>
-            </select>
-          </div>
-
-          <div class="col-12 col-md-4 col-xl-2">
-            <label class="form-label">Tap</label>
-            <select name="tap_id" id="tap_id" class="form-select" required></select>
-            <div class="form-text">Tap numbers are 1–25.</div>
-          </div>
-
-          <div class="col-12 col-md-4 col-xl-8">
-            <label class="form-label">Beer</label>
-            <select name="beer_id" class="form-select" required>
-              <option value="">— Select Beer —</option>
-              {% for b in beers %}
-                <option value="{{ b.id }}">
-                  {{ (b.brewery ~ " • " if b.brewery) ~ b.name }}
-                  {% if b.style %} • {{ b.style }}{% endif %}
-                  {% if b.abv %} • {{ '%.1f'|format(b.abv) }}%{% endif %}
-                  {% if b.keg_size %} • {{ b.keg_size|capitalize }}{% endif %}
-                </option>
-              {% endfor %}
-            </select>
-          </div>
-        </div>
-
-        <div class="row g-3 align-items-end mt-0">
-          <div class="col-12 col-md-4 col-xl-2">
-            <label class="form-label">% Full (optional)</label>
-            <input type="number" class="form-control" name="set_percent" min="0" max="100" placeholder="100">
-          </div>
-
-          <div class="col-12 col-md-4 col-xl-2">
-            <label class="form-label">Tapped On (optional)</label>
-            <input type="date" class="form-control" name="tapped_on">
-          </div>
-
-          <div class="col-12 col-md-8 col-xl-5">
-            <label class="form-label">Notes (optional)</label>
-            <input type="text" class="form-control" name="notes" placeholder="e.g., new keg, swapped line, promo">
-          </div>
-
-          <div class="col-12 col-md-6 col-xl-2">
-            <div class="form-check beer-check">
-              <input class="form-check-input" type="checkbox" id="both_bars">
-              <label class="form-check-label" for="both_bars">Both bars</label>
-            </div>
-          </div>
-
-          <div class="col-12 col-md-6 col-xl-1">
-            <button class="btn btn-success w-100" type="submit">
-              <i class="fa-solid fa-plus me-1"></i> Add
-            </button>
-          </div>
-        </div>
-
-      </form>
-    </div>
-  </div>
-
-  <!-- SAVE FORM (GLOBAL) -->
-  <form id="tapsSaveForm" method="POST" action="{{ url_for('save_tap_percents') }}"></form>
-
-  <!-- TWO WINDOWS SIDE-BY-SIDE -->
-  <div class="beer-panels">
-
-    <!-- MAIN BAR -->
-    <div class="beer-card">
-      <div class="beer-card-head beer-card-head-tight">
-        <div>
-          <div class="beer-card-title">Main Bar</div>
-          <div class="beer-card-subtitle">Taps 1–25</div>
-        </div>
-        <span class="beer-pill">Main</span>
-      </div>
-
-      <div class="beer-table-wrap">
-        <table class="table table-hover align-middle beer-table mb-0">
-          <thead>
-            <tr>
-              <th class="col-tap">Tap</th>
-              <th class="col-beer">Beer</th>
-              <th class="col-percent">% Full</th>
-              <th class="col-kegs">Kegs</th>
-              <th class="col-action">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in main_taps %}
-              <tr>
-                <td class="col-tap fw-semibold">{{ loop.index }}</td>
-
-                <td class="col-beer">
-                  {% if t.beer %}
-                    <div class="fw-semibold">{{ t.beer.name }}</div>
-                    <div class="text-muted small">
-                      {% if t.beer.brewery %}{{ t.beer.brewery }}{% endif %}
-                      {% if t.beer.style %}{% if t.beer.brewery %} • {% endif %}{{ t.beer.style }}{% endif %}
-                      {% if t.beer.abv %}{% if t.beer.brewery or t.beer.style %} • {% endif %}{{ '%.1f'|format(t.beer.abv) }}%{% endif %}
-                    </div>
-                  {% else %}
-                    <span class="text-muted">— Empty —</span>
-                  {% endif %}
-                </td>
-
-                <td class="col-percent">
-                  <div class="beer-percent">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      class="form-control form-control-sm beer-percent-input"
-                      name="percent_{{ t.id }}"
-                      value="{{ t.percent_remaining }}"
-                      form="tapsSaveForm"
-                    >
-                    {% if t.beer and (t.percent_remaining or 0) <= 20 %}
-                      <span class="badge text-bg-warning">Low</span>
-                    {% endif %}
-                  </div>
-                  {% if t.beer %}
-                    <div class="progress beer-progress">
-                      <div class="progress-bar" role="progressbar" style="width: {{ t.percent_remaining }}%;"></div>
-                    </div>
-                  {% endif %}
-                </td>
-
-                <td class="col-kegs">
-                  {% if t.beer %}
-                    {% if (t.beer.on_hand_kegs or 0) <= 1 %}
-                      <span class="badge text-bg-danger">{{ t.beer.on_hand_kegs }}</span>
-                    {% else %}
-                      <span class="badge text-bg-secondary">{{ t.beer.on_hand_kegs }}</span>
-                    {% endif %}
-                  {% else %}
-                    <span class="text-muted">—</span>
-                  {% endif %}
-                </td>
-
-                <td class="col-action">
-                  {% if t.beer %}
-                    <form method="POST" action="{{ url_for('remove_beer_from_tap') }}" class="m-0">
-                      <input type="hidden" name="tap_id" value="{{ t.id }}">
-                      <button class="btn btn-outline-danger btn-sm" type="submit">
-                        <i class="fa-solid fa-xmark me-1"></i> Take Off
-                      </button>
-                    </form>
-                  {% else %}
-                    <span class="text-muted">—</span>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- LOWER BAR -->
-    <div class="beer-card">
-      <div class="beer-card-head beer-card-head-tight">
-        <div>
-          <div class="beer-card-title">Lower Bar</div>
-          <div class="beer-card-subtitle">Taps 1–25</div>
-        </div>
-        <span class="beer-pill">Lower</span>
-      </div>
-
-      <div class="beer-table-wrap">
-        <table class="table table-hover align-middle beer-table mb-0">
-          <thead>
-            <tr>
-              <th class="col-tap">Tap</th>
-              <th class="col-beer">Beer</th>
-              <th class="col-percent">% Full</th>
-              <th class="col-kegs">Kegs</th>
-              <th class="col-action">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in lower_taps %}
-              <tr>
-                <td class="col-tap fw-semibold">{{ loop.index }}</td>
-
-                <td class="col-beer">
-                  {% if t.beer %}
-                    <div class="fw-semibold">{{ t.beer.name }}</div>
-                    <div class="text-muted small">
-                      {% if t.beer.brewery %}{{ t.beer.brewery }}{% endif %}
-                      {% if t.beer.style %}{% if t.beer.brewery %} • {% endif %}{{ t.beer.style }}{% endif %}
-                      {% if t.beer.abv %}{% if t.beer.brewery or t.beer.style %} • {% endif %}{{ '%.1f'|format(t.beer.abv) }}%{% endif %}
-                    </div>
-                  {% else %}
-                    <span class="text-muted">— Empty —</span>
-                  {% endif %}
-                </td>
-
-                <td class="col-percent">
-                  <div class="beer-percent">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      class="form-control form-control-sm beer-percent-input"
-                      name="percent_{{ t.id }}"
-                      value="{{ t.percent_remaining }}"
-                      form="tapsSaveForm"
-                    >
-                    {% if t.beer and (t.percent_remaining or 0) <= 20 %}
-                      <span class="badge text-bg-warning">Low</span>
-                    {% endif %}
-                  </div>
-                  {% if t.beer %}
-                    <div class="progress beer-progress">
-                      <div class="progress-bar" role="progressbar" style="width: {{ t.percent_remaining }}%;"></div>
-                    </div>
-                  {% endif %}
-                </td>
-
-                <td class="col-kegs">
-                  {% if t.beer %}
-                    {% if (t.beer.on_hand_kegs or 0) <= 1 %}
-                      <span class="badge text-bg-danger">{{ t.beer.on_hand_kegs }}</span>
-                    {% else %}
-                      <span class="badge text-bg-secondary">{{ t.beer.on_hand_kegs }}</span>
-                    {% endif %}
-                  {% else %}
-                    <span class="text-muted">—</span>
-                  {% endif %}
-                </td>
-
-                <td class="col-action">
-                  {% if t.beer %}
-                    <form method="POST" action="{{ url_for('remove_beer_from_tap') }}" class="m-0">
-                      <input type="hidden" name="tap_id" value="{{ t.id }}">
-                      <button class="btn btn-outline-danger btn-sm" type="submit">
-                        <i class="fa-solid fa-xmark me-1"></i> Take Off
-                      </button>
-                    </form>
-                  {% else %}
-                    <span class="text-muted">—</span>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
+  <div class="actions">
+    <a href="/beers" class="btn"><i class="fas fa-list"></i> Manage Beers</a>
+    <button class="btn primary" id="saveAllBtn" type="button">
+      <i class="fas fa-save"></i> Save All
+    </button>
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════
+     STATS
+     ═══════════════════════════════════════════════ -->
+<div class="tap-stats">
+  <div class="tap-stat">
+    <i class="fas fa-beer tap-stat-icon"></i>
+    <div class="tap-stat-val">{{ ns.total }}</div>
+    <div class="tap-stat-lbl">On Tap</div>
+  </div>
+  <div class="tap-stat {% if ns.low > 0 %}tap-stat-warn{% endif %}">
+    <i class="fas fa-exclamation-triangle tap-stat-icon"></i>
+    <div class="tap-stat-val">{{ ns.low }}</div>
+    <div class="tap-stat-lbl">Running Low</div>
+  </div>
+  <div class="tap-stat">
+    <i class="fas fa-circle-minus tap-stat-icon"></i>
+    <div class="tap-stat-val">{{ ns.empty }}</div>
+    <div class="tap-stat-lbl">Empty Taps</div>
+  </div>
+  <div class="tap-stat {% if ns.low_kegs > 0 %}tap-stat-danger{% endif %}">
+    <i class="fas fa-box-open tap-stat-icon"></i>
+    <div class="tap-stat-val">{{ ns.low_kegs }}</div>
+    <div class="tap-stat-lbl">Low Kegs</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     BAR TABS
+     ═══════════════════════════════════════════════ -->
+<div class="tap-tabs card" style="padding:0; margin-bottom:20px;">
+  <button class="tap-tab active" data-bar="main">
+    <i class="fas fa-beer"></i> Main Bar
+  </button>
+  <button class="tap-tab" data-bar="lower">
+    <i class="fas fa-beer"></i> Lower Bar
+  </button>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAP CARDS — MAIN BAR
+     ═══════════════════════════════════════════════ -->
+<div id="panel-main" class="tap-panel">
+  <div class="tap-grid">
+    {% for t in main_taps %}
+      {% if t.beer %}
+        {# ── FILLED TAP ── #}
+        <div class="tap-card {% if (t.percent_remaining or 0) <= 10 %}tap-critical{% elif (t.percent_remaining or 0) <= 20 %}tap-low{% endif %}"
+             data-tap-id="{{ t.id }}" data-pct="{{ t.percent_remaining or 0 }}">
+          <div class="tap-card-top">
+            <span class="tap-num">TAP {{ loop.index }}</span>
+            {% if (t.beer.on_hand_kegs or 0) <= 1 %}
+              <span class="keg-badge keg-low">{{ t.beer.on_hand_kegs }} keg{{ 's' if (t.beer.on_hand_kegs or 0) != 1 else '' }}</span>
+            {% else %}
+              <span class="keg-badge">{{ t.beer.on_hand_kegs }} kegs</span>
+            {% endif %}
+          </div>
+
+          <div class="tap-beer-name">{{ t.beer.name }}</div>
+          <div class="tap-beer-sub">
+            {{ t.beer.brewery or '' }}{% if t.beer.brewery and t.beer.style %} · {% endif %}{{ t.beer.style or '' }}
+            {% if t.beer.abv %} · {{ '%.1f'|format(t.beer.abv) }}%{% endif %}
+          </div>
+
+          {# Fill bar #}
+          <div class="tap-bar-wrap">
+            <div class="tap-bar">
+              <div class="tap-bar-fill {% if (t.percent_remaining or 0) <= 10 %}fill-critical{% elif (t.percent_remaining or 0) <= 20 %}fill-low{% endif %}"
+                   style="width:{{ t.percent_remaining or 0 }}%"></div>
+            </div>
+            <span class="tap-pct-label">{{ t.percent_remaining or 0 }}%</span>
+          </div>
+
+          {# Range slider #}
+          <input type="range" min="0" max="100" step="5"
+                 class="tap-slider"
+                 value="{{ t.percent_remaining or 0 }}"
+                 data-tap-id="{{ t.id }}"
+                 form="tapsSaveForm"
+                 name="percent_{{ t.id }}">
+
+          {# Stepper row #}
+          <div class="tap-stepper">
+            <button type="button" class="tap-step tap-step-down" data-tap-id="{{ t.id }}" data-delta="-10">−10</button>
+            <button type="button" class="tap-step tap-step-down" data-tap-id="{{ t.id }}" data-delta="-5">−5</button>
+            <button type="button" class="tap-step tap-step-up"   data-tap-id="{{ t.id }}" data-delta="+5">+5</button>
+            <button type="button" class="tap-step tap-step-up"   data-tap-id="{{ t.id }}" data-delta="+10">+10</button>
+          </div>
+
+          <div class="tap-card-footer">
+            <form method="POST" action="{{ url_for('remove_beer_from_tap') }}" style="margin:0;">
+              <input type="hidden" name="tap_id" value="{{ t.id }}">
+              <button type="submit" class="tap-remove-btn" title="Remove beer from this tap">
+                <i class="fas fa-times"></i> Remove
+              </button>
+            </form>
+          </div>
+        </div>
+
+      {% else %}
+        {# ── EMPTY TAP ── #}
+        <button class="tap-card tap-empty" type="button"
+                data-tap-id="{{ t.id }}" data-tap-idx="{{ loop.index }}" data-bar="main"
+                onclick="openAssignModal(this)">
+          <span class="tap-num">TAP {{ loop.index }}</span>
+          <i class="fas fa-plus-circle tap-empty-icon"></i>
+          <span class="tap-empty-lbl">Assign Beer</span>
+        </button>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     TAP CARDS — LOWER BAR
+     ═══════════════════════════════════════════════ -->
+<div id="panel-lower" class="tap-panel" style="display:none;">
+  <div class="tap-grid">
+    {% for t in lower_taps %}
+      {% if t.beer %}
+        <div class="tap-card {% if (t.percent_remaining or 0) <= 10 %}tap-critical{% elif (t.percent_remaining or 0) <= 20 %}tap-low{% endif %}"
+             data-tap-id="{{ t.id }}" data-pct="{{ t.percent_remaining or 0 }}">
+          <div class="tap-card-top">
+            <span class="tap-num">TAP {{ loop.index }}</span>
+            {% if (t.beer.on_hand_kegs or 0) <= 1 %}
+              <span class="keg-badge keg-low">{{ t.beer.on_hand_kegs }} keg{{ 's' if (t.beer.on_hand_kegs or 0) != 1 else '' }}</span>
+            {% else %}
+              <span class="keg-badge">{{ t.beer.on_hand_kegs }} kegs</span>
+            {% endif %}
+          </div>
+
+          <div class="tap-beer-name">{{ t.beer.name }}</div>
+          <div class="tap-beer-sub">
+            {{ t.beer.brewery or '' }}{% if t.beer.brewery and t.beer.style %} · {% endif %}{{ t.beer.style or '' }}
+            {% if t.beer.abv %} · {{ '%.1f'|format(t.beer.abv) }}%{% endif %}
+          </div>
+
+          <div class="tap-bar-wrap">
+            <div class="tap-bar">
+              <div class="tap-bar-fill {% if (t.percent_remaining or 0) <= 10 %}fill-critical{% elif (t.percent_remaining or 0) <= 20 %}fill-low{% endif %}"
+                   style="width:{{ t.percent_remaining or 0 }}%"></div>
+            </div>
+            <span class="tap-pct-label">{{ t.percent_remaining or 0 }}%</span>
+          </div>
+
+          <input type="range" min="0" max="100" step="5"
+                 class="tap-slider"
+                 value="{{ t.percent_remaining or 0 }}"
+                 data-tap-id="{{ t.id }}"
+                 form="tapsSaveForm"
+                 name="percent_{{ t.id }}">
+
+          <div class="tap-stepper">
+            <button type="button" class="tap-step tap-step-down" data-tap-id="{{ t.id }}" data-delta="-10">−10</button>
+            <button type="button" class="tap-step tap-step-down" data-tap-id="{{ t.id }}" data-delta="-5">−5</button>
+            <button type="button" class="tap-step tap-step-up"   data-tap-id="{{ t.id }}" data-delta="+5">+5</button>
+            <button type="button" class="tap-step tap-step-up"   data-tap-id="{{ t.id }}" data-delta="+10">+10</button>
+          </div>
+
+          <div class="tap-card-footer">
+            <form method="POST" action="{{ url_for('remove_beer_from_tap') }}" style="margin:0;">
+              <input type="hidden" name="tap_id" value="{{ t.id }}">
+              <button type="submit" class="tap-remove-btn" title="Remove beer from this tap">
+                <i class="fas fa-times"></i> Remove
+              </button>
+            </form>
+          </div>
+        </div>
+
+      {% else %}
+        <button class="tap-card tap-empty" type="button"
+                data-tap-id="{{ t.id }}" data-tap-idx="{{ loop.index }}" data-bar="lower"
+                onclick="openAssignModal(this)">
+          <span class="tap-num">TAP {{ loop.index }}</span>
+          <i class="fas fa-plus-circle tap-empty-icon"></i>
+          <span class="tap-empty-lbl">Assign Beer</span>
+        </button>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     HIDDEN SAVE FORM (range slider values go here)
+     ═══════════════════════════════════════════════ -->
+<form id="tapsSaveForm" method="POST" action="{{ url_for('save_tap_percents') }}"></form>
+
+<!-- ═══════════════════════════════════════════════
+     ASSIGN BEER MODAL
+     ═══════════════════════════════════════════════ -->
+<div id="assignModal" class="tap-modal" style="display:none;" onclick="if(event.target===this)closeAssignModal()">
+  <div class="tap-modal-box">
+    <div class="tap-modal-head">
+      <h2 id="assignModalTitle">Assign Beer</h2>
+      <button type="button" class="tap-modal-close" onclick="closeAssignModal()">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <form method="POST" action="{{ url_for('assign_beer_to_tap') }}" id="assignForm">
+      <input type="hidden" name="tap_id" id="modalTapId">
+
+      <div class="tap-modal-field">
+        <label>Beer</label>
+        <div style="position:relative;">
+          <input type="text" id="beerSearch" class="input" placeholder="Search beer name…" autocomplete="off">
+          <div id="beerSearchResults" class="beer-search-results" style="display:none;"></div>
+        </div>
+        <input type="hidden" name="beer_id" id="selectedBeerId" required>
+        <div id="selectedBeerLabel" class="beer-selected-label" style="display:none;"></div>
+      </div>
+
+      <div class="tap-modal-row">
+        <div class="tap-modal-field">
+          <label>% Full</label>
+          <input type="number" class="input" name="set_percent" min="0" max="100" placeholder="100" value="100">
+        </div>
+        <div class="tap-modal-field">
+          <label>Tapped On</label>
+          <input type="date" class="input" name="tapped_on">
+        </div>
+      </div>
+
+      <div class="tap-modal-field">
+        <label>Notes <span class="muted">(optional)</span></label>
+        <input type="text" class="input" name="notes" placeholder="New keg, swapped line…">
+      </div>
+
+      <div class="tap-modal-actions">
+        <button type="button" class="btn" onclick="closeAssignModal()">Cancel</button>
+        <button type="submit" class="btn primary" id="assignSubmitBtn" disabled>
+          <i class="fas fa-check"></i> Assign Beer
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+/* ── Layout ── */
+.tap-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+.tap-header h1 { margin:0; }
+
+/* ── Stats ── */
+.tap-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+@media(max-width:640px){ .tap-stats{ grid-template-columns:repeat(2,1fr); } }
+
+.tap-stat {
+  background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+  padding:16px; text-align:center; transition:var(--transition);
+}
+.tap-stat-icon { font-size:20px; color:var(--primary); margin-bottom:8px; display:block; }
+.tap-stat-val  { font-size:28px; font-weight:700; color:var(--text); line-height:1; }
+.tap-stat-lbl  { font-size:12px; color:var(--text-muted); margin-top:4px; }
+.tap-stat-warn  { border-color:rgba(245,158,11,.5); background:rgba(245,158,11,.07); }
+.tap-stat-warn  .tap-stat-icon, .tap-stat-warn  .tap-stat-val { color:var(--warning); }
+.tap-stat-danger{ border-color:rgba(185,39,58,.5);  background:rgba(185,39,58,.07);  }
+.tap-stat-danger .tap-stat-icon, .tap-stat-danger .tap-stat-val { color:var(--danger); }
+
+/* ── Bar tabs ── */
+.tap-tabs { display:flex; }
+.tap-tab {
+  flex:1; padding:14px 20px; border:none; background:none; color:var(--text-muted);
+  font-size:15px; font-weight:600; cursor:pointer; border-bottom:3px solid transparent;
+  transition:var(--transition); display:flex; align-items:center; justify-content:center; gap:8px;
+}
+.tap-tab:hover { color:var(--text); background:rgba(255,255,255,.04); }
+.tap-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
+
+/* ── Card grid ── */
+.tap-grid {
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:14px;
+}
+@media(max-width:1100px){ .tap-grid{ grid-template-columns:repeat(3,1fr); } }
+@media(max-width:768px) { .tap-grid{ grid-template-columns:repeat(2,1fr); } }
+@media(max-width:480px) { .tap-grid{ grid-template-columns:1fr; } }
+
+/* ── Tap card ── */
+.tap-card {
+  background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+  padding:16px; display:flex; flex-direction:column; gap:8px;
+  transition:var(--transition); cursor:default;
+}
+.tap-card:hover { box-shadow:var(--shadow-md); }
+
+.tap-low      { border-color:rgba(245,158,11,.55); background:rgba(245,158,11,.05); }
+.tap-critical { border-color:rgba(185,39,58,.55);  background:rgba(185,39,58,.05);  }
+
+/* ── Empty tap card ── */
+.tap-empty {
+  background:var(--card2); border:2px dashed var(--stroke);
+  border-radius:var(--radius-lg); padding:24px 16px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:10px; cursor:pointer; color:var(--text-muted); transition:var(--transition);
+  min-height:140px;
+}
+.tap-empty:hover { border-color:var(--primary); color:var(--primary); background:rgba(37,99,235,.06); }
+.tap-empty-icon { font-size:28px; }
+.tap-empty-lbl  { font-size:13px; font-weight:600; }
+
+/* ── Card internals ── */
+.tap-card-top { display:flex; align-items:center; justify-content:space-between; }
+.tap-num { font-size:11px; font-weight:700; color:var(--text-muted); letter-spacing:.6px; text-transform:uppercase; }
+.keg-badge {
+  font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px;
+  background:rgba(255,255,255,.1); color:var(--text-muted);
+}
+.keg-low { background:rgba(185,39,58,.2); color:var(--danger); }
+
+.tap-beer-name { font-size:16px; font-weight:700; color:var(--text); line-height:1.2; }
+.tap-beer-sub  { font-size:12px; color:var(--text-muted); line-height:1.4; min-height:16px; }
+
+/* ── Fill bar ── */
+.tap-bar-wrap { display:flex; align-items:center; gap:10px; }
+.tap-bar { flex:1; height:8px; background:rgba(255,255,255,.1); border-radius:4px; overflow:hidden; }
+.tap-bar-fill { height:100%; background:var(--primary); border-radius:4px; transition:width .3s ease; }
+.fill-low      { background:var(--warning); }
+.fill-critical { background:var(--danger); }
+.tap-pct-label { font-size:13px; font-weight:700; color:var(--text); min-width:36px; text-align:right; }
+
+/* ── Slider ── */
+.tap-slider {
+  width:100%; height:6px; -webkit-appearance:none; appearance:none;
+  background:rgba(255,255,255,.1); border-radius:3px; outline:none; cursor:pointer; border:none;
+}
+.tap-slider::-webkit-slider-thumb {
+  -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
+  background:var(--primary); cursor:pointer; border:2px solid white;
+  box-shadow:0 2px 6px rgba(0,0,0,.3);
+}
+.tap-slider::-moz-range-thumb {
+  width:22px; height:22px; border-radius:50%;
+  background:var(--primary); cursor:pointer; border:2px solid white;
+}
+/* highlight track on low/critical cards */
+.tap-low      .tap-slider::-webkit-slider-thumb { background:var(--warning); }
+.tap-critical .tap-slider::-webkit-slider-thumb { background:var(--danger); }
+
+/* ── Steppers ── */
+.tap-stepper { display:flex; gap:6px; }
+.tap-step {
+  flex:1; padding:8px 4px; font-size:13px; font-weight:700; border:none; border-radius:var(--radius-sm);
+  cursor:pointer; transition:var(--transition); color:var(--text);
+}
+.tap-step-down { background:rgba(255,255,255,.08); }
+.tap-step-up   { background:rgba(37,99,235,.18); color:var(--primary-light); }
+.tap-step:hover { filter:brightness(1.3); }
+.tap-step:active{ transform:scale(.95); }
+
+/* ── Card footer ── */
+.tap-card-footer { margin-top:4px; display:flex; justify-content:flex-end; }
+.tap-remove-btn {
+  background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer;
+  padding:4px 8px; border-radius:var(--radius-sm); transition:var(--transition); display:flex; align-items:center; gap:4px;
+}
+.tap-remove-btn:hover { color:var(--danger); background:rgba(185,39,58,.1); }
+
+/* ── Modal ── */
+.tap-modal {
+  position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:2000;
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.tap-modal-box {
+  background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+  width:100%; max-width:440px; box-shadow:var(--shadow);
+}
+.tap-modal-head {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:20px 20px 16px; border-bottom:1px solid var(--stroke);
+}
+.tap-modal-head h2 { margin:0; font-size:18px; }
+.tap-modal-close {
+  background:none; border:none; color:var(--text-muted); font-size:20px; cursor:pointer;
+  padding:4px 8px; border-radius:var(--radius-sm); transition:var(--transition);
+}
+.tap-modal-close:hover { color:var(--text); background:rgba(255,255,255,.08); }
+
+.tap-modal-field { padding:0 20px; display:flex; flex-direction:column; gap:6px; margin-top:16px; }
+.tap-modal-field label { font-size:13px; font-weight:600; color:var(--text); }
+.tap-modal-row { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+
+.tap-modal-actions {
+  display:flex; gap:10px; justify-content:flex-end;
+  padding:20px; margin-top:16px; border-top:1px solid var(--stroke);
+}
+
+/* ── Beer search in modal ── */
+.beer-search-results {
+  position:absolute; left:0; right:0; top:100%; z-index:100;
+  background:var(--card); border:1px solid var(--stroke); border-top:none;
+  border-radius:0 0 var(--radius-md) var(--radius-md);
+  max-height:220px; overflow-y:auto; box-shadow:var(--shadow-md);
+}
+.beer-search-result {
+  padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--stroke);
+  transition:background .15s;
+}
+.beer-search-result:last-child { border-bottom:none; }
+.beer-search-result:hover { background:rgba(37,99,235,.12); }
+.beer-result-name { font-weight:600; color:var(--text); font-size:14px; }
+.beer-result-sub  { font-size:12px; color:var(--text-muted); margin-top:2px; }
+.beer-selected-label {
+  margin-top:6px; padding:8px 12px; background:rgba(37,99,235,.12);
+  border-radius:var(--radius-sm); font-size:13px; font-weight:600; color:var(--primary);
+  border:1px solid rgba(37,99,235,.3);
+}
+
+/* Light theme tweaks */
+body.light-theme .tap-empty  { background:#f9fafb; }
+body.light-theme .tap-bar    { background:rgba(0,0,0,.1); }
+body.light-theme .tap-slider { background:rgba(0,0,0,.1); }
+body.light-theme .tap-step-down { background:rgba(0,0,0,.06); }
+body.light-theme .keg-badge { background:rgba(0,0,0,.07); }
+</style>
+
 <script>
-  const mainTapIds = [{% for t in main_taps %}{{ t.id }}{% if not loop.last %},{% endif %}{% endfor %}];
-  const lowerTapIds = [{% for t in lower_taps %}{{ t.id }}{% if not loop.last %},{% endif %}{% endfor %}];
+// ── Tab switching ──
+document.querySelectorAll('.tap-tab').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tap-tab').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    const bar = this.dataset.bar;
+    document.querySelectorAll('.tap-panel').forEach(p => p.style.display = 'none');
+    document.getElementById('panel-' + bar).style.display = '';
+  });
+});
 
-  const barPick = document.getElementById("bar_pick");
-  const tapSelect = document.getElementById("tap_id");
-  const bothBars = document.getElementById("both_bars");
-  const assignForm = document.getElementById("assignForm");
+// ── Slider ↔ bar + label sync ──
+document.addEventListener('input', function(e) {
+  if (!e.target.classList.contains('tap-slider')) return;
+  const val = parseInt(e.target.value, 10);
+  const card = e.target.closest('.tap-card');
+  if (!card) return;
 
-  function fillTaps(bar) {
-    tapSelect.innerHTML = "";
-    const ids = (bar === "main") ? mainTapIds : lowerTapIds;
-    ids.forEach((id, idx) => {
-      const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = (idx + 1).toString();
-      tapSelect.appendChild(opt);
-    });
+  // update fill bar
+  const fill = card.querySelector('.tap-bar-fill');
+  if (fill) {
+    fill.style.width = val + '%';
+    fill.className = 'tap-bar-fill' +
+      (val <= 10 ? ' fill-critical' : val <= 20 ? ' fill-low' : '');
   }
 
-  barPick.addEventListener("change", () => fillTaps(barPick.value));
-  fillTaps(barPick.value);
+  // update % label
+  const lbl = card.querySelector('.tap-pct-label');
+  if (lbl) lbl.textContent = val + '%';
 
-  assignForm.addEventListener("submit", async (e) => {
-    if (!bothBars.checked) return;
+  // update card danger class
+  card.className = card.className.replace(/\btap-low\b|\btap-critical\b/g, '').trim();
+  if (val <= 10) card.classList.add('tap-critical');
+  else if (val <= 20) card.classList.add('tap-low');
 
-    e.preventDefault();
+  // update slider thumb color too (via class on card, handled in CSS)
+});
 
-    const fd1 = new FormData(assignForm);
-    const selectedBar = fd1.get("bar_pick");
-    const tapId = parseInt(fd1.get("tap_id"), 10);
+// ── Stepper buttons ──
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.tap-step');
+  if (!btn) return;
+  e.preventDefault();
 
-    const ids = (selectedBar === "main") ? mainTapIds : lowerTapIds;
-    const idx = ids.indexOf(tapId);
-    if (idx === -1) { assignForm.submit(); return; }
+  const tapId = btn.dataset.tapId;
+  const delta = parseInt(btn.dataset.delta, 10);
+  const slider = document.querySelector(`.tap-slider[data-tap-id="${tapId}"]`);
+  if (!slider) return;
 
-    const otherIds = (selectedBar === "main") ? lowerTapIds : mainTapIds;
-    const otherTapId = otherIds[idx];
+  const newVal = Math.max(0, Math.min(100, parseInt(slider.value, 10) + delta));
+  slider.value = newVal;
+  slider.dispatchEvent(new Event('input', { bubbles: true }));
+});
 
-    await fetch(assignForm.action, { method: "POST", body: fd1 });
+// ── Save all (submit the hidden form) ──
+document.getElementById('saveAllBtn').addEventListener('click', function() {
+  document.getElementById('tapsSaveForm').submit();
+});
 
-    const fd2 = new FormData(assignForm);
-    fd2.set("tap_id", otherTapId);
-    await fetch(assignForm.action, { method: "POST", body: fd2 });
+// ── Assign Modal ──
+function openAssignModal(btn) {
+  const tapId  = btn.dataset.tapId;
+  const tapIdx = btn.dataset.tapIdx;
+  const bar    = btn.dataset.bar;
 
-    window.location.reload();
-  });
+  document.getElementById('modalTapId').value = tapId;
+  document.getElementById('assignModalTitle').textContent =
+    'Assign Beer — ' + (bar === 'main' ? 'Main' : 'Lower') + ' Bar · Tap ' + tapIdx;
+
+  // reset form
+  document.getElementById('beerSearch').value = '';
+  document.getElementById('selectedBeerId').value = '';
+  document.getElementById('selectedBeerLabel').style.display = 'none';
+  document.getElementById('beerSearchResults').style.display = 'none';
+  document.getElementById('assignSubmitBtn').disabled = true;
+
+  document.getElementById('assignModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('beerSearch').focus(), 80);
+}
+
+function closeAssignModal() {
+  document.getElementById('assignModal').style.display = 'none';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeAssignModal();
+});
+
+// ── Beer search in modal ──
+document.getElementById('beerSearch').addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  const results = document.getElementById('beerSearchResults');
+
+  if (!q) { results.style.display = 'none'; return; }
+
+  const matches = ALL_BEERS.filter(b =>
+    b.name.toLowerCase().includes(q) ||
+    b.brewery.toLowerCase().includes(q) ||
+    b.style.toLowerCase().includes(q)
+  ).slice(0, 8);
+
+  if (matches.length === 0) { results.style.display = 'none'; return; }
+
+  results.innerHTML = matches.map(b => {
+    const sub = [b.brewery, b.style, b.abv ? b.abv + '%' : null, b.keg_size]
+      .filter(Boolean).join(' · ');
+    return `<div class="beer-search-result" data-id="${b.id}" data-name="${b.name.replace(/"/g,'&quot;')}">
+      <div class="beer-result-name">${b.name}</div>
+      ${sub ? `<div class="beer-result-sub">${sub}</div>` : ''}
+    </div>`;
+  }).join('');
+  results.style.display = 'block';
+});
+
+document.getElementById('beerSearchResults').addEventListener('click', function(e) {
+  const item = e.target.closest('.beer-search-result');
+  if (!item) return;
+
+  const id   = item.dataset.id;
+  const name = item.dataset.name;
+
+  document.getElementById('selectedBeerId').value = id;
+  document.getElementById('beerSearch').value = name;
+  document.getElementById('beerSearchResults').style.display = 'none';
+
+  const lbl = document.getElementById('selectedBeerLabel');
+  lbl.textContent = '✓ ' + name;
+  lbl.style.display = 'block';
+
+  document.getElementById('assignSubmitBtn').disabled = false;
+});
+
+// close dropdown if clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('#beerSearch') && !e.target.closest('#beerSearchResults')) {
+    document.getElementById('beerSearchResults').style.display = 'none';
+  }
+});
 </script>
 
 {% endblock %}

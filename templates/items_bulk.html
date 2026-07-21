@@ -37,10 +37,24 @@
             <input class="bulk-input" type="text" data-field="name" value="{{ item.name }}">
           </td>
           <td>
-            <input class="bulk-input" type="text" data-field="category" value="{{ item.category }}">
+            <select class="bulk-input" data-field="category">
+              {% for cat in categories %}
+              <option value="{{ cat }}" {% if cat == item.category %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+              {% if item.category not in categories %}
+              <option value="{{ item.category }}" selected>{{ item.category }}</option>
+              {% endif %}
+            </select>
           </td>
           <td>
-            <input class="bulk-input" type="text" data-field="unit" value="{{ item.unit or '' }}">
+            <select class="bulk-input" data-field="unit">
+              {% for u in units %}
+              <option value="{{ u }}" {% if u == item.unit %}selected{% endif %}>{{ u }}</option>
+              {% endfor %}
+              {% if item.unit and item.unit not in units %}
+              <option value="{{ item.unit }}" selected>{{ item.unit }}</option>
+              {% endif %}
+            </select>
           </td>
           <td>
             <select class="bulk-input" data-field="supplier_id">

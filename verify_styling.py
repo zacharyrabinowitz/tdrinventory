@@ -19,7 +19,7 @@ if root_match:
             if match and any(x in match.group(2) for x in ['bg', 'card', 'text', 'primary', 'danger', 'success']):
                 colors[match.group(2)] = match.group(3).strip()
     
-    print("\n✓ CSS Color Variables Defined:")
+    print("\n[OK] CSS Color Variables Defined:")
     for name in sorted(colors.keys()):
         print(f"  --{name}: {colors[name]}")
 
@@ -31,9 +31,9 @@ for color in light_colors:
         found_light.append(color)
 
 if found_light:
-    print(f"\n⚠ Found {len(found_light)} light theme colors in CSS (should use dark theme)")
+    print(f"\n[WARN] Found {len(found_light)} light theme colors in CSS (should use dark theme)")
 else:
-    print("\n✓ No problematic light theme colors found in CSS")
+    print("\n[OK] No problematic light theme colors found in CSS")
 
 # Check template files
 template_files = [
@@ -43,7 +43,7 @@ template_files = [
     'templates/item_history.html',
 ]
 
-print("\n✓ Template Inline Styles Updated:")
+print("\n[OK] Template Inline Styles Updated:")
 for template in template_files:
     try:
         with open(template, 'r', encoding='utf-8') as f:
@@ -52,9 +52,9 @@ for template in template_files:
         old_colors = ['rgba(34,197,94', 'rgba(239,68,68', 'rgba(59,130,246', '#22c55e', '#ef4444']
         found = [c for c in old_colors if c in content]
         if found:
-            print(f"  ✗ {template}: Still has old light colors")
+            print(f"  [FAIL] {template}: Still has old light colors")
         else:
-            print(f"  ✓ {template}")
+            print(f"  [OK] {template}")
     except:
         pass
 
@@ -73,9 +73,9 @@ for item in nav_items:
         missing_nav.append(item)
 
 if missing_nav:
-    print(f"✗ Missing navigation items: {missing_nav}")
+    print(f"[FAIL] Missing navigation items: {missing_nav}")
 else:
-    print("✓ All main navigation items present")
+    print("[OK] All main navigation items present")
     print("  - Dashboard (/)")
     print("  - Items (/items)")
     print("  - Lots (/lots)")
@@ -85,7 +85,7 @@ else:
 
 # Check for active nav item styling
 if 'nav-item.active' in css_content and 'request.path' in base_content:
-    print("✓ Active nav item highlighting configured")
+    print("[OK] Active nav item highlighting configured")
 
 # Check for basic page structure
 pages_to_check = [
@@ -104,12 +104,12 @@ for page, name in pages_to_check:
         with open(page, 'r', encoding='utf-8') as f:
             content = f.read()
         if '{% extends "base.html"' in content:
-            print(f"✓ {name:15} - Proper template inheritance")
+            print(f"[OK] {name:15} - Proper template inheritance")
         else:
-            print(f"✗ {name:15} - Missing base.html inheritance")
+            print(f"[FAIL] {name:15} - Missing base.html inheritance")
     except FileNotFoundError:
-        print(f"⚠ {name:15} - File not found")
+        print(f"[WARN] {name:15} - File not found")
 
 print("\n" + "=" * 70)
-print("✓ VERIFICATION COMPLETE")
+print("[OK] VERIFICATION COMPLETE")
 print("=" * 70)

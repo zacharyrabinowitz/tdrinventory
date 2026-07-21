@@ -1,111 +1,91 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="main-content">
-  <div class="content-header">
-    <div>
-      <h1>Orders</h1>
-      <p class="subtitle">Order items and beers</p>
-    </div>
-    <a href="/orders" class="btn btn-secondary">
-      <i class="fas fa-list"></i>
-      View Orders
-    </a>
-  </div>
 
-  <!-- Tabs for Items and Beers -->
-  <div class="tabs-section card" style="margin-bottom: 20px;">
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="items-tab">
-        <i class="fas fa-box"></i>
-        Items
-      </button>
-      <button class="tab-btn" data-tab="beers-tab">
-        <i class="fas fa-beer"></i>
-        Beers
-      </button>
-    </div>
+<!-- HEADER -->
+<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; flex-wrap:wrap;">
+  <div>
+    <h1 style="margin:0;">New Order</h1>
+    <span class="muted">Order items and beers</span>
   </div>
+  <a href="/orders" class="btn"><i class="fas fa-clipboard-list"></i> View Orders</a>
+</div>
 
-  <!-- ITEMS TAB -->
-  <div id="items-tab" class="tab-content active">
-    <!-- Search and Filter Section -->
-    <div class="order-controls card">
-      <div class="controls-grid">
-        <div class="search-box">
-          <i class="fas fa-search"></i>
-          <input 
-            type="text" 
-            id="searchInput" 
-            placeholder="Search items..." 
-            value="{{ q }}"
-          >
-        </div>
-        <div class="category-filter">
-          <label for="categorySelect">Category:</label>
-          <select id="categorySelect">
-            <option value="">All Categories</option>
-            {% for cat in categories %}
-            <option value="{{ cat }}" {% if cat == category_filter %}selected{% endif %}>{{ cat }}</option>
-            {% endfor %}
-          </select>
-        </div>
+<!-- TABS -->
+<div class="card" style="padding:0; margin-bottom:20px;">
+  <div style="display:flex; border-bottom:2px solid var(--stroke);">
+    <button class="tab-btn active" type="button" data-tab="items-tab">
+      <i class="fas fa-box"></i> Items
+    </button>
+    <button class="tab-btn" type="button" data-tab="beers-tab">
+      <i class="fas fa-beer"></i> Beers
+    </button>
+  </div>
+</div>
+
+<!-- ITEMS TAB -->
+<div id="items-tab" class="tab-content">
+
+  <!-- Search / filter bar -->
+  <div class="card" style="padding:16px 20px; margin-bottom:16px;">
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+      <div class="search-wrap" style="flex:1; min-width:180px;">
+        <i class="fas fa-search search-icon"></i>
+        <input type="text" id="searchInput" class="input search-live"
+               placeholder="Search items…" value="{{ q }}" autocomplete="off">
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label style="font-size:13px; font-weight:600; white-space:nowrap; color:var(--text);">Category</label>
+        <select id="categorySelect" class="input" style="min-width:150px;">
+          <option value="">All</option>
+          {% for cat in categories %}
+          <option value="{{ cat }}" {% if cat == category_filter %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+        </select>
       </div>
     </div>
+  </div>
 
-    <!-- Order Table -->
-    <div class="order-table-wrapper card">
+  <!-- Items table -->
+  <div class="card" style="padding:0; overflow-x:auto; margin-bottom:16px;">
     <table class="order-table">
       <thead>
         <tr>
-          <th>Item Name</th>
+          <th>Item</th>
           <th>Category</th>
           <th>On Hand</th>
           <th>Unit</th>
-          <th class="input-col">Quantity to Order</th>
-          <th class="input-col">Order By Date</th>
+          <th class="input-col">Qty to Order</th>
+          <th class="input-col">Order By</th>
           <th class="notes-col">Notes</th>
-          <th class="action-col">Save</th>
+          <th class="action-col"></th>
         </tr>
       </thead>
       <tbody id="itemsTableBody">
         {% for item in items %}
-        <tr class="order-row" data-item-id="{{ item.id }}" data-name="{{ item.name.lower() }}" data-category="{{ item.category }}">
-          <td class="item-name">
-            <span class="item-title">{{ item.name }}</span>
-          </td>
-          <td class="item-category">{{ item.category }}</td>
-          <td class="on-hand">
-            <span class="on-hand-badge">{{ item.on_hand_count }}</span>
-            <button class="btn-edit-onhand" title="Edit on-hand count" data-item-id="{{ item.id }}" data-item-name="{{ item.name }}">
+        <tr class="order-row" data-item-id="{{ item.id }}"
+            data-name="{{ item.name.lower() }}" data-category="{{ item.category }}">
+          <td class="item-name"><span class="item-title">{{ item.name }}</span></td>
+          <td class="muted" style="font-size:13px;">{{ item.category }}</td>
+          <td style="text-align:center;">
+            <span class="on-hand-badge">{{ on_hand.get(item.id, 0) }}</span>
+            <button type="button" class="btn-edit-onhand" title="Edit on-hand count"
+                    data-item-id="{{ item.id }}" data-item-name="{{ item.name }}">
               <i class="fas fa-edit"></i>
             </button>
           </td>
-          <td class="unit">{{ item.unit or '-' }}</td>
+          <td class="muted" style="font-size:13px;">{{ item.unit or '—' }}</td>
           <td class="input-col">
-            <input 
-              type="number" 
-              class="qty-input" 
-              placeholder="0"
-              min="0"
-              step="1"
-            >
+            <input type="number" class="qty-input" placeholder="0" min="0" step="1">
           </td>
           <td class="input-col">
-            <input 
-              type="date" 
-              class="date-input"
-            >
+            <input type="date" class="date-input">
           </td>
           <td class="notes-col">
-            <input 
-              type="text" 
-              class="notes-input" 
-              placeholder="Notes..."
-            >
+            <input type="text" class="notes-input" placeholder="Notes…">
           </td>
           <td class="action-col">
-            <button class="btn-save-row" title="Save this row">
+            <button type="button" class="btn-save-row" title="Save this row">
               <i class="fas fa-check"></i>
             </button>
           </td>
@@ -114,964 +94,361 @@
       </tbody>
     </table>
     {% if not items %}
-    <div class="empty-state">
-      <i class="fas fa-inbox"></i>
-      <p>No items found. Try adjusting your search or filter.</p>
-    </div>
+    <div class="empty">No items found. Try adjusting your search or filter.</div>
     {% endif %}
+  </div>
+</div><!-- /items-tab -->
+
+<!-- BEERS TAB -->
+<div id="beers-tab" class="tab-content" style="display:none;">
+
+  <!-- Beer search -->
+  <div class="card" style="padding:16px 20px; margin-bottom:16px;">
+    <div class="search-wrap" style="max-width:340px;">
+      <i class="fas fa-search search-icon"></i>
+      <input type="text" id="searchBeerInput" class="input search-live"
+             placeholder="Search beers…" autocomplete="off">
     </div>
   </div>
 
-  <!-- BEERS TAB -->
-  <div id="beers-tab" class="tab-content" style="display: none;">
-    <!-- Search Beer -->
-    <div class="order-controls card">
-      <div class="controls-grid">
-        <div class="search-box">
-          <i class="fas fa-search"></i>
-          <input 
-            type="text" 
-            id="searchBeerInput" 
-            placeholder="Search beers..." 
-          >
-        </div>
-      </div>
-    </div>
-
-    <!-- Beers Table -->
-    <div class="order-table-wrapper card">
-      <table class="order-table">
-        <thead>
-          <tr>
-            <th>Beer Name</th>
-            <th>Brewery</th>
-            <th>Style</th>
-            <th>On Hand</th>
-            <th>Keg Size</th>
-            <th class="input-col">Quantity to Order</th>
-            <th class="input-col">Order By Date</th>
-            <th class="notes-col">Notes</th>
-            <th class="action-col">Save</th>
-          </tr>
-        </thead>
-        <tbody id="beersTableBody">
-          <!-- Beer rows will be populated by JavaScript -->
-        </tbody>
-      </table>
-      <div id="noBeersMsg" class="empty-state" style="display: none;">
-        <i class="fas fa-beer"></i>
-        <p>No beers found.</p>
-      </div>
-    </div>
+  <!-- Beers table -->
+  <div class="card" style="padding:0; overflow-x:auto; margin-bottom:16px;">
+    <table class="order-table">
+      <thead>
+        <tr>
+          <th>Beer</th>
+          <th>Brewery</th>
+          <th>Style</th>
+          <th>On Hand</th>
+          <th>Keg Size</th>
+          <th class="input-col">Qty to Order</th>
+          <th class="input-col">Order By</th>
+          <th class="notes-col">Notes</th>
+          <th class="action-col"></th>
+        </tr>
+      </thead>
+      <tbody id="beersTableBody"></tbody>
+    </table>
+    <div id="noBeersMsg" class="empty" style="display:none;">No beers found.</div>
   </div>
+</div><!-- /beers-tab -->
 
-  <!-- Action Buttons -->
-  <div class="order-actions">
-    <button class="btn btn-primary" id="saveOrderBtn">
-      <i class="fas fa-save"></i>
-      Save Order
-    </button>
-    <button class="btn btn-secondary" id="clearOrderBtn">
-      <i class="fas fa-redo"></i>
-      Clear Inputs
-    </button>
-  </div>
+<!-- SAVE / CLEAR BUTTONS -->
+<div style="display:flex; gap:12px; justify-content:center; margin-top:4px;">
+  <button type="button" class="btn primary" id="saveOrderBtn">
+    <i class="fas fa-save"></i> Save Order
+  </button>
+  <button type="button" class="btn" id="clearOrderBtn">
+    <i class="fas fa-redo"></i> Clear Inputs
+  </button>
+</div>
 
-  <!-- Edit On-Hand Modal -->
-  <div id="editOnHandModal" class="modal" style="display: none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Edit On-Hand Count</h2>
-        <button class="modal-close" title="Close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p id="modalItemName"></p>
-        <div class="form-group">
-          <label for="onHandInput">On-Hand Count:</label>
-          <input type="number" id="onHandInput" min="0" step="1">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-primary" id="saveOnHandBtn">Save</button>
-        <button class="btn btn-secondary modal-close">Cancel</button>
-      </div>
+<!-- EDIT ON-HAND MODAL -->
+<div id="editOnHandModal" class="tap-modal" style="display:none;"
+     onclick="if(event.target===this)this.style.display='none'">
+  <div class="tap-modal-box">
+    <div class="tap-modal-head">
+      <h2>Edit On-Hand Count</h2>
+      <button type="button" class="tap-modal-close" onclick="document.getElementById('editOnHandModal').style.display='none'">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div style="padding:20px;">
+      <p id="modalItemName" style="font-weight:600; margin-bottom:16px; color:var(--text);"></p>
+      <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">On-Hand Count</label>
+      <input type="number" id="onHandInput" class="input" min="0" step="1" style="width:100%;">
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end; padding:16px 20px; border-top:1px solid var(--stroke);">
+      <button type="button" class="btn" onclick="document.getElementById('editOnHandModal').style.display='none'">Cancel</button>
+      <button type="button" class="btn primary" id="saveOnHandBtn">Save</button>
     </div>
   </div>
 </div>
 
 <style>
-.tabs-section {
-  padding: 0;
-}
-
-.tabs {
-  display: flex;
-  border-bottom: 2px solid var(--border);
-}
-
+/* ── Tabs ── */
 .tab-btn {
-  flex: 1;
-  padding: 12px 20px;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
-  transition: all 0.3s ease;
+  flex: 1; padding: 13px 20px; border: none; background: none;
+  color: var(--text-muted); font-size: 14px; font-weight: 600;
+  cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: var(--transition); display: inline-flex; align-items: center;
+  gap: 7px; justify-content: center;
 }
+.tab-btn:hover { color: var(--text); background: rgba(255,255,255,.04); }
+.tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 
-.tab-btn:hover {
-  background-color: var(--bg-subtle);
-  color: var(--text);
-}
+/* ── Search wrap (shared) ── */
+.search-wrap { position: relative; display: flex; align-items: center; }
+.search-icon { position: absolute; left: 10px; color: var(--text-muted); font-size: 13px; pointer-events: none; }
+.search-live  { padding-left: 32px !important; }
 
-.tab-btn.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
-}
-
-.tab-content {
-  display: none;
-}
-
-.tab-content.active {
-  display: block;
-}
-
-.order-controls {
-  margin-bottom: 20px;
-  padding: 20px;
-}
-
-.controls-grid {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 20px;
-  align-items: end;
-}
-
-.search-box {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.search-box i {
-  position: absolute;
-  left: 12px;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.search-box input {
-  padding-left: 36px;
-  width: 100%;
-}
-
-.category-filter {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.category-filter label {
-  white-space: nowrap;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.category-filter select {
-  min-width: 150px;
-}
-
-/* Order Table Styles */
-.order-table-wrapper {
-  overflow-x: auto;
-  margin-bottom: 20px;
-}
-
+/* ── Order table ── */
 .order-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
+  width: 100%; border-collapse: collapse; font-size: 14px;
 }
-
-.order-table thead {
-  background-color: var(--btn);
-  border-bottom: 2px solid var(--stroke);
-  position: sticky;
-  top: 0;
-}
-
+.order-table thead { background: var(--card2); border-bottom: 2px solid var(--stroke); }
 .order-table th {
-  padding: 14px 12px;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
+  padding: 12px 14px; text-align: left; font-weight: 600;
+  color: var(--text); white-space: nowrap;
 }
+.order-table td { padding: 10px 14px; border-bottom: 1px solid var(--stroke); vertical-align: middle; }
+.order-table tbody tr:hover { background: rgba(37,99,235,.04); }
+.order-table tbody tr:last-child td { border-bottom: none; }
 
-.order-table td {
-  padding: 12px;
-  border-bottom: 1px solid var(--stroke);
-  vertical-align: middle;
-}
+.item-name  { font-weight: 500; color: var(--text); }
+.item-title { display: block; }
+.input-col  { width: 130px; }
+.notes-col  { width: 180px; }
+.action-col { width: 50px; text-align: center; }
 
-.order-table tbody tr:hover {
-  background-color: rgba(37, 99, 235, 0.04);
-}
-
-.item-name {
-  font-weight: 500;
-  color: var(--text);
-}
-
-.item-title {
-  display: block;
-}
-
-.item-category {
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.on-hand {
-  text-align: center;
-}
-
+/* ── On-hand badge ── */
 .on-hand-badge {
-  display: inline-block;
-  background-color: var(--primary-light);
-  color: white;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-weight: 600;
-  font-size: 13px;
-  min-width: 50px;
-  text-align: center;
+  display: inline-block; background: var(--primary); color: #fff;
+  padding: 3px 10px; border-radius: 20px; font-weight: 600;
+  font-size: 12px; min-width: 36px; text-align: center;
 }
 
-.unit {
-  color: var(--text-muted);
-  font-size: 13px;
+/* ── Inputs inside table ── */
+.qty-input, .date-input, .notes-input {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--stroke);
+  border-radius: var(--radius-sm); background: var(--card2); color: var(--text);
+  font-size: 13px; font-family: inherit; transition: var(--transition);
 }
-
-.input-col {
-  width: 140px;
+.qty-input:focus, .date-input:focus, .notes-input:focus {
+  outline: none; border-color: var(--primary); background: var(--card);
+  box-shadow: 0 0 0 2px rgba(37,99,235,.12);
 }
-
-.notes-col {
-  width: 200px;
-}
-
-.action-col {
-  width: 60px;
-  text-align: center;
-}
-
-.qty-input,
-.date-input,
-.notes-input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--stroke);
-  border-radius: 4px;
-  background-color: var(--card2);
-  color: var(--text);
-  font-size: 13px;
-  font-family: inherit;
-}
-
-.qty-input:focus,
-.date-input:focus,
-.notes-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  background-color: var(--card);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
-}
-
-.qty-input::placeholder,
-.date-input::placeholder,
-.notes-input::placeholder {
-  color: var(--text-muted);
-}
-
-/* Light theme input styling */
 body.light-theme .qty-input,
 body.light-theme .date-input,
-body.light-theme .notes-input {
-  background-color: #f9fafb;
-  border-color: #d1d5db;
-}
-
+body.light-theme .notes-input { background: #f9fafb; border-color: #d1d5db; }
 body.light-theme .qty-input:focus,
 body.light-theme .date-input:focus,
-body.light-theme .notes-input:focus {
-  background-color: #ffffff;
-  border-color: #2563eb;
-}
+body.light-theme .notes-input:focus { background: #fff; border-color: #2563eb; }
 
-/* Save Row Button */
+/* ── Row save button ── */
 .btn-save-row {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  background: none; border: none; color: var(--text-muted); font-size: 15px;
+  cursor: pointer; padding: 6px 8px; border-radius: var(--radius-sm);
+  transition: var(--transition); display: inline-flex; align-items: center;
 }
+.btn-save-row:hover  { color: var(--success); background: rgba(16,185,129,.12); }
+.btn-save-row:active { transform: scale(.95); }
 
-.btn-save-row:hover {
-  color: var(--success);
-  background-color: rgba(16, 185, 129, 0.1);
+/* ── Edit on-hand button ── */
+.btn-edit-onhand {
+  background: none; border: none; color: var(--text-muted); font-size: 12px;
+  cursor: pointer; padding: 3px 5px; margin-left: 6px; border-radius: 4px;
+  transition: var(--transition); display: inline-flex; align-items: center;
+  pointer-events: auto; user-select: none;
 }
-
-.btn-save-row:active {
-  transform: scale(0.95);
-}
-
-.btn-save-row.saved {
-  color: var(--success);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  color: var(--text-muted);
-}
-
-.empty-state i {
-  font-size: 48px;
-  margin-bottom: 16px;
-  opacity: 0.5;
-}
-
-.empty-state p {
-  font-size: 16px;
-}
-
-/* Action Buttons */
-.order-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-}
-
-.order-actions .btn {
-  padding: 12px 24px;
-  font-size: 14px;
-}
+.btn-edit-onhand:hover { color: var(--primary); background: rgba(37,99,235,.1); }
 
 @media (max-width: 768px) {
-  .controls-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .order-table {
-    font-size: 12px;
-  }
-
-  .order-table th,
-  .order-table td {
-    padding: 8px 6px;
-  }
-
-  .input-col {
-    width: 100px;
-  }
-
-  .notes-col {
-    width: 120px;
-  }
-
-  .order-actions {
-    flex-direction: column;
-  }
-
-  .order-actions .btn {
-    width: 100%;
-  }
-}
-
-/* Modal Styles */
-.modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background-color: var(--card);
-  border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-  max-width: 400px;
-  width: 90%;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid var(--stroke);
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 18px;
-  color: var(--text);
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.modal-close:hover {
-  color: var(--text);
-  background-color: var(--btn2);
-}
-
-.modal-body {
-  padding: 20px;
-}
-
-.modal-body .form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.modal-body label {
-  font-weight: 600;
-  color: var(--text);
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.modal-body input {
-  padding: 10px 12px;
-  border: 1px solid var(--stroke);
-  border-radius: 6px;
-  background-color: var(--card2);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 14px;
-  transition: border-color 0.2s;
-}
-
-.modal-body input:focus {
-  outline: none;
-  border-color: var(--primary);
-  background-color: var(--card);
-}
-
-body.light-theme .modal-body input {
-  background-color: #f9fafb;
-  border-color: #d1d5db;
-}
-
-body.light-theme .modal-body input:focus {
-  background-color: #ffffff;
-  border-color: #2563eb;
-}
-
-#modalItemName {
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 15px;
-}
-
-.modal-footer {
-  display: flex;
-  gap: 10px;
-  padding: 20px;
-  border-top: 1px solid var(--stroke);
-  justify-content: flex-end;
-}
-
-.modal-footer .btn {
-  padding: 10px 20px;
-  font-size: 13px;
-}
-
-/* On Hand Edit Button */
-.btn-edit-onhand {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  padding: 4px 6px;
-  margin-left: 8px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-edit-onhand:hover {
-  color: var(--primary);
-  background-color: rgba(37, 99, 235, 0.1);
+  .order-table { font-size: 12px; }
+  .order-table th, .order-table td { padding: 8px 8px; }
+  .input-col { width: 90px; }
+  .notes-col { width: 110px; }
 }
 </style>
 
 <script>
-console.log('Script starting...');
 let beersData = [];
 
-// Fetch beers from API
+// Fetch beers on page load
 fetch('/api/beers')
-  .then(response => response.json())
-  .then(data => {
-    beersData = data;
-    console.log('Beers data loaded from API:', beersData);
-  })
-  .catch(error => {
-    console.error('Error loading beers:', error);
-    beersData = [];
+  .then(r => r.json())
+  .then(data => { beersData = data; initializeBeersTable(); })
+  .catch(err => console.error('Failed to load beers:', err));
+
+function initializeBeersTable() {
+  const tbody = document.getElementById('beersTableBody');
+  const noMsg = document.getElementById('noBeersMsg');
+  if (!tbody) return;
+
+  if (!beersData || beersData.length === 0) {
+    if (noMsg) noMsg.style.display = 'block';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  beersData.forEach(beer => {
+    const tr = document.createElement('tr');
+    tr.className = 'order-row';
+    tr.dataset.beerId = beer.id;
+    tr.dataset.name = (beer.name || '').toLowerCase();
+    tr.innerHTML = `
+      <td class="item-name"><span class="item-title">${beer.name || '—'}</span></td>
+      <td class="muted" style="font-size:13px;">${beer.brewery || '—'}</td>
+      <td class="muted" style="font-size:13px;">${beer.style || '—'}</td>
+      <td style="text-align:center;"><span class="on-hand-badge">${beer.on_hand_kegs || 0}</span></td>
+      <td class="muted" style="font-size:13px;">${beer.keg_size || '—'}</td>
+      <td class="input-col"><input type="number" class="qty-input" placeholder="0" min="0" step="1"></td>
+      <td class="input-col"><input type="date" class="date-input"></td>
+      <td class="notes-col"><input type="text" class="notes-input" placeholder="Notes…"></td>
+      <td class="action-col">
+        <button type="button" class="btn-save-row" title="Save this row">
+          <i class="fas fa-check"></i>
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
   });
+}
 
 document.addEventListener('DOMContentLoaded', function() {
-  console.log('DOMContentLoaded fired');
-  
-  // Wait for beers to load, then initialize
-  const waitForBeers = setInterval(() => {
-    if (beersData && Array.isArray(beersData) && beersData.length > 0) {
-      clearInterval(waitForBeers);
-      initializeBeersTable();
-    }
-  }, 100);
-  
-  // Timeout after 5 seconds
-  setTimeout(() => {
-    clearInterval(waitForBeers);
-    if (!beersData || beersData.length === 0) {
-      console.warn('Beers data did not load within timeout');
-      initializeBeersTable();
-    }
-  }, 5000);
-  
-  const searchInput = document.getElementById('searchInput');
-  const searchBeerInput = document.getElementById('searchBeerInput');
-  const categorySelect = document.getElementById('categorySelect');
-  const itemsTableBody = document.getElementById('itemsTableBody');
-  const beersTableBody = document.getElementById('beersTableBody');
-  const saveOrderBtn = document.getElementById('saveOrderBtn');
-  const clearOrderBtn = document.getElementById('clearOrderBtn');
 
-  // Define initializeBeersTable function FIRST
-  function initializeBeersTable() {
-    console.log('initializeBeersTable called');
-    const beersTable = document.getElementById('beersTableBody');
-    const noBeersMsg = document.getElementById('noBeersMsg');
-
-    console.log('beersTable element:', beersTable);
-    console.log('noBeersMsg element:', noBeersMsg);
-    console.log('beersData:', beersData);
-    console.log('beersData length:', beersData ? beersData.length : 'undefined');
-
-    if (!beersTable) {
-      console.error('ERROR: beersTableBody element not found!');
-      return;
-    }
-
-    if (!beersData || beersData.length === 0) {
-      console.log('No beers data, showing message');
-      if (noBeersMsg) {
-        noBeersMsg.style.display = 'block';
-      }
-      return;
-    }
-
-    console.log('Populating beers table with', beersData.length, 'beers');
-    beersTable.innerHTML = '';
-    beersData.forEach((beer, idx) => {
-      console.log(`Adding beer ${idx}:`, beer);
-      const row = document.createElement('tr');
-      row.className = 'order-row';
-      row.dataset.beerId = beer.id;
-      row.dataset.name = (beer.name || '').toLowerCase();
-      row.innerHTML = `
-        <td class="item-name">
-          <span class="item-title">${beer.name || '-'}</span>
-        </td>
-        <td class="brewery">${beer.brewery || '-'}</td>
-        <td class="style">${beer.style || '-'}</td>
-        <td class="on-hand">
-          <span class="on-hand-badge">${beer.on_hand_kegs || 0}</span>
-        </td>
-        <td class="keg-size">${beer.keg_size || '-'}</td>
-        <td class="input-col">
-          <input 
-            type="number" 
-            class="qty-input" 
-            placeholder="0"
-            min="0"
-            step="1"
-          >
-        </td>
-        <td class="input-col">
-          <input 
-            type="date" 
-            class="date-input"
-          >
-        </td>
-        <td class="notes-col">
-          <input 
-            type="text" 
-            class="notes-input" 
-            placeholder="Notes..."
-          >
-        </td>
-        <td class="action-col">
-          <button class="btn-save-row" title="Save this row">
-            <i class="fas fa-check"></i>
-          </button>
-        </td>
-      `;
-      beersTable.appendChild(row);
-    });
-    console.log('Beers table populated');
-  }
-
-  // Tab switching
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  const tabContents = document.querySelectorAll('.tab-content');
-
-  tabBtns.forEach(btn => {
+  // ── Tab switching ──
+  document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', function() {
-      const tabId = this.dataset.tab;
-      
-      // Remove active from all
-      tabBtns.forEach(b => b.classList.remove('active'));
-      tabContents.forEach(c => c.classList.remove('active'));
-      
-      // Add active to clicked
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => { t.classList.remove('active'); t.style.display = 'none'; });
       this.classList.add('active');
-      document.getElementById(tabId).classList.add('active');
+      const tab = document.getElementById(this.dataset.tab);
+      if (tab) { tab.classList.add('active'); tab.style.display = ''; }
     });
   });
 
-  // Initialize beers table AFTER defining the function
-  initializeBeersTable();
-
-  // Search functionality
+  // ── Item search & category filter ──
   function filterItems() {
-    const searchTerm = searchInput.value.toLowerCase();
-    const categoryTerm = categorySelect.value.toLowerCase();
-    const rows = itemsTableBody.querySelectorAll('.order-row');
-
-    rows.forEach(row => {
-      const name = row.dataset.name;
-      const category = row.dataset.category.toLowerCase();
-      
-      const matchesSearch = name.includes(searchTerm);
-      const matchesCategory = !categoryTerm || category === categoryTerm;
-      
-      row.style.display = (matchesSearch && matchesCategory) ? '' : 'none';
+    const q   = (document.getElementById('searchInput')?.value || '').toLowerCase();
+    const cat = document.getElementById('categorySelect')?.value || '';
+    document.querySelectorAll('#itemsTableBody .order-row').forEach(row => {
+      const show = (!q || (row.dataset.name || '').includes(q)) &&
+                   (!cat || row.dataset.category === cat);
+      row.style.display = show ? '' : 'none';
     });
   }
+  document.getElementById('searchInput')?.addEventListener('input', filterItems);
+  document.getElementById('categorySelect')?.addEventListener('change', filterItems);
 
-  function filterBeers() {
-    const searchTerm = searchBeerInput.value.toLowerCase();
-    const rows = beersTableBody.querySelectorAll('.order-row');
-
-    rows.forEach(row => {
-      const name = row.dataset.name;
-      const matches = name.includes(searchTerm);
-      row.style.display = matches ? '' : 'none';
-    });
-  }
-
-  searchInput.addEventListener('input', filterItems);
-  searchBeerInput.addEventListener('input', filterBeers);
-  categorySelect.addEventListener('change', filterItems);
-
-  // Save individual row
-  function saveRow(row, isBeer = false) {
-    const id = isBeer ? row.dataset.beerId : row.dataset.itemId;
-    const qtyInput = row.querySelector('.qty-input');
-    const dateInput = row.querySelector('.date-input');
-    const notesInput = row.querySelector('.notes-input');
-    const saveBtn = row.querySelector('.btn-save-row');
-
-    const qty = parseInt(qtyInput.value) || 0;
-    const orderDate = dateInput.value;
-    const notes = notesInput.value;
-
-    if (qty === 0 && !orderDate && !notes) {
-      alert('Please enter at least quantity, date, or notes to save.');
-      return;
-    }
-
-    const endpoint = isBeer ? '/beer-order/save' : '/order/save';
-    const orderData = isBeer ? 
-      {
-        beer_id: parseInt(id),
-        quantity: qty,
-        order_date: orderDate,
-        notes: notes
-      } :
-      {
-        item_id: parseInt(id),
-        quantity: qty,
-        order_date: orderDate,
-        notes: notes
-      };
-
-    // Save to database
-    fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(orderData)
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        // Show success feedback
-        saveBtn.classList.add('saved');
-        saveBtn.innerHTML = '<i class="fas fa-check-circle"></i>';
-        
-        setTimeout(() => {
-          saveBtn.classList.remove('saved');
-          saveBtn.innerHTML = '<i class="fas fa-check"></i>';
-        }, 2000);
-
-        console.log('Order saved:', orderData);
-      } else {
-        console.error('Error response:', data);
-        alert('Error saving order: ' + (data.error || 'Unknown error'));
-      }
-    })
-    .catch(error => {
-      console.error('Error:', error);
-      alert('Failed to save order: ' + error.message);
-    });
-  }
-  // Attach click handlers to save buttons
-  itemsTableBody.addEventListener('click', function(e) {
-    if (e.target.closest('.btn-save-row')) {
-      const row = e.target.closest('.order-row');
-      saveRow(row, false);
-    }
-  });
-
-  beersTableBody.addEventListener('click', function(e) {
-    if (e.target.closest('.btn-save-row')) {
-      const row = e.target.closest('.order-row');
-      saveRow(row, true);
-    }
-  });
-
-  // Save all order data
-  saveOrderBtn.addEventListener('click', function() {
-    const orders = [];
-    const beerOrders = [];
-    
-    // Get items from items table
-    const itemRows = itemsTableBody.querySelectorAll('.order-row');
-    itemRows.forEach(row => {
-      const itemId = row.dataset.itemId;
-      const qtyInput = row.querySelector('.qty-input');
-      const dateInput = row.querySelector('.date-input');
-      const notesInput = row.querySelector('.notes-input');
-
-      const qty = parseInt(qtyInput.value) || 0;
-      const orderDate = dateInput.value;
-      const notes = notesInput.value;
-
-      if (qty > 0 || orderDate || notes) {
-        orders.push({
-          item_id: itemId,
-          quantity: qty,
-          order_date: orderDate,
-          notes: notes
-        });
-      }
-    });
-
-    // Get beers from beers table
-    const beerRows = beersTableBody.querySelectorAll('.order-row');
-    beerRows.forEach(row => {
-      const beerId = row.dataset.beerId;
-      const qtyInput = row.querySelector('.qty-input');
-      const dateInput = row.querySelector('.date-input');
-      const notesInput = row.querySelector('.notes-input');
-
-      const qty = parseInt(qtyInput.value) || 0;
-      const orderDate = dateInput.value;
-      const notes = notesInput.value;
-
-      if (qty > 0 || orderDate || notes) {
-        beerOrders.push({
-          beer_id: beerId,
-          quantity: qty,
-          order_date: orderDate,
-          notes: notes
-        });
-      }
-    });
-
-    if (orders.length === 0 && beerOrders.length === 0) {
-      alert('No items or beers to order. Please enter at least one.');
-      return;
-    }
-
-    // Save all orders
-    let savedCount = 0;
-    let totalCount = orders.length + beerOrders.length;
-
-    orders.forEach(order => {
-      fetch('/order/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(order)
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) savedCount++;
-        if (savedCount + beerOrders.length === totalCount) {
-          alert(`Orders saved! ${savedCount} items, ${beerOrders.length} beers ordered.`);
-        }
-      })
-      .catch(error => console.error('Error:', error));
-    });
-
-    beerOrders.forEach(order => {
-      fetch('/beer-order/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(order)
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) savedCount++;
-        if (savedCount === totalCount) {
-          alert(`Orders saved! ${orders.length} items, ${beerOrders.length} beers ordered.`);
-        }
-      })
-      .catch(error => console.error('Error:', error));
+  // ── Beer search ──
+  document.getElementById('searchBeerInput')?.addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('#beersTableBody .order-row').forEach(row => {
+      row.style.display = (!q || (row.dataset.name || '').includes(q)) ? '' : 'none';
     });
   });
 
-  // Clear all inputs
-  clearOrderBtn.addEventListener('click', function() {
-    const inputs = itemsTableBody.querySelectorAll('.qty-input, .date-input, .notes-input');
-    const beerInputs = beersTableBody.querySelectorAll('.qty-input, .date-input, .notes-input');
-    inputs.forEach(input => input.value = '');
-    beerInputs.forEach(input => input.value = '');
-  });
-
-  // Edit On-Hand Count Modal
-  const modal = document.getElementById('editOnHandModal');
-  const onHandInput = document.getElementById('onHandInput');
-  const modalItemName = document.getElementById('modalItemName');
-  const saveOnHandBtn = document.getElementById('saveOnHandBtn');
-  let currentItemId = null;
-  let currentBadge = null;
-
-  // Open modal when edit button clicked
+  // ── Delegated click handler ──
   document.addEventListener('click', function(e) {
+
+    // Edit on-hand
     if (e.target.closest('.btn-edit-onhand')) {
+      e.preventDefault(); e.stopPropagation();
       const btn = e.target.closest('.btn-edit-onhand');
-      currentItemId = btn.dataset.itemId;
-      const itemName = btn.dataset.itemName;
-      const badge = btn.closest('td').querySelector('.on-hand-badge');
-      currentBadge = badge;
-
-      modalItemName.textContent = itemName;
-      onHandInput.value = badge.textContent;
-      modal.style.display = 'flex';
-      onHandInput.focus();
-    }
-  });
-
-  // Close modal
-  document.querySelectorAll('.modal-close').forEach(btn => {
-    btn.addEventListener('click', function() {
-      modal.style.display = 'none';
-    });
-  });
-
-  // Close modal on background click
-  modal.addEventListener('click', function(e) {
-    if (e.target === modal) {
-      modal.style.display = 'none';
-    }
-  });
-
-  // Save on-hand count
-  saveOnHandBtn.addEventListener('click', function() {
-    const newCount = parseInt(onHandInput.value) || 0;
-
-    if (!currentItemId || !currentBadge) {
-      alert('Error: Could not identify item');
+      window.currentItemId = btn.dataset.itemId;
+      window.currentBadge  = btn.closest('td').querySelector('.on-hand-badge');
+      document.getElementById('modalItemName').textContent = btn.dataset.itemName;
+      document.getElementById('onHandInput').value = window.currentBadge.textContent.trim();
+      document.getElementById('editOnHandModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('onHandInput').focus(), 60);
       return;
     }
 
-    // Send update to backend
-    fetch(`/items/${currentItemId}/update-onhand`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ on_hand_count: newCount })
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        // Update the badge immediately
-        currentBadge.textContent = newCount;
-        modal.style.display = 'none';
-        alert('On-hand count updated');
-      } else {
-        alert('Error: ' + (data.error || 'Could not update count'));
-      }
-    })
-    .catch(error => {
-      console.error('Error:', error);
-      alert('Failed to update on-hand count');
-    });
+    // Save on-hand
+    if (e.target.closest('#saveOnHandBtn')) {
+      e.preventDefault();
+      const newCount = parseInt(document.getElementById('onHandInput').value) || 0;
+      if (!window.currentItemId) return;
+      fetch(`/items/${window.currentItemId}/update-onhand`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on_hand_count: newCount })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          window.currentBadge.textContent = newCount;
+          document.getElementById('editOnHandModal').style.display = 'none';
+        } else { alert('Error: ' + (data.error || 'Unknown error')); }
+      })
+      .catch(err => { console.error(err); alert('Failed to update on-hand count'); });
+      return;
+    }
+
+    // Save individual row
+    if (e.target.closest('.btn-save-row')) {
+      e.preventDefault(); e.stopPropagation();
+      const btn  = e.target.closest('.btn-save-row');
+      const row  = btn.closest('.order-row');
+      const qty  = parseInt(row.querySelector('.qty-input').value) || 0;
+      const date = row.querySelector('.date-input').value;
+      const note = row.querySelector('.notes-input').value;
+      if (qty === 0 && !date && !note) { alert('Enter at least a quantity, date, or note.'); return; }
+
+      const isBeer   = !!row.dataset.beerId;
+      const endpoint = isBeer ? '/beer-order/save' : '/order/save';
+      const body     = isBeer
+        ? { beer_id: parseInt(row.dataset.beerId), quantity: qty, order_date: date, notes: note }
+        : { item_id: parseInt(row.dataset.itemId), quantity: qty, order_date: date, notes: note };
+
+      fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            btn.innerHTML = '<i class="fas fa-check-circle"></i>';
+            btn.style.color = 'var(--success)';
+            setTimeout(() => { btn.innerHTML = '<i class="fas fa-check"></i>'; btn.style.color = ''; }, 2000);
+          } else { alert('Error: ' + (data.error || 'Unknown error')); }
+        })
+        .catch(err => { console.error(err); alert('Failed to save order'); });
+      return;
+    }
+
+    // Save All
+    if (e.target.closest('#saveOrderBtn')) {
+      e.preventDefault();
+      const promises = [];
+
+      document.querySelectorAll('#itemsTableBody .order-row').forEach(row => {
+        const qty = parseInt(row.querySelector('.qty-input').value) || 0;
+        const dt  = row.querySelector('.date-input').value;
+        const nt  = row.querySelector('.notes-input').value;
+        if (qty > 0 || dt || nt) {
+          promises.push(fetch('/order/save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: parseInt(row.dataset.itemId), quantity: qty, order_date: dt, notes: nt })
+          }).then(r => r.json()));
+        }
+      });
+
+      document.querySelectorAll('#beersTableBody .order-row').forEach(row => {
+        const qty = parseInt(row.querySelector('.qty-input').value) || 0;
+        const dt  = row.querySelector('.date-input').value;
+        const nt  = row.querySelector('.notes-input').value;
+        if (qty > 0 || dt || nt) {
+          promises.push(fetch('/beer-order/save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ beer_id: parseInt(row.dataset.beerId), quantity: qty, order_date: dt, notes: nt })
+          }).then(r => r.json()));
+        }
+      });
+
+      if (promises.length === 0) { alert('No rows filled in yet.'); return; }
+
+      Promise.all(promises)
+        .then(results => {
+          if (results.every(r => r.success)) { alert(`✓ Saved ${promises.length} order(s)`); location.reload(); }
+          else { alert('Some orders failed to save'); }
+        })
+        .catch(err => { console.error(err); alert('Failed to save orders'); });
+      return;
+    }
+
+    // Clear Inputs
+    if (e.target.closest('#clearOrderBtn')) {
+      e.preventDefault();
+      document.querySelectorAll('.qty-input, .date-input, .notes-input').forEach(i => i.value = '');
+      return;
+    }
   });
 
-  // Allow Enter key to save
-  onHandInput.addEventListener('keypress', function(e) {
-    if (e.key === 'Enter') {
-      saveOnHandBtn.click();
-    }
+  // Enter in on-hand modal
+  document.getElementById('onHandInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('saveOnHandBtn').click();
+    if (e.key === 'Escape') document.getElementById('editOnHandModal').style.display = 'none';
   });
 });
 </script>
+
 {% endblock %}

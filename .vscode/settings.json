@@ -1,0 +1,41 @@
+{
+  // Tell VS Code that HTML files in the templates folder are Jinja2 templates,
+  // not JSX/TSX — this stops the TypeScript language service from flagging
+  // {{ }} and {% %} as invalid JSX expressions.
+  "files.associations": {
+    "templates/*.html": "jinja-html",
+    "*.html": "html"
+  },
+
+  // Prevent TypeScript from crawling into the Flask virtual environment
+  "typescript.tsdk": "",
+  "js/ts.implicitProjectConfig.experimentalDecorators": false,
+  "javascript.validate.enable": false,
+
+  // Exclude heavy directories from file watcher
+  "files.watcherExclude": {
+    "**/.venv/**": true,
+    "**/instance/**": true,
+    "**/__pycache__/**": true
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.venv": true
+  },
+
+  // Python settings
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "[python]": {
+    "editor.formatOnSave": false
+  },
+
+  // Editor defaults
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "[html]": {
+    "editor.tabSize": 2
+  },
+  "[jinja-html]": {
+    "editor.tabSize": 2
+  }
+}

@@ -3,17 +3,41 @@
 
 {% set is_edit = (item is not none) %}
 
+{# ── Resolve effective inv_mode for this item ──────────────────────── #}
+{% set eff_mode = (cat_cfg.inv_mode if cat_cfg and cat_cfg.inv_mode
+                  else (item.prep_type if is_edit else 'generic'))|lower %}
+
+{# Convenience booleans matching the hub #}
+{% set mode_is_simple  = (eff_mode == 'items') %}
+{% set mode_is_generic = (eff_mode == 'generic' or eff_mode == 'generic_food') %}
+{% set mode_is_prep    = (eff_mode in ['wings','raw_protein','portion_pack']) %}
+
+{# Show shelf-life + pack sections only for prep-based modes #}
+{% set show_raw_shelf    = mode_is_prep %}
+{% set show_prepped_shelf= mode_is_prep %}
+{% set show_generic_box  = mode_is_generic %}
+{% set show_items_stock  = mode_is_simple %}
+{% set show_packs        = (item.sales_mode == 'packs_4' if is_edit else false) %}
+
 <section class="card">
   <div class="cardhead">
     <div>
-      <h1>{% if is_edit %}Edit Item{% else %}Add Item{% endif %}</h1>
-      <span class="muted">Everything here controls shelf-life rules, prep behavior, and sales entry behavior.</span>
+      <h1>{% if is_edit %}Edit {{ item.name }}{% else %}Add Item{% endif %}</h1>
+      <span class="muted">
+        {% if is_edit %}
+          {{ item.category }} · {{ {
+            'items':'Simple Count','generic':'Box/Case','generic_food':'Prep Food',
+            'wings':'Wings Prep','raw_protein':'Raw Protein','portion_pack':'Portion Packs'
+          }.get(eff_mode, eff_mode) }}
+        {% else %}
+          Fill in the details below — advanced sections appear based on the category you choose.
+        {% endif %}
+      </span>
     </div>
-
     <div class="actions">
       <a class="btn" href="/items">Back</a>
       {% if is_edit %}
-        <a class="btn" href="/items/{{ item.id }}">Open Item Hub</a>
+        <a class="btn" href="/items/{{ item.id }}">Item Hub</a>
       {% endif %}
     </div>
   </div>
@@ -21,29 +45,40 @@
   <form class="form" method="POST"
         action="{% if is_edit %}/items/{{ item.id }}/edit{% else %}/items/new{% endif %}">
 
-    {# -------- BASIC INFO -------- #}
+    {# ── BASIC INFO ────────────────────────────── #}
     <div class="grid2">
       <div class="field">
-        <label>Name</label>
+        <label>Name <span style="color:var(--danger)">*</span></label>
         <input class="input" name="name" required
-               value="{{ item.name if is_edit else '' }}"
-               placeholder="e.g., Wings">
+               value="{{ item.name if is_edit else '' }}" placeholder="e.g. Wings">
       </div>
 
       <div class="field">
-        <label>Category</label>
-        <input class="input" name="category"
-               value="{{ item.category if is_edit else 'Food' }}"
-               placeholder="Food / Alcohol / Paper/Disposables ...">
+        <label>Category <span style="color:var(--danger)">*</span></label>
+        <select class="input" name="category" id="categorySelect" required>
+          {% set cur_cat = item.category if is_edit else 'Food' %}
+          {% for cat in categories %}
+          <option value="{{ cat }}" {% if cat == cur_cat %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+          {% if is_edit and item.category and item.category not in categories %}
+          <option value="{{ item.category }}" selected>{{ item.category }}</option>
+          {% endif %}
+        </select>
       </div>
     </div>
 
     <div class="grid2">
       <div class="field">
         <label>Unit</label>
-        <input class="input" name="unit"
-               value="{{ item.unit if is_edit else 'each' }}"
-               placeholder="each / case / lb">
+        <select class="input" name="unit">
+          {% set cur_unit = item.unit if is_edit else 'each' %}
+          {% for u in units %}
+          <option value="{{ u }}" {% if u == cur_unit %}selected{% endif %}>{{ u }}</option>
+          {% endfor %}
+          {% if is_edit and item.unit and item.unit not in units %}
+          <option value="{{ item.unit }}" selected>{{ item.unit }}</option>
+          {% endif %}
+        </select>
       </div>
 
       <div class="field">
@@ -51,251 +86,299 @@
         <select class="input" name="supplier_id">
           <option value="">— none —</option>
           {% for s in suppliers %}
-            <option value="{{ s.id }}"
-              {% if is_edit and item.supplier_id == s.id %}selected{% endif %}>
-              {{ s.name }}
-            </option>
+          <option value="{{ s.id }}" {% if is_edit and item.supplier_id == s.id %}selected{% endif %}>
+            {{ s.name }}
+          </option>
           {% endfor %}
         </select>
       </div>
     </div>
 
+    {# ── INVENTORY MODE (Prep Type + Sales Mode) ─────────────
+       Always editable, but auto-fills from category on new items.
+       A hint shows what the category recommends.
+    ──────────────────────────────────────────────────────── #}
     <div class="grid2">
       <div class="field">
-        <label>Prep Type</label>
+        <label>Inventory Mode</label>
         {% set pt = (item.prep_type if is_edit and item.prep_type else 'generic') %}
         <select class="input" name="prep_type" id="prep_type">
-          <option value="generic" {% if pt == "generic" %}selected{% endif %}>generic</option>
-          <option value="generic_food" {% if pt == "generic_food" %}selected{% endif %}>generic_food</option>
-          <option value="items" {% if pt == "items" %}selected{% endif %}>items</option>
-          <option value="wings" {% if pt == "wings" %}selected{% endif %}>wings</option>
-          <option value="raw_protein" {% if pt == "raw_protein" %}selected{% endif %}>raw_protein</option>
-          <option value="portion_pack" {% if pt == "portion_pack" %}selected{% endif %}>portion_pack</option>
+          <option value="items"        {% if pt == 'items'        %}selected{% endif %}>Simple Count — just track how many</option>
+          <option value="generic"      {% if pt == 'generic'      %}selected{% endif %}>Box / Case — receive by box/case</option>
+          <option value="generic_food" {% if pt == 'generic_food' %}selected{% endif %}>Prep Food — raw stock → prep batches</option>
+          <option value="wings"        {% if pt == 'wings'        %}selected{% endif %}>Wings Prep — batch prep with portions</option>
+          <option value="raw_protein"  {% if pt == 'raw_protein'  %}selected{% endif %}>Raw Protein — protein with shelf life</option>
+          <option value="portion_pack" {% if pt == 'portion_pack' %}selected{% endif %}>Portion Packs — pre-portioned packs</option>
         </select>
+        {% if cat_cfg and cat_cfg.inv_mode %}
+        <div class="muted smalltxt" style="margin-top:4px;">
+          <i class="fas fa-info-circle"></i>
+          Category default: {{ {
+            'items':'Simple Count','generic':'Box/Case','generic_food':'Prep Food',
+            'wings':'Wings Prep','raw_protein':'Raw Protein','portion_pack':'Portion Packs'
+          }.get(cat_cfg.inv_mode, cat_cfg.inv_mode) }}
+        </div>
+        {% endif %}
       </div>
 
       <div class="field">
         <label>Sales Mode</label>
         {% set sm = (item.sales_mode if is_edit and item.sales_mode else 'simple') %}
-        <select class="input" name="sales_mode">
-          <option value="simple" {% if sm == "simple" %}selected{% endif %}>simple (manual units)</option>
-          <option value="packs_4" {% if sm == "packs_4" %}selected{% endif %}>packs_4 (4 pack counters)</option>
+        <select class="input" name="sales_mode" id="salesModeSelect">
+          <option value="simple"  {% if sm == 'simple'  %}selected{% endif %}>Simple — enter units sold manually</option>
+          <option value="packs_4" {% if sm == 'packs_4' %}selected{% endif %}>Packs (4 counters) — track by pack sizes</option>
         </select>
       </div>
     </div>
 
     <div style="height:8px;"></div>
 
-    {# -------- GENERIC BOX SETTINGS (generic only) -------- #}
-    <div id="generic_box_wrap" style="display:none;">
-      <h2>Generic Box Settings</h2>
-      <div class="muted smalltxt">For generic items, set how many units come in one box/case (optional).</div>
-
-      <div class="grid2">
-        <div class="field">
-          <label>Units Per Box (optional)</label>
-          <input class="input" type="number" min="1" step="1"
-                 name="default_units_per_box" id="units_per_box"
-                 value="{{ item.default_units_per_box if is_edit and item.default_units_per_box is not none else '' }}"
-                 placeholder="e.g., 40">
-        </div>
-
-        <div class="field">
-          <label>Multiplier for Count/Reconcile (optional)</label>
-          <input class="input" type="number" min="0" step="0.01" id="multiplier"
-                 name="multiplier"
-                 value="{{ item.multiplier if is_edit and item.multiplier is not none else '' }}"
-                 placeholder="e.g., 1.0">
-          <div class="muted smalltxt">Used by generic_food items to adjust counts during reconciliation</div>
-        </div>
-      </div>
-
-      <div style="height:8px;"></div>
-    </div>
-
-    {# -------- ITEMS SETTINGS (items only) -------- #}
+    {# ── SIMPLE COUNT SETTINGS ──────────────────── #}
     <div id="items_wrap" style="display:none;">
-      <h2>Items Settings</h2>
-      <div class="muted smalltxt">For simple item tracking (condiments, boxes, etc.).</div>
-
+      <h2>Stock Settings</h2>
       <div class="grid2">
         <div class="field">
-          <label>Current Stock (units)</label>
-          <input class="input" type="number" min="0" step="1"
-                 name="on_hand_count"
+          <label>Current Stock</label>
+          <input class="input" type="number" min="0" step="1" name="on_hand_count"
                  value="{{ item.on_hand_count if is_edit and item.on_hand_count is not none else 0 }}">
         </div>
       </div>
-
       <div style="height:8px;"></div>
     </div>
 
-    {# -------- RAW SHELF LIFE -------- #}
-    <div id="raw_shelf_wrap">
-      <h2>Raw Shelf-Life (days)</h2>
-      <div class="muted smalltxt">Leave blank if no rule is enforced.</div>
-
-      <div class="grid3">
-        <div class="field">
-          <label>Raw • Freezer</label>
-          <input class="input" type="number" min="0" name="raw_freezer_days" id="raw_freezer_days"
-                 value="{{ item.raw_freezer_days if is_edit and item.raw_freezer_days is not none else '' }}">
-        </div>
-        <div class="field">
-          <label>Raw • Cooler</label>
-          <input class="input" type="number" min="0" name="raw_cooler_days" id="raw_cooler_days"
-                 value="{{ item.raw_cooler_days if is_edit and item.raw_cooler_days is not none else '' }}">
-        </div>
-        <div class="field">
-          <label>Raw • Out</label>
-          <input class="input" type="number" min="0" name="raw_out_days" id="raw_out_days"
-                 value="{{ item.raw_out_days if is_edit and item.raw_out_days is not none else '' }}">
-        </div>
-      </div>
-
-      <div style="height:8px;"></div>
-    </div>
-
-    {# -------- PREPPED SHELF LIFE -------- #}
-    <h2>Prepped Shelf-Life (days)</h2>
-    <div class="muted smalltxt">Used to auto-calculate expiration during Prep.</div>
-
-    <div class="grid3">
-      <div class="field">
-        <label>Prepped • Freezer</label>
-        <input class="input" type="number" min="0" name="prepped_freezer_days"
-               value="{{ item.prepped_freezer_days if is_edit and item.prepped_freezer_days is not none else '' }}">
-      </div>
-      <div class="field">
-        <label>Prepped • Cooler</label>
-        <input class="input" type="number" min="0" name="prepped_cooler_days"
-               value="{{ item.prepped_cooler_days if is_edit and item.prepped_cooler_days is not none else '' }}">
-      </div>
-      <div class="field">
-        <label>Prepped • Out</label>
-        <input class="input" type="number" min="0" name="prepped_out_days"
-               value="{{ item.prepped_out_days if is_edit and item.prepped_out_days is not none else '' }}">
-      </div>
-    </div>
-
-    <div style="height:8px;"></div>
-
-    {# -------- PACKS (used for packs_4) -------- #}
-    <div id="pack_counters_wrap">
-      <h2>Pack Counters (used for packs_4)</h2>
-      <div class="muted smalltxt">Reconcile converts pack qty → units using these multipliers.</div>
-
+    {# ── GENERIC BOX SETTINGS ───────────────────── #}
+    <div id="generic_box_wrap" style="display:none;">
+      <h2>Box / Case Settings</h2>
+      <div class="muted smalltxt" style="margin-bottom:12px;">How many units come in one box or case (optional).</div>
       <div class="grid2">
         <div class="field">
-          <label>Pack 1 Label</label>
-          <input class="input" name="pack1_label"
-                 value="{{ item.pack1_label if is_edit and item.pack1_label else 'Single (10)' }}">
+          <label>Units Per Box (optional)</label>
+          <input class="input" type="number" min="1" step="1" name="default_units_per_box" id="units_per_box"
+                 value="{{ item.default_units_per_box if is_edit and item.default_units_per_box is not none else '' }}"
+                 placeholder="e.g. 40">
         </div>
         <div class="field">
-          <label>Pack 1 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack1_mult"
-                 value="{{ item.pack1_mult if is_edit and item.pack1_mult is not none else 10 }}">
-        </div>
-
-        <div class="field">
-          <label>Pack 2 Label</label>
-          <input class="input" name="pack2_label"
-                 value="{{ item.pack2_label if is_edit and item.pack2_label else 'Double (20)' }}">
-        </div>
-        <div class="field">
-          <label>Pack 2 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack2_mult"
-                 value="{{ item.pack2_mult if is_edit and item.pack2_mult is not none else 20 }}">
-        </div>
-
-        <div class="field">
-          <label>Pack 3 Label</label>
-          <input class="input" name="pack3_label"
-                 value="{{ item.pack3_label if is_edit and item.pack3_label else 'Room 120 Single (10)' }}">
-        </div>
-        <div class="field">
-          <label>Pack 3 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack3_mult"
-                 value="{{ item.pack3_mult if is_edit and item.pack3_mult is not none else 10 }}">
-        </div>
-
-        <div class="field">
-          <label>Pack 4 Label</label>
-          <input class="input" name="pack4_label"
-                 value="{{ item.pack4_label if is_edit and item.pack4_label else 'Room 120 Double (20)' }}">
-        </div>
-        <div class="field">
-          <label>Pack 4 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack4_mult"
-                 value="{{ item.pack4_mult if is_edit and item.pack4_mult is not none else 20 }}">
+          <label>Multiplier for Count/Reconcile (optional)</label>
+          <input class="input" type="number" min="0" step="0.01" id="multiplier" name="multiplier"
+                 value="{{ item.multiplier if is_edit and item.multiplier is not none else '' }}"
+                 placeholder="e.g. 1.0">
+          <div class="muted smalltxt">Adjusts counts during reconciliation</div>
         </div>
       </div>
+      <div style="height:8px;"></div>
+    </div>
+
+    {# ── SHELF LIFE (days) — dynamic per the category's Inventory Mode states x locations ── #}
+    <div id="shelf_life_wrap" style="display:none;">
+      <h2>Shelf-Life (days)</h2>
+      <div class="muted smalltxt" style="margin-bottom:12px;">Leave blank to skip a rule. Auto-calculates expiration during Prep.</div>
+      <div id="shelf_life_grid">
+        {% set mode_states = mode_states or [] %}
+        {% set mode_locations = mode_locations or [] %}
+        {% for st in mode_states %}
+        <div class="muted smalltxt" style="margin:10px 0 6px; font-weight:700;">{{ st.label }}</div>
+        <div class="grid3" style="margin-bottom:6px;">
+          {% for loc in mode_locations %}
+          <div class="field">
+            <label>{{ loc.label }}</label>
+            <input class="input" type="number" min="0" name="sl_{{ st.key }}_{{ loc.key }}"
+                   value="{{ shelf_life.get(st.key ~ '_' ~ loc.key, '') if shelf_life else '' }}">
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      <div style="height:8px;"></div>
+    </div>
+
+    {# ── PACK COUNTERS ──────────────────────────── #}
+    <div id="pack_counters_wrap" style="display:none;">
+      <h2>Pack Counters <span class="muted smalltxt">(packs_4 sales mode)</span></h2>
+      <div class="muted smalltxt" style="margin-bottom:12px;">Reconcile converts pack qty → units using these multipliers.</div>
+      <div class="grid2">
+        <div class="field"><label>Pack 1 Label</label>
+          <input class="input" name="pack1_label" value="{{ item.pack1_label if is_edit and item.pack1_label else 'Single (10)' }}">
+        </div>
+        <div class="field"><label>Pack 1 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack1_mult" value="{{ item.pack1_mult if is_edit and item.pack1_mult is not none else 10 }}">
+        </div>
+        <div class="field"><label>Pack 2 Label</label>
+          <input class="input" name="pack2_label" value="{{ item.pack2_label if is_edit and item.pack2_label else 'Double (20)' }}">
+        </div>
+        <div class="field"><label>Pack 2 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack2_mult" value="{{ item.pack2_mult if is_edit and item.pack2_mult is not none else 20 }}">
+        </div>
+        <div class="field"><label>Pack 3 Label</label>
+          <input class="input" name="pack3_label" value="{{ item.pack3_label if is_edit and item.pack3_label else 'Room 120 Single (10)' }}">
+        </div>
+        <div class="field"><label>Pack 3 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack3_mult" value="{{ item.pack3_mult if is_edit and item.pack3_mult is not none else 10 }}">
+        </div>
+        <div class="field"><label>Pack 4 Label</label>
+          <input class="input" name="pack4_label" value="{{ item.pack4_label if is_edit and item.pack4_label else 'Room 120 Double (20)' }}">
+        </div>
+        <div class="field"><label>Pack 4 Multiplier</label>
+          <input class="input" type="number" min="0" name="pack4_mult" value="{{ item.pack4_mult if is_edit and item.pack4_mult is not none else 20 }}">
+        </div>
+      </div>
+    </div>
+
+    {# ── CUSTOM FIELDS (category-defined, Settings > Edit Category) ── #}
+    <div id="custom_fields_wrap" {% if not category_fields %}style="display:none;"{% endif %}>
+      <h2>Custom Fields</h2>
+      <div class="grid2" id="custom_fields_grid">
+        {% for f in category_fields %}
+        <div class="field">
+          <label>{{ f.label }}{% if f.unit_suffix %} <span class="muted smalltxt">({{ f.unit_suffix }})</span>{% endif %}</label>
+          {% if f.field_type == 'formula' %}
+          <input class="input" type="text" value="Calculated after saving" disabled>
+          {% else %}
+          <input class="input" type="{{ 'text' if f.field_type == 'text' else 'number' }}"
+                 {% if f.field_type != 'text' %}step="any"{% endif %}
+                 name="cf_{{ f.field_key }}"
+                 value="{{ field_values.get(f.field_key, '') if field_values and field_values.get(f.field_key) is not none else '' }}">
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div style="height:8px;"></div>
     </div>
 
     <div class="actions" style="margin-top:10px;">
-      <button class="btn primary" type="submit" name="submit">{% if is_edit %}Save Changes{% else %}Create Item{% endif %}</button>
+      <button class="btn primary" type="submit">{% if is_edit %}Save Changes{% else %}Create Item{% endif %}</button>
       <a class="btn" href="/items">Back to Items</a>
     </div>
   </form>
 </section>
 
 <script>
-(function () {
-  const prepTypeEl = document.getElementById("prep_type");
-  const genericWrap = document.getElementById("generic_box_wrap");
-  const itemsWrap = document.getElementById("items_wrap");
-  const rawWrap = document.getElementById("raw_shelf_wrap");
-  const packWrap = document.getElementById("pack_counters_wrap");
+// ── Category config from backend (for auto-fill on new items) ──
+const CAT_CONFIG = {{ (cat_cfg or {}) | tojson | safe }};
 
-  const unitsPerBox = document.getElementById("units_per_box");
+// ── DOM refs ─────────────────────────────────────────────────
+const prepTypeEl    = document.getElementById('prep_type');
+const salesModeEl   = document.getElementById('salesModeSelect');
+const catSelectEl   = document.getElementById('categorySelect');
 
-  const rawInputs = [
-    document.getElementById("raw_freezer_days"),
-    document.getElementById("raw_cooler_days"),
-    document.getElementById("raw_out_days"),
-  ];
+const genericWrap    = document.getElementById('generic_box_wrap');
+const itemsWrap      = document.getElementById('items_wrap');
+const shelfLifeWrap  = document.getElementById('shelf_life_wrap');
+const shelfLifeGrid  = document.getElementById('shelf_life_grid');
+const packWrap       = document.getElementById('pack_counters_wrap');
 
-  function setDisabled(list, disabled) {
-    list.forEach(el => { if (el) el.disabled = disabled; });
+// ── Toggle sections based on prep type ───────────────────────
+function toggleByPrepType() {
+  const v  = (prepTypeEl ? prepTypeEl.value : '').toLowerCase();
+  const sm = salesModeEl ? salesModeEl.value : 'simple';
+
+  const isSimple   = v === 'items';
+  const isGeneric  = v === 'generic' || v === 'generic_food';
+  const mode = _catCfgMap[catSelectEl ? catSelectEl.value : ''];
+  const isLotTracking = mode ? mode.mode_engine === 'lot_tracking' : !isSimple;
+
+  // Items wrap
+  if (itemsWrap)  itemsWrap.style.display  = isSimple  ? '' : 'none';
+  // Generic box wrap
+  if (genericWrap) genericWrap.style.display = isGeneric ? '' : 'none';
+  // Shelf life — only for lot-tracking modes (has states/locations to set days for)
+  if (shelfLifeWrap) shelfLifeWrap.style.display = (isLotTracking && shelfLifeGrid && shelfLifeGrid.children.length) ? '' : 'none';
+  // Pack counters — only when packs_4 mode selected
+  if (packWrap) packWrap.style.display = (sm === 'packs_4') ? '' : 'none';
+}
+
+if (prepTypeEl)  prepTypeEl.addEventListener('change', toggleByPrepType);
+if (salesModeEl) salesModeEl.addEventListener('change', toggleByPrepType);
+
+// ── Category change: fetch config + auto-fill ────────────────
+const isEdit = {{ 'true' if is_edit else 'false' }};
+let _catCfgMap = {};
+
+fetch('/settings/categories.json')
+  .then(r => r.json())
+  .then(list => {
+    list.forEach(c => { _catCfgMap[c.value] = c; });
+    if (!isEdit && catSelectEl) { renderShelfLife(catSelectEl.value); toggleByPrepType(); }
+  })
+  .catch(() => {});
+
+function renderShelfLife(category) {
+  if (!shelfLifeGrid) return;
+  const cfg = _catCfgMap[category];
+  const states = (cfg && cfg.mode_states) || [];
+  const locations = (cfg && cfg.mode_locations) || [];
+  if (!states.length || !locations.length) {
+    shelfLifeGrid.innerHTML = '';
+    if (shelfLifeWrap) shelfLifeWrap.style.display = 'none';
+    return;
   }
+  shelfLifeGrid.innerHTML = states.map(st => {
+    const cells = locations.map(loc =>
+      `<div class="field"><label>${escAttr(loc.label)}</label>
+        <input class="input" type="number" min="0" name="sl_${escAttr(st.key)}_${escAttr(loc.key)}"></div>`
+    ).join('');
+    return `<div class="muted smalltxt" style="margin:10px 0 6px; font-weight:700;">${escAttr(st.label)}</div>
+      <div class="grid3" style="margin-bottom:6px;">${cells}</div>`;
+  }).join('');
+}
 
-  function toggleByPrepType() {
-    const v = (prepTypeEl && prepTypeEl.value ? prepTypeEl.value : "").toLowerCase();
-    const isGenericType = v === "generic" || v === "generic_food";
-    const isItemsType = v === "items";
+// ── Custom fields: fetch category field defs + render on category change ──
+const customFieldsWrap = document.getElementById('custom_fields_wrap');
+const customFieldsGrid = document.getElementById('custom_fields_grid');
+let _catFieldsMap = {};
 
-    if (isItemsType) {
-      if (itemsWrap) itemsWrap.style.display = "";
-      if (genericWrap) genericWrap.style.display = "none";
-      if (rawWrap) rawWrap.style.display = "none";
-      if (packWrap) packWrap.style.display = "none";
-      setDisabled(rawInputs, true);
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-    } else if (isGenericType) {
-      if (itemsWrap) itemsWrap.style.display = "none";
-      if (genericWrap) genericWrap.style.display = "";
-      if (rawWrap) rawWrap.style.display = "none";
-      if (packWrap) packWrap.style.display = "none";
-
-      if (unitsPerBox) unitsPerBox.required = false;
-      setDisabled(rawInputs, true);
-
-    } else {
-      if (itemsWrap) itemsWrap.style.display = "none";
-      if (genericWrap) genericWrap.style.display = "none";
-      if (rawWrap) rawWrap.style.display = "";
-      if (packWrap) packWrap.style.display = "";
-
-      if (unitsPerBox) unitsPerBox.required = false;
-      setDisabled(rawInputs, false);
+function renderCustomFields(category) {
+  if (!customFieldsWrap || !customFieldsGrid) return;
+  const fields = _catFieldsMap[category] || [];
+  if (!fields.length) {
+    customFieldsWrap.style.display = 'none';
+    customFieldsGrid.innerHTML = '';
+    return;
+  }
+  customFieldsGrid.innerHTML = fields.map(f => {
+    const suffix = f.unit_suffix ? ` <span class="muted smalltxt">(${escAttr(f.unit_suffix)})</span>` : '';
+    if (f.field_type === 'formula') {
+      return `<div class="field"><label>${escAttr(f.label)}${suffix}</label>
+        <input class="input" type="text" value="Calculated after saving" disabled></div>`;
     }
-  }
+    const inputType = f.field_type === 'text' ? 'text' : 'number';
+    const step = f.field_type === 'text' ? '' : 'step="any"';
+    return `<div class="field"><label>${escAttr(f.label)}${suffix}</label>
+      <input class="input" type="${inputType}" ${step} name="cf_${escAttr(f.field_key)}"></div>`;
+  }).join('');
+  customFieldsWrap.style.display = '';
+}
 
-  if (prepTypeEl) {
-    prepTypeEl.addEventListener("change", toggleByPrepType);
+fetch('/settings/category-fields.json')
+  .then(r => r.json())
+  .then(map => {
+    _catFieldsMap = map || {};
+    // On a brand-new item, render the initially-selected category's fields
+    // once defs arrive. On edit, keep the server-rendered fields + values
+    // until the user actually changes the category dropdown.
+    if (!isEdit && catSelectEl) renderCustomFields(catSelectEl.value);
+  })
+  .catch(() => {});
+
+if (catSelectEl) {
+  catSelectEl.addEventListener('change', function() {
+    renderCustomFields(this.value);
+    renderShelfLife(this.value);
+    if (isEdit) { toggleByPrepType(); return; }   // don't override explicit values on edit
+    const cfg = _catCfgMap[this.value];
+    if (!cfg) return;
+    if (cfg.inv_mode && prepTypeEl)  prepTypeEl.value = cfg.inv_mode;
+    if (cfg.default_sales_mode && salesModeEl) salesModeEl.value = cfg.default_sales_mode;
     toggleByPrepType();
-  }
-})();
+  });
+}
+
+// ── Initial render ───────────────────────────────────────────
+toggleByPrepType();
 </script>
 
 {% endblock %}

@@ -1,220 +1,437 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div class="container-fluid py-3 beers-page">
-
-  <!-- HEADER -->
-  <div class="beers-header mb-3">
-    <div>
-      <h1 class="beers-title">Manage Beers</h1>
-      <div class="beers-subtitle">Add beers, update backstock, and edit product fields.</div>
-    </div>
-
-    <div class="beers-actions">
-      <a class="btn btn-outline-secondary" href="/beers/dashboard">
-        <i class="fa-solid fa-chart-simple me-1"></i> Beer Dashboard
-      </a>
-      <a class="btn btn-primary" href="/beers/bulk-edit">
-        <i class="fa-solid fa-table me-1"></i> Bulk Edit
-      </a>
-      <a class="btn btn-outline-secondary" href="/">
-        <i class="fa-solid fa-house me-1"></i> Back to Home
-      </a>
-    </div>
+<!-- HEADER -->
+<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; flex-wrap:wrap;">
+  <div>
+    <h1 style="margin:0;">Manage Beers</h1>
+    <span class="muted">Add beers, update backstock, manage tap assignments</span>
   </div>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a href="/beers/dashboard" class="btn"><i class="fas fa-beer"></i> Beer Taps</a>
+    <a href="/beers/bulk-edit" class="btn"><i class="fas fa-table"></i> Bulk Edit</a>
+  </div>
+</div>
 
-  {% if can_edit_inventory %}
-  <!-- TOP PANELS -->
-  <div class="beers-panels mb-3">
+{% if can_edit_inventory %}
+<!-- ADD BEER + RECEIVE KEGS PANELS -->
+<div class="bm-panels">
 
-    <!-- ADD BEER -->
-    <div class="beers-card">
-      <div class="beers-card-head">
-        <div>
-          <div class="beers-card-title">Add Beer</div>
-          <div class="beers-card-subtitle">Required: name + brewery</div>
+  <!-- ADD BEER -->
+  <section class="card">
+    <div class="cardhead"><h2>Add Beer</h2></div>
+    <form method="POST" action="/beers" style="padding:0 20px 20px;">
+      <div class="bm-form-grid">
+        <div class="bm-field">
+          <label>Name <span style="color:var(--danger)">*</span></label>
+          <input class="input" name="name" required placeholder="Beer name">
+        </div>
+        <div class="bm-field">
+          <label>Brewery <span style="color:var(--danger)">*</span></label>
+          <input class="input" name="brewery" required placeholder="Brewery name">
+        </div>
+        <div class="bm-field">
+          <label>Style</label>
+          <input class="input" name="style" placeholder="Lager, IPA, Pilsner…">
+        </div>
+        <div class="bm-field">
+          <label>ABV (%)</label>
+          <input class="input" name="abv" type="number" step="0.1" min="0" max="30" placeholder="4.2">
+        </div>
+        <div class="bm-field">
+          <label>Keg Size</label>
+          <select class="input" name="keg_size">
+            <option value="half">Half</option>
+            <option value="full">Full</option>
+          </select>
+        </div>
+        <div class="bm-field">
+          <label>Cups / Keg</label>
+          <input class="input" name="cups_per_keg" type="number" step="1" min="0" placeholder="Optional">
+        </div>
+        <div class="bm-field">
+          <label>Cost (per keg)</label>
+          <input class="input" name="cost" type="number" step="0.01" min="0">
+        </div>
+        <div class="bm-field">
+          <label>Sell Price (per cup)</label>
+          <input class="input" name="price" type="number" step="0.01" min="0">
+        </div>
+        <div class="bm-field" style="grid-column:1/-1;">
+          <label>Kegs On Hand (backstock)</label>
+          <input class="input" name="kegs_on_hand" type="number" step="1" min="0" value="0" style="max-width:160px;">
         </div>
       </div>
+      <button class="btn primary" type="submit" style="width:100%; margin-top:4px;">
+        <i class="fas fa-plus"></i> Add Beer
+      </button>
+    </form>
+  </section>
 
-      <div class="beers-card-body">
-        <form method="POST" action="/beers">
-
-          <div class="row g-3">
-            <div class="col-12 col-md-6">
-              <label class="form-label">Name</label>
-              <input class="form-control" name="name" required>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Brewery</label>
-              <input class="form-control" name="brewery" required>
-            </div>
-
-            <div class="col-12 col-md-6">
-              <label class="form-label">Style</label>
-              <input class="form-control" name="style" placeholder="Lager, IPA, Pilsner...">
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">ABV (%)</label>
-              <input class="form-control" name="abv" type="number" step="0.1" min="0" max="30" placeholder="4.2">
-            </div>
-
-            <div class="col-12 col-md-6">
-              <label class="form-label">Cost (your keg cost)</label>
-              <input class="form-control" name="cost" type="number" step="0.01" min="0">
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Selling Price (per cup)</label>
-              <input class="form-control" name="price" type="number" step="0.01" min="0">
-            </div>
-
-            <div class="col-12 col-md-6">
-              <label class="form-label">Keg Size</label>
-              <select class="form-select" name="keg_size">
-                <option value="half">Half</option>
-                <option value="full">Full</option>
-              </select>
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Cups per Keg (optional)</label>
-              <input class="form-control" name="cups_per_keg" type="number" step="1" min="0" placeholder="Optional">
-            </div>
-
-            <div class="col-12">
-              <label class="form-label">Kegs On Hand (unopened)</label>
-              <input class="form-control" name="kegs_on_hand" type="number" step="1" min="0" value="0">
-            </div>
-
-            <div class="col-12">
-              <button class="btn btn-success w-100" type="submit">
-                <i class="fa-solid fa-plus me-1"></i> Add Beer
-              </button>
-            </div>
-          </div>
-
-        </form>
-      </div>
-    </div>
-
-    <!-- RECEIVE KEGS -->
-    <div class="beers-card">
-      <div class="beers-card-head">
-        <div>
-          <div class="beers-card-title">Receive Kegs</div>
-          <div class="beers-card-subtitle">Adds unopened backstock</div>
-        </div>
-      </div>
-
-      <div class="beers-card-body">
-        <form method="POST" action="/beers/receive">
-
-          <div class="row g-3">
-            <div class="col-12 col-md-8">
-              <label class="form-label">Beer</label>
-              <select class="form-select" name="beer_id" required>
-                <option value="">Select…</option>
-                {% for b in beers %}
-                  <option value="{{ b.id }}">{{ b.name }} • {{ b.brewery }}</option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <div class="col-12 col-md-4">
-              <label class="form-label">Qty (kegs)</label>
-              <input class="form-control" type="number" name="qty" min="1" step="1" required>
-            </div>
-
-            <div class="col-12">
-              <button class="btn btn-primary w-100" type="submit">
-                <i class="fa-solid fa-truck-ramp-box me-1"></i> Receive
-              </button>
-            </div>
-          </div>
-
-        </form>
-      </div>
-    </div>
-
-  </div>
-  {% endif %}
-
-  <!-- LIST -->
-  <div class="beers-card">
-    <div class="beers-card-head beers-card-head-tight">
-      <div>
-        <div class="beers-card-title">Beer List</div>
-        <div class="beers-card-subtitle">Edit beers, view backstock, and manage pricing.</div>
-      </div>
-    </div>
-
-    <div class="beers-table-wrap">
-      <table class="table table-hover align-middle beers-table mb-0">
-        <thead>
-          <tr>
-            <th class="bcol-beer">Beer</th>
-            <th class="bcol-style">Style</th>
-            <th class="bcol-abv">ABV</th>
-            <th class="bcol-keg">Keg</th>
-            <th class="bcol-cups">Cups</th>
-            <th class="bcol-cost">Cost</th>
-            <th class="bcol-price">Price</th>
-            <th class="bcol-back">Backstock</th>
-          </tr>
-        </thead>
-
-        <tbody>
+  <!-- RECEIVE KEGS -->
+  <section class="card">
+    <div class="cardhead"><h2>Receive Kegs</h2></div>
+    <form method="POST" action="/beers/receive" style="padding:0 20px 20px;">
+      <div class="bm-field" style="margin-bottom:16px;">
+        <label>Beer</label>
+        <select class="input" name="beer_id" required>
+          <option value="">Select beer…</option>
           {% for b in beers %}
-          <tr>
-            <td class="bcol-beer">
-              <div class="fw-semibold">{{ b.name }} <span class="text-muted">• {{ b.brewery }}</span></div>
-
-              {% if can_edit_inventory %}
-              <div class="beers-row-actions">
-                <a class="btn btn-outline-secondary btn-sm" href="/beers/{{ b.id }}/edit">
-                  <i class="fa-solid fa-pen-to-square me-1"></i> Edit
-                </a>
-
-                <form method="POST" action="/beers/{{ b.id }}/delete" class="m-0">
-                  <button class="btn btn-outline-danger btn-sm" type="submit"
-                          onclick="return confirm('Delete this beer? If it’s currently on a tap, it will be blocked.')">
-                    <i class="fa-solid fa-trash me-1"></i> Delete
-                  </button>
-                </form>
-              </div>
-              {% endif %}
-            </td>
-
-            <td class="bcol-style text-muted">{{ b.style or "—" }}</td>
-
-            <td class="bcol-abv text-muted">
-              {% if b.abv is not none %}{{ "%.1f"|format(b.abv) }}%{% else %}—{% endif %}
-            </td>
-
-            <td class="bcol-keg text-muted">{{ b.keg_size or "—" }}</td>
-
-            <td class="bcol-cups text-muted">{{ b.cups_per_keg or "—" }}</td>
-
-            <td class="bcol-cost text-muted">
-              {% if b.cost is not none %}${{ "%.2f"|format(b.cost) }}{% else %}—{% endif %}
-            </td>
-
-            <td class="bcol-price text-muted">
-              {% if b.price is not none %}${{ "%.2f"|format(b.price) }}{% else %}—{% endif %}
-            </td>
-
-            <td class="bcol-back">
-              <span class="badge text-bg-secondary">{{ b.kegs_on_hand }}</span>
-            </td>
-          </tr>
+          <option value="{{ b.id }}">{{ b.name }}{% if b.brewery %} · {{ b.brewery }}{% endif %}</option>
           {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {% if beers|length == 0 %}
-      <div class="p-3 text-muted">No beers yet. Add one above.</div>
-    {% endif %}
-  </div>
+        </select>
+      </div>
+      <div class="bm-field" style="margin-bottom:20px;">
+        <label>Qty (kegs)</label>
+        <input class="input" type="number" name="qty" min="1" step="1" required>
+      </div>
+      <button class="btn primary" type="submit" style="width:100%;">
+        <i class="fas fa-truck-ramp-box"></i> Receive Kegs
+      </button>
+    </form>
+  </section>
 
 </div>
+{% endif %}
+
+<!-- ══════════════════════════════════════════════
+     TAP ASSIGNMENTS
+     ══════════════════════════════════════════════ -->
+<section class="card" style="margin-bottom:20px;">
+  <div class="cardhead">
+    <div>
+      <h2>Tap Assignments</h2>
+      <span class="muted">Click Save on any tap to update its beer assignment</span>
+    </div>
+  </div>
+
+  <!-- Bar tabs -->
+  <div style="display:flex; border-bottom:2px solid var(--stroke);">
+    <button type="button" class="bm-tab bm-tab-active" data-bar="main">
+      <i class="fas fa-beer"></i> Main Bar
+    </button>
+    <button type="button" class="bm-tab" data-bar="lower">
+      <i class="fas fa-beer"></i> Lower Bar
+    </button>
+  </div>
+
+  <!-- Main bar taps -->
+  <div id="bm-panel-main" class="bm-tap-panel">
+    <div class="bm-tap-grid">
+      {% for t in main_taps %}
+      <div class="bm-tap-row {% if t.beer_id %}bm-tap-assigned{% endif %}" data-tap-id="{{ t.id }}">
+        <span class="bm-tap-num">{{ loop.index }}</span>
+        <select class="input bm-tap-select" style="flex:1; min-width:0;">
+          <option value="">— Empty —</option>
+          {% for b in beers %}
+          <option value="{{ b.id }}" {% if t.beer_id == b.id %}selected{% endif %}>
+            {{ b.name }}{% if b.brewery %} · {{ b.brewery }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <input type="number" class="input bm-tap-pct" min="0" max="100" placeholder="%"
+               value="{{ t.percent_remaining if t.beer_id else '' }}"
+               title="% remaining">
+        <button type="button" class="btn primary small bm-tap-save"
+                data-tap-id="{{ t.id }}" title="Save tap assignment">
+          <i class="fas fa-check"></i>
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Lower bar taps -->
+  <div id="bm-panel-lower" class="bm-tap-panel" style="display:none;">
+    <div class="bm-tap-grid">
+      {% for t in lower_taps %}
+      <div class="bm-tap-row {% if t.beer_id %}bm-tap-assigned{% endif %}" data-tap-id="{{ t.id }}">
+        <span class="bm-tap-num">{{ loop.index }}</span>
+        <select class="input bm-tap-select" style="flex:1; min-width:0;">
+          <option value="">— Empty —</option>
+          {% for b in beers %}
+          <option value="{{ b.id }}" {% if t.beer_id == b.id %}selected{% endif %}>
+            {{ b.name }}{% if b.brewery %} · {{ b.brewery }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <input type="number" class="input bm-tap-pct" min="0" max="100" placeholder="%"
+               value="{{ t.percent_remaining if t.beer_id else '' }}"
+               title="% remaining">
+        <button type="button" class="btn primary small bm-tap-save"
+                data-tap-id="{{ t.id }}" title="Save tap assignment">
+          <i class="fas fa-check"></i>
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
+     BEER LIST
+     ══════════════════════════════════════════════ -->
+<section class="card">
+  <div class="cardhead">
+    <div>
+      <h2>Beer List</h2>
+      <span class="muted">{{ beers|length }} beer{{ 's' if beers|length != 1 else '' }}</span>
+    </div>
+    <div class="search-wrap" style="width:220px;">
+      <i class="fas fa-search search-icon"></i>
+      <input type="text" id="beerSearch" class="input" style="padding-left:32px;"
+             placeholder="Search…" autocomplete="off">
+    </div>
+  </div>
+
+  {% if beers %}
+  <div style="overflow-x:auto;">
+    <table class="bm-table">
+      <thead>
+        <tr>
+          <th>Beer</th>
+          <th>Style</th>
+          <th class="bm-col-num">ABV</th>
+          <th>Keg</th>
+          <th class="bm-col-num">Cups</th>
+          <th class="bm-col-num">Cost</th>
+          <th class="bm-col-num">Price</th>
+          <th class="bm-col-num">Backstock</th>
+          {% if can_edit_inventory %}<th class="bm-col-act"></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody id="beerListBody">
+        {% for b in beers %}
+        <tr class="bm-beer-row" data-name="{{ b.name.lower() }}">
+          <td>
+            <div style="font-weight:600; color:var(--text);">{{ b.name }}</div>
+            <div class="muted" style="font-size:12px;">{{ b.brewery or '' }}</div>
+          </td>
+          <td class="muted" style="font-size:13px;">{{ b.style or '—' }}</td>
+          <td class="bm-col-num muted" style="font-size:13px;">
+            {% if b.abv is not none %}{{ '%.1f'|format(b.abv) }}%{% else %}—{% endif %}
+          </td>
+          <td class="muted" style="font-size:13px; text-transform:capitalize;">{{ b.keg_size or '—' }}</td>
+          <td class="bm-col-num muted" style="font-size:13px;">{{ b.cups_per_keg or '—' }}</td>
+          <td class="bm-col-num muted" style="font-size:13px;">
+            {% if b.cost is not none %}${{ '%.2f'|format(b.cost) }}{% else %}—{% endif %}
+          </td>
+          <td class="bm-col-num muted" style="font-size:13px;">
+            {% if b.price is not none %}${{ '%.2f'|format(b.price) }}{% else %}—{% endif %}
+          </td>
+          <td class="bm-col-num">
+            <span class="keg-stock-badge {% if (b.on_hand_kegs or 0) == 0 %}keg-stock-zero{% elif (b.on_hand_kegs or 0) <= 1 %}keg-stock-low{% endif %}">
+              {{ b.on_hand_kegs or 0 }}
+            </span>
+          </td>
+          {% if can_edit_inventory %}
+          <td class="bm-col-act">
+            <div style="display:flex; gap:2px; justify-content:center;">
+              <a class="icon-btn" href="/beers/{{ b.id }}/edit" title="Edit">
+                <i class="fas fa-edit"></i>
+              </a>
+              <form method="POST" action="/beers/{{ b.id }}/delete" style="margin:0;">
+                <button class="icon-btn danger" type="submit" title="Delete"
+                        onclick="return confirm('Delete {{ b.name }}? Cannot undo.')">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </form>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div id="bmNoResults" class="empty" style="display:none;">No beers match.</div>
+  {% else %}
+  <div class="empty">No beers yet. Add one above.</div>
+  {% endif %}
+</section>
+
+<style>
+/* ── Two-panel layout (Add Beer + Receive Kegs) ── */
+.bm-panels {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 768px) { .bm-panels { grid-template-columns: 1fr; } }
+
+/* ── Form fields ── */
+.bm-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+@media (max-width: 560px) { .bm-form-grid { grid-template-columns: 1fr; } }
+.bm-field { display: flex; flex-direction: column; gap: 5px; }
+.bm-field label { font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--text-muted); }
+
+/* ── Tab buttons ── */
+.bm-tab {
+  flex: 1; padding: 13px 20px; border: none; background: none;
+  color: var(--text-muted); font-size: 14px; font-weight: 600;
+  cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: var(--transition); display: inline-flex; align-items: center;
+  gap: 7px; justify-content: center;
+}
+.bm-tab:hover { color: var(--text); background: rgba(255,255,255,.04); }
+.bm-tab-active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* ── Tap grid ── */
+.bm-tap-panel { padding: 16px; }
+.bm-tap-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Individual tap row ── */
+.bm-tap-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--stroke);
+  background: var(--card2);
+  transition: var(--transition);
+}
+.bm-tap-row:hover { border-color: var(--primary); }
+.bm-tap-assigned { background: rgba(37,99,235,.05); border-color: rgba(37,99,235,.25); }
+
+.bm-tap-num {
+  font-size: 11px; font-weight: 800; color: var(--text-muted);
+  min-width: 24px; text-align: center; letter-spacing: .5px;
+}
+.bm-tap-assigned .bm-tap-num { color: var(--primary); }
+
+.bm-tap-pct {
+  width: 64px !important; text-align: center; padding: 6px 6px !important; flex-shrink: 0;
+}
+
+.btn.primary.small {
+  padding: 6px 12px; font-size: 12px; flex-shrink: 0;
+}
+
+/* ── Search wrap ── */
+.search-wrap { position: relative; display: flex; align-items: center; }
+.search-icon { position: absolute; left: 10px; color: var(--text-muted); font-size: 13px; pointer-events: none; }
+
+/* ── Beer list table ── */
+.bm-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.bm-table thead { background: var(--card2); border-bottom: 2px solid var(--stroke); }
+.bm-table th { padding: 11px 14px; text-align: left; font-weight: 600; white-space: nowrap; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px; }
+.bm-table td { padding: 10px 14px; border-bottom: 1px solid var(--stroke); vertical-align: middle; }
+.bm-table tbody tr:last-child td { border-bottom: none; }
+.bm-table tbody tr:hover { background: rgba(37,99,235,.04); }
+.bm-col-num { width: 70px; text-align: center; }
+.bm-col-act { width: 80px; text-align: center; }
+
+/* ── Backstock badge ── */
+.keg-stock-badge {
+  display: inline-block; background: rgba(37,99,235,.15); color: var(--primary);
+  padding: 3px 10px; border-radius: 20px; font-weight: 700; font-size: 12px;
+  min-width: 32px; text-align: center;
+}
+.keg-stock-low  { background: rgba(245,158,11,.18); color: var(--warning); }
+.keg-stock-zero { background: rgba(185,39,58,.18);  color: var(--danger);  }
+
+/* ── Icon buttons ── */
+.icon-btn {
+  background: none; border: none; color: var(--text-muted); font-size: 13px;
+  cursor: pointer; padding: 6px 8px; border-radius: var(--radius-sm);
+  transition: var(--transition); display: inline-flex; align-items: center;
+  text-decoration: none;
+}
+.icon-btn:hover        { color: var(--primary); background: rgba(37,99,235,.1); }
+.icon-btn.danger:hover { color: var(--danger);  background: rgba(185,39,58,.1); }
+</style>
+
+<script>
+// ── Bar tab switching ──
+document.querySelectorAll('.bm-tab').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.bm-tab').forEach(b => b.classList.remove('bm-tab-active'));
+    this.classList.add('bm-tab-active');
+    document.querySelectorAll('.bm-tap-panel').forEach(p => p.style.display = 'none');
+    document.getElementById('bm-panel-' + this.dataset.bar).style.display = '';
+  });
+});
+
+// ── Tap save (AJAX) ──
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.bm-tap-save');
+  if (!btn) return;
+  e.preventDefault();
+
+  const tapId  = btn.dataset.tapId;
+  const row    = btn.closest('.bm-tap-row');
+  const sel    = row.querySelector('.bm-tap-select');
+  const pctEl  = row.querySelector('.bm-tap-pct');
+  const beerId = sel.value;
+  const pct    = pctEl.value !== '' ? parseInt(pctEl.value) : 100;
+
+  // visual feedback: loading
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  btn.disabled = true;
+
+  const fd = new FormData();
+  fd.append('tap_id',      tapId);
+  fd.append('beer_id',     beerId);
+  fd.append('set_percent', pct);
+  fd.append('format',      'json');
+
+  fetch('/beers/taps/assign', { method: 'POST', body: fd,
+    headers: { 'Accept': 'application/json' } })
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        // update row style
+        if (beerId) {
+          row.classList.add('bm-tap-assigned');
+          row.querySelector('.bm-tap-num').style.color = 'var(--primary)';
+          if (!pctEl.value) pctEl.value = 100;
+        } else {
+          row.classList.remove('bm-tap-assigned');
+          row.querySelector('.bm-tap-num').style.color = '';
+          pctEl.value = '';
+        }
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        btn.style.background = 'var(--success)';
+        setTimeout(() => {
+          btn.innerHTML = origHTML;
+          btn.style.background = '';
+          btn.disabled = false;
+        }, 1800);
+      } else {
+        btn.innerHTML = '<i class="fas fa-times"></i>';
+        btn.style.background = 'var(--danger)';
+        setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 2000);
+      }
+    })
+    .catch(() => {
+      btn.innerHTML = '<i class="fas fa-times"></i>';
+      btn.style.background = 'var(--danger)';
+      setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 2000);
+    });
+});
+
+// ── Beer list live search ──
+document.getElementById('beerSearch')?.addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  let visible = 0;
+  document.querySelectorAll('.bm-beer-row').forEach(row => {
+    const show = !q || (row.dataset.name || '').includes(q);
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('bmNoResults').style.display = visible === 0 ? '' : 'none';
+});
+</script>
 
 {% endblock %}

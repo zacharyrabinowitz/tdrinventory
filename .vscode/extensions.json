@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    // Jinja2 template syntax highlighting — makes VS Code treat *.html
+    // files as jinja-html and stops the JSX/TS linter from flagging {{ }}.
+    "samuelcolvin.jinjahtml",
+
+    // Python language support
+    "ms-python.python",
+    "ms-python.pylance"
+  ]
+}
