@@ -12,6 +12,9 @@ from datetime import datetime, date, timedelta, timezone
 from typing import Optional, Any, Iterable, cast
 from functools import wraps
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask, flash, redirect, render_template, request, session, abort, url_for, send_file, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
