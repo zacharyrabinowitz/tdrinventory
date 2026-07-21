@@ -1,15 +1,11 @@
-# DISABLED: this workflow was copied from a different project (employee-portal)
-# and does not deploy this app (draft-room-inventory). It has been disabled
-# (trigger removed) to stop it from restarting an unrelated production service
-# on every push to this repo. Left in place, not deleted, pending review.
-name: Deploy to Production (disabled)
+name: Deploy to Production
 
 on:
-  workflow_dispatch: {}
+  push:
+    branches: [main]
 
 jobs:
   deploy:
-    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
@@ -19,8 +15,6 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd /opt/employee-portal
+            cd /opt/tdrinventory
             git pull
-            source venv/bin/activate
-            python3 migrate.py
-            sudo systemctl restart employee-portal
+            sudo systemctl restart tdrinventory
