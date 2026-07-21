@@ -1,11 +1,15 @@
-name: Deploy to Production
+# DISABLED: this workflow was copied from a different project (employee-portal)
+# and does not deploy this app (draft-room-inventory). It has been disabled
+# (trigger removed) to stop it from restarting an unrelated production service
+# on every push to this repo. Left in place, not deleted, pending review.
+name: Deploy to Production (disabled)
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch: {}
 
 jobs:
   deploy:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
