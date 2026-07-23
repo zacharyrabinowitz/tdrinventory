@@ -105,6 +105,8 @@
           <div class="muted">{{ u.created_at.strftime("%b %d, %Y") }}</div>
 
           <div class="row-actions users-actions">
+            <a class="btn small" href="/users/{{ u.id }}/edit">Edit</a>
+
             <form method="POST" action="/users/{{ u.id }}/toggle_active" class="inline">
               {% if u.is_active %}
                 <button class="btn small danger" type="submit"
@@ -158,6 +160,8 @@
           </div>
 
           <div class="user-card-actions">
+            <a class="btn full" href="/users/{{ u.id }}/edit">Edit User</a>
+
             <form method="POST" action="/users/{{ u.id }}/toggle_active">
               {% if u.is_active %}
                 <button class="btn danger full" type="submit"
@@ -214,9 +218,9 @@
 
       .meta {
         padding:10px;
-        border-radius:12px;
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.06);
+        border-radius:var(--radius-md);
+        background: var(--card2);
+        border: 1px solid var(--stroke);
       }
 
       .user-card-actions {
@@ -261,9 +265,9 @@
         .user-card {
           display: block;
           padding: 14px;
-          border-radius: 16px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: var(--radius-lg);
+          background: var(--card2);
+          border: 1px solid var(--stroke);
           margin-bottom: 12px;
         }
 

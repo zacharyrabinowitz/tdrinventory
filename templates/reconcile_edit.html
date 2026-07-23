@@ -30,7 +30,7 @@
       
       <!-- Step 1: Select Boxes (FIFO) -->
       {% if available_lots_for_selection and available_lots_for_selection|length > 0 %}
-        <div class="card" style="background: rgba(255,255,255,0.03); margin-bottom:14px;">
+        <div class="card" style="background: linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)), var(--card2); margin-bottom:14px;">
           <div class="cardhead" style="padding: 12px 14px;">
             <div>
               <h2 style="margin:0;">Step 1 — Select Boxes (FIFO)</h2>
@@ -78,7 +78,7 @@
 
         <div class="field">
           <label>Boxes on Hand (Start)</label>
-          <input class="input" type="number" min="0" step="1" name="starting_units" value="{{ current_units_on_hand }}" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default;">
+          <input class="input" type="number" min="0" step="1" name="starting_units" value="{{ current_units_on_hand }}" readonly style="background: linear-gradient(rgba(255,255,255,0.04),rgba(255,255,255,0.04)), var(--card2); cursor: default;">
         </div>
       </div>
 
@@ -104,7 +104,7 @@
 
         <div class="field">
           <label>Items Sold (Auto)</label>
-          <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="{{ rec.sales_units }}" readonly style="background: rgba(255, 255, 255, 0.06); cursor: default; color: var(--text-muted);">
+          <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="{{ rec.sales_units }}" readonly style="background: linear-gradient(rgba(255,255,255,0.06),rgba(255,255,255,0.06)), var(--card2); cursor: default; color: var(--text-muted);">
         </div>
       </div>
 
@@ -175,7 +175,7 @@
     <div style="height:14px;"></div>
 
     <!-- STEP 1 -->
-    <div class="card" style="background: rgba(255,255,255,0.03);">
+    <div class="card" style="background: linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)), var(--card2);">
       <div class="cardhead" style="padding: 12px 14px;">
         <div>
           <h2 style="margin:0;">Step 1 — Linked Prepped Batches (optional)</h2>
@@ -241,7 +241,7 @@
     <div style="height:14px;"></div>
 
     <!-- STEP 2 -->
-    <div class="card" style="background: rgba(255,255,255,0.03);">
+    <div class="card" style="background: linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)), var(--card2);">
       <div class="cardhead" style="padding: 12px 14px;">
         <div>
           <h2 style="margin:0;">Step 2 — Sales / Usage Entry</h2>
@@ -315,7 +315,7 @@
     <div style="height:14px;"></div>
 
     <!-- STEP 3 -->
-    <div class="card" style="background: rgba(255,255,255,0.03);">
+    <div class="card" style="background: linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)), var(--card2);">
       <div class="cardhead" style="padding: 12px 14px;">
         <div>
           <h2 style="margin:0;">Step 3 — Count What’s Left</h2>

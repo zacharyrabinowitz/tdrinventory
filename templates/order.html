@@ -192,7 +192,7 @@
   color: var(--text); white-space: nowrap;
 }
 .order-table td { padding: 10px 14px; border-bottom: 1px solid var(--stroke); vertical-align: middle; }
-.order-table tbody tr:hover { background: rgba(37,99,235,.04); }
+.order-table tbody tr:hover { background: var(--primary-tint); }
 .order-table tbody tr:last-child td { border-bottom: none; }
 
 .item-name  { font-weight: 500; color: var(--text); }
@@ -203,7 +203,7 @@
 
 /* ── On-hand badge ── */
 .on-hand-badge {
-  display: inline-block; background: var(--primary); color: #fff;
+  display: inline-block; background: var(--primary); color: var(--primary-contrast);
   padding: 3px 10px; border-radius: 20px; font-weight: 600;
   font-size: 12px; min-width: 36px; text-align: center;
 }
@@ -216,14 +216,8 @@
 }
 .qty-input:focus, .date-input:focus, .notes-input:focus {
   outline: none; border-color: var(--primary); background: var(--card);
-  box-shadow: 0 0 0 2px rgba(37,99,235,.12);
+  box-shadow: 0 0 0 3px var(--focus);
 }
-body.light-theme .qty-input,
-body.light-theme .date-input,
-body.light-theme .notes-input { background: #f9fafb; border-color: #d1d5db; }
-body.light-theme .qty-input:focus,
-body.light-theme .date-input:focus,
-body.light-theme .notes-input:focus { background: #fff; border-color: #2563eb; }
 
 /* ── Row save button ── */
 .btn-save-row {
@@ -241,7 +235,7 @@ body.light-theme .notes-input:focus { background: #fff; border-color: #2563eb; }
   transition: var(--transition); display: inline-flex; align-items: center;
   pointer-events: auto; user-select: none;
 }
-.btn-edit-onhand:hover { color: var(--primary); background: rgba(37,99,235,.1); }
+.btn-edit-onhand:hover { color: var(--primary); background: var(--primary-tint); }
 
 @media (max-width: 768px) {
   .order-table { font-size: 12px; }

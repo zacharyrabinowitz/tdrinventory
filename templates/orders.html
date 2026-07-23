@@ -111,7 +111,7 @@
 .otable th { padding: 12px 14px; text-align: left; font-weight: 600; white-space: nowrap; }
 .otable td { padding: 11px 14px; border-bottom: 1px solid var(--stroke); vertical-align: middle; }
 .otable tbody tr:last-child td { border-bottom: none; }
-.otable tbody tr:hover { background: rgba(37,99,235,.04); }
+.otable tbody tr:hover { background: var(--primary-tint); }
 
 .col-sm  { width: 80px; text-align: center; }
 .col-md  { width: 130px; }
@@ -124,7 +124,7 @@
   font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
 }
 .status-pending  { background: rgba(245,158,11,.18);  color: var(--warning); }
-.status-ordered  { background: rgba(37,99,235,.18);   color: var(--primary); }
+.status-ordered  { background: var(--primary-tint);   color: var(--primary); }
 .status-received { background: rgba(16,185,129,.18);  color: var(--success); }
 .status-cancelled{ background: rgba(185,39,58,.18);   color: var(--danger);  }
 
@@ -135,7 +135,7 @@
   transition: var(--transition); display: inline-flex; align-items: center;
   text-decoration: none; user-select: none;
 }
-.oact:hover        { color: var(--primary); background: rgba(37,99,235,.1); }
+.oact:hover        { color: var(--primary); background: var(--primary-tint); }
 .oact.danger:hover { color: var(--danger);  background: rgba(185,39,58,.1); }
 
 @media (max-width: 640px) {

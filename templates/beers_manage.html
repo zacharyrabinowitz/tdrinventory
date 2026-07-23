@@ -101,8 +101,11 @@
   <div class="cardhead">
     <div>
       <h2>Tap Assignments</h2>
-      <span class="muted">Click Save on any tap to update its beer assignment</span>
+      <span class="muted">Click Save on any tap to update its beer assignment, or Save All to update every tap at once</span>
     </div>
+    <button type="button" class="btn primary" id="bm-save-all-taps">
+      <i class="fas fa-check-double"></i> Save All
+    </button>
   </div>
 
   <!-- Bar tabs -->
@@ -301,7 +304,7 @@
   transition: var(--transition);
 }
 .bm-tap-row:hover { border-color: var(--primary); }
-.bm-tap-assigned { background: rgba(37,99,235,.05); border-color: rgba(37,99,235,.25); }
+.bm-tap-assigned { background: var(--primary-tint); border-color: var(--primary-tint); }
 
 .bm-tap-num {
   font-size: 11px; font-weight: 800; color: var(--text-muted);
@@ -327,13 +330,13 @@
 .bm-table th { padding: 11px 14px; text-align: left; font-weight: 600; white-space: nowrap; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px; }
 .bm-table td { padding: 10px 14px; border-bottom: 1px solid var(--stroke); vertical-align: middle; }
 .bm-table tbody tr:last-child td { border-bottom: none; }
-.bm-table tbody tr:hover { background: rgba(37,99,235,.04); }
+.bm-table tbody tr:hover { background: var(--primary-tint); }
 .bm-col-num { width: 70px; text-align: center; }
 .bm-col-act { width: 80px; text-align: center; }
 
 /* ── Backstock badge ── */
 .keg-stock-badge {
-  display: inline-block; background: rgba(37,99,235,.15); color: var(--primary);
+  display: inline-block; background: var(--primary-tint); color: var(--primary);
   padding: 3px 10px; border-radius: 20px; font-weight: 700; font-size: 12px;
   min-width: 32px; text-align: center;
 }
@@ -347,7 +350,7 @@
   transition: var(--transition); display: inline-flex; align-items: center;
   text-decoration: none;
 }
-.icon-btn:hover        { color: var(--primary); background: rgba(37,99,235,.1); }
+.icon-btn:hover        { color: var(--primary); background: var(--primary-tint); }
 .icon-btn.danger:hover { color: var(--danger);  background: rgba(185,39,58,.1); }
 </style>
 
@@ -362,23 +365,19 @@ document.querySelectorAll('.bm-tab').forEach(btn => {
   });
 });
 
-// ── Tap save (AJAX) ──
-document.addEventListener('click', function(e) {
-  const btn = e.target.closest('.bm-tap-save');
-  if (!btn) return;
-  e.preventDefault();
-
-  const tapId  = btn.dataset.tapId;
-  const row    = btn.closest('.bm-tap-row');
+// ── Tap save (shared by individual Save buttons and Save All) ──
+function saveTapRow(row, btn) {
+  const tapId  = row.dataset.tapId;
   const sel    = row.querySelector('.bm-tap-select');
   const pctEl  = row.querySelector('.bm-tap-pct');
   const beerId = sel.value;
   const pct    = pctEl.value !== '' ? parseInt(pctEl.value) : 100;
 
-  // visual feedback: loading
-  const origHTML = btn.innerHTML;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-  btn.disabled = true;
+  const origHTML = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btn.disabled = true;
+  }
 
   const fd = new FormData();
   fd.append('tap_id',      tapId);
@@ -386,12 +385,11 @@ document.addEventListener('click', function(e) {
   fd.append('set_percent', pct);
   fd.append('format',      'json');
 
-  fetch('/beers/taps/assign', { method: 'POST', body: fd,
+  return fetch('/beers/taps/assign', { method: 'POST', body: fd,
     headers: { 'Accept': 'application/json' } })
     .then(r => r.json())
     .then(data => {
       if (data.success) {
-        // update row style
         if (beerId) {
           row.classList.add('bm-tap-assigned');
           row.querySelector('.bm-tap-num').style.color = 'var(--primary)';
@@ -401,25 +399,62 @@ document.addEventListener('click', function(e) {
           row.querySelector('.bm-tap-num').style.color = '';
           pctEl.value = '';
         }
-        btn.innerHTML = '<i class="fas fa-check"></i>';
-        btn.style.background = 'var(--success)';
-        setTimeout(() => {
-          btn.innerHTML = origHTML;
-          btn.style.background = '';
-          btn.disabled = false;
-        }, 1800);
-      } else {
+        if (btn) {
+          btn.innerHTML = '<i class="fas fa-check"></i>';
+          btn.style.background = 'var(--success)';
+          setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 1800);
+        }
+      } else if (btn) {
         btn.innerHTML = '<i class="fas fa-times"></i>';
         btn.style.background = 'var(--danger)';
         setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 2000);
       }
+      return data.success === true;
     })
     .catch(() => {
-      btn.innerHTML = '<i class="fas fa-times"></i>';
-      btn.style.background = 'var(--danger)';
-      setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 2000);
+      if (btn) {
+        btn.innerHTML = '<i class="fas fa-times"></i>';
+        btn.style.background = 'var(--danger)';
+        setTimeout(() => { btn.innerHTML = origHTML; btn.style.background = ''; btn.disabled = false; }, 2000);
+      }
+      return false;
     });
+}
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.bm-tap-save');
+  if (!btn) return;
+  e.preventDefault();
+  saveTapRow(btn.closest('.bm-tap-row'), btn);
 });
+
+// ── Save All taps (both bars) ──
+const saveAllBtn = document.getElementById('bm-save-all-taps');
+if (saveAllBtn) {
+  saveAllBtn.addEventListener('click', function() {
+    const rows = document.querySelectorAll('.bm-tap-row');
+    if (!rows.length) return;
+
+    const origHTML = saveAllBtn.innerHTML;
+    saveAllBtn.disabled = true;
+    saveAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+
+    Promise.all(Array.from(rows).map(row => saveTapRow(row, row.querySelector('.bm-tap-save'))))
+      .then(results => {
+        const okCount = results.filter(Boolean).length;
+        const failCount = results.length - okCount;
+        saveAllBtn.innerHTML = failCount
+          ? `<i class="fas fa-triangle-exclamation"></i> Saved ${okCount}/${results.length}`
+          : `<i class="fas fa-check"></i> All ${okCount} Saved`;
+        saveAllBtn.style.background = failCount ? 'var(--danger)' : 'var(--success)';
+        setTimeout(() => {
+          saveAllBtn.innerHTML = origHTML;
+          saveAllBtn.style.background = '';
+          saveAllBtn.disabled = false;
+        }, 2200);
+      });
+  });
+}
 
 // ── Beer list live search ──
 document.getElementById('beerSearch')?.addEventListener('input', function() {

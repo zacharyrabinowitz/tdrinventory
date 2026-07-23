@@ -6,14 +6,23 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Draft Room">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#18181b">
   <meta name="mobile-web-app-capable" content="yes">
 
   <title>The Draft Room • Inventory</title>
 
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script defer src="/static/app.js"></script>
+  <script>
+    (function() {
+      var t = localStorage.getItem('theme') || 'light';
+      if (t === 'dark') document.documentElement.classList.add('dark-theme');
+    })();
+  </script>
+  <script defer src="/static/app.js?v={{ app_js_v }}"></script>
 
   <!-- Favicons -->
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
@@ -24,114 +33,110 @@
   <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
 </head>
 
-<body>
-  <!-- SIDEBAR NAVIGATION -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <h2 class="sidebar-brand">
-        <img src="{{ url_for('static', filename='favicon.svg') }}" alt="Draft Room Logo" class="sidebar-logo">
-      </h2>
-      <button class="sidebar-toggle" id="sidebarToggle" title="Collapse sidebar">
-        <i class="fas fa-chevron-left"></i>
-      </button>
-      <button class="sidebar-close" id="sidebarClose">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
+<body class="app-body">
 
-    <nav class="sidebar-nav">
-      <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}" data-tooltip="Dashboard">
-        <i class="fas fa-home"></i>
-        <span>Dashboard</span>
-      </a>
-      <a href="/items" class="nav-item {% if request.path.startswith('/items') or request.path.startswith('/category') %}active{% endif %}" data-tooltip="Items">
-        <i class="fas fa-boxes"></i>
-        <span>Items</span>
-      </a>
-      <a href="/order" class="nav-item {% if request.path == '/order' %}active{% endif %}" data-tooltip="New Order">
-        <i class="fas fa-shopping-cart"></i>
-        <span>New Order</span>
-      </a>
-      <a href="/orders" class="nav-item {% if request.path.startswith('/orders') or (request.path.startswith('/order/') and request.path != '/order') %}active{% endif %}" data-tooltip="View Orders">
-        <i class="fas fa-clipboard-list"></i>
-        <span>Orders</span>
-      </a>
-      <a href="/beers/dashboard" class="nav-item {% if '/beers' in request.path %}active{% endif %}" data-tooltip="Beer Taps">
-        <i class="fas fa-beer"></i>
-        <span>Beer Taps</span>
+  <!-- TOP NAVBAR -->
+  <header class="navbar">
+    <div class="navbar-inner">
+      <a href="/" class="navbar-brand">
+        <img src="{{ url_for('static', filename='favicon-96x96.png') }}" alt="The Draft Room" class="navbar-logo">
+        <span>The Draft Room Inventory System</span>
       </a>
 
-      {% if can_edit_inventory %}
-      <hr class="nav-divider">
-      <a href="/suppliers" class="nav-item {% if '/suppliers' in request.path %}active{% endif %}" data-tooltip="Suppliers">
-        <i class="fas fa-truck"></i>
-        <span>Suppliers</span>
-      </a>
-      <a href="/users" class="nav-item {% if '/users' in request.path %}active{% endif %}" data-tooltip="Users">
-        <i class="fas fa-users"></i>
-        <span>Users</span>
-      </a>
-      <a href="/settings" class="nav-item {% if request.path.startswith('/settings') %}active{% endif %}" data-tooltip="Settings">
-        <i class="fas fa-cog"></i>
-        <span>Settings</span>
-      </a>
-      {% endif %}
+      <nav class="navbar-nav">
+        <a href="/" class="navlink2 {% if request.path == '/' %}active{% endif %}">
+          <i class="fas fa-house"></i><span>Dashboard</span>
+        </a>
+        <a href="/items" class="navlink2 {% if request.path.startswith('/items') or request.path.startswith('/category') %}active{% endif %}">
+          <i class="fas fa-boxes-stacked"></i><span>Items</span>
+        </a>
+        <a href="/order" class="navlink2 {% if request.path == '/order' %}active{% endif %}">
+          <i class="fas fa-cart-plus"></i><span>New Order</span>
+        </a>
+        <a href="/orders" class="navlink2 {% if request.path.startswith('/orders') or (request.path.startswith('/order/') and request.path != '/order') %}active{% endif %}">
+          <i class="fas fa-clipboard-list"></i><span>Orders</span>
+        </a>
+        <a href="/beers/dashboard" class="navlink2 {% if '/beers' in request.path %}active{% endif %}">
+          <i class="fas fa-beer-mug-empty"></i><span>Beer Taps</span>
+        </a>
 
-      {% if can_manage_users %}
-      <hr class="nav-divider">
-      <a href="/audit" class="nav-item {% if '/audit' in request.path %}active{% endif %}" data-tooltip="Audit Log">
-        <i class="fas fa-history"></i>
-        <span>Audit Log</span>
-      </a>
-      <a href="/admin/roles" class="nav-item {% if '/admin/roles' in request.path %}active{% endif %}" data-tooltip="Roles">
-        <i class="fas fa-shield-alt"></i>
-        <span>Roles</span>
-      </a>
-      {% endif %}
-    </nav>
-
-    <div class="sidebar-footer">
-      {% if current_user %}
-      <div class="user-info">
-        <div class="user-name">
-          {% if current_user.first_name or current_user.last_name %}
-            {{ current_user.first_name }} {{ current_user.last_name }}
-          {% else %}
-            {{ current_user.username }}
-          {% endif %}
+        {% if can_edit_inventory %}
+        <div class="navdd">
+          <button type="button" class="navlink2 navdd-toggle {% if request.path.startswith('/suppliers') or request.path.startswith('/users') or request.path.startswith('/settings') %}active{% endif %}">
+            <i class="fas fa-layer-group"></i><span>Manage</span><i class="fas fa-chevron-down navdd-caret"></i>
+          </button>
+          <div class="navdd-menu">
+            <a href="/suppliers"><i class="fas fa-truck"></i> Suppliers</a>
+            <a href="/users"><i class="fas fa-users"></i> Users</a>
+            <a href="/settings"><i class="fas fa-gear"></i> Settings</a>
+          </div>
         </div>
-        <div class="user-role">{{ auth_role_name.title() if auth_role_name else 'User' }}</div>
-      </div>
-      {% endif %}
-      <a href="/logout" class="nav-item logout" data-tooltip="Logout">
-        <i class="fas fa-sign-out-alt"></i>
-        <span>Logout</span>
-      </a>
-    </div>
-  </aside>
+        {% endif %}
 
-  <!-- OVERLAY FOR MOBILE -->
-  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        {% if can_manage_users %}
+        <div class="navdd">
+          <button type="button" class="navlink2 navdd-toggle {% if request.path.startswith('/audit') or request.path.startswith('/admin/roles') %}active{% endif %}">
+            <i class="fas fa-shield-halved"></i><span>Admin</span><i class="fas fa-chevron-down navdd-caret"></i>
+          </button>
+          <div class="navdd-menu">
+            <a href="/audit"><i class="fas fa-clock-rotate-left"></i> Audit Log</a>
+            <a href="/admin/roles"><i class="fas fa-shield-halved"></i> Roles</a>
+          </div>
+        </div>
+        {% endif %}
+      </nav>
+
+      <div class="navbar-actions">
+        {% if current_user %}
+        <div class="navbar-user">
+          <span class="navbar-user-name">
+            {% if current_user.first_name or current_user.last_name %}
+              {{ current_user.first_name }} {{ current_user.last_name }}
+            {% else %}
+              {{ current_user.username }}
+            {% endif %}
+          </span>
+          <span class="navbar-user-role">{{ auth_role_name.title() if auth_role_name else 'User' }}</span>
+        </div>
+        {% endif %}
+        <button class="theme-toggle" id="themeToggle" title="Toggle light/dark theme">
+          <i class="fas fa-moon"></i>
+        </button>
+        <a href="/logout" class="logout-btn" title="Logout">
+          <i class="fas fa-sign-out-alt"></i>
+        </a>
+        <button class="mobile-menu-btn" id="mobileMenuBtn">
+          <i class="fas fa-bars"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MOBILE SLIDE-DOWN MENU -->
+  <div class="mobile-menu-panel" id="mobileMenuPanel">
+    <a href="/" class="mm-link {% if request.path == '/' %}active{% endif %}"><i class="fas fa-house"></i> Dashboard</a>
+    <a href="/items" class="mm-link {% if request.path.startswith('/items') or request.path.startswith('/category') %}active{% endif %}"><i class="fas fa-boxes-stacked"></i> Items</a>
+    <a href="/order" class="mm-link {% if request.path == '/order' %}active{% endif %}"><i class="fas fa-cart-plus"></i> New Order</a>
+    <a href="/orders" class="mm-link {% if request.path.startswith('/orders') %}active{% endif %}"><i class="fas fa-clipboard-list"></i> Orders</a>
+    <a href="/beers/dashboard" class="mm-link {% if '/beers' in request.path %}active{% endif %}"><i class="fas fa-beer-mug-empty"></i> Beer Taps</a>
+    {% if can_edit_inventory %}
+    <div class="mm-divider">Manage</div>
+    <a href="/suppliers" class="mm-link"><i class="fas fa-truck"></i> Suppliers</a>
+    <a href="/users" class="mm-link"><i class="fas fa-users"></i> Users</a>
+    <a href="/settings" class="mm-link"><i class="fas fa-gear"></i> Settings</a>
+    {% endif %}
+    {% if can_manage_users %}
+    <div class="mm-divider">Admin</div>
+    <a href="/audit" class="mm-link"><i class="fas fa-clock-rotate-left"></i> Audit Log</a>
+    <a href="/admin/roles" class="mm-link"><i class="fas fa-shield-halved"></i> Roles</a>
+    {% endif %}
+    <div class="mm-divider"></div>
+    <a href="/logout" class="mm-link mm-logout"><i class="fas fa-sign-out-alt"></i> Logout</a>
+  </div>
+  <div class="mobile-menu-overlay" id="mobileMenuOverlay"></div>
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
-    <!-- TOPBAR -->
-    <header class="topbar">
-      <button class="menu-toggle" id="menuToggle">
-        <i class="fas fa-bars"></i>
-      </button>
-      <div class="topbar-brand">
-        <h1>The Draft Room Inventory System</h1>
-      </div>
-      <div class="topbar-spacer"></div>
-      <button class="theme-toggle" id="themeToggle" title="Toggle light/dark theme">
-        <i class="fas fa-moon"></i>
-      </button>
-      <a href="/logout" class="logout-btn" title="Logout">
-        <i class="fas fa-sign-out-alt"></i>
-      </a>
-    </header>
-
     <!-- ALERTS -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
@@ -178,36 +183,44 @@
 
   <script>
     (function() {
-      // ===== SIDEBAR TOGGLE (MOBILE) =====
-      const sidebar = document.getElementById('sidebar');
-      const overlay = document.getElementById('sidebarOverlay');
-      const menuToggle = document.getElementById('menuToggle');
-      const sidebarClose = document.getElementById('sidebarClose');
-
-      function openSidebar() {
-        sidebar.classList.add('open');
-        overlay.classList.add('open');
+      // ===== TOP NAV DROPDOWNS (Manage / Admin) =====
+      function closeAllNavDD() {
+        document.querySelectorAll('.navdd.open').forEach(d => d.classList.remove('open'));
       }
-
-      function closeSidebar() {
-        sidebar.classList.remove('open');
-        overlay.classList.remove('open');
-      }
-
-      menuToggle.addEventListener('click', openSidebar);
-      sidebarClose.addEventListener('click', closeSidebar);
-      overlay.addEventListener('click', closeSidebar);
-
-      // Close sidebar when clicking nav items on mobile
-      document.querySelectorAll('.sidebar-nav .nav-item').forEach(link => {
-        link.addEventListener('click', () => {
-          if (window.matchMedia('(max-width: 768px)').matches) {
-            closeSidebar();
-          }
+      document.querySelectorAll('.navdd-toggle').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const dd = btn.closest('.navdd');
+          const isOpen = dd.classList.contains('open');
+          closeAllNavDD();
+          if (!isOpen) dd.classList.add('open');
         });
       });
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.navdd')) closeAllNavDD();
+      });
 
-      // ===== DROPDOWN LOGIC =====
+      // ===== MOBILE SLIDE-DOWN MENU =====
+      const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+      const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+      const mobileMenuPanel = document.getElementById('mobileMenuPanel');
+      const mobileMenuOverlay = document.getElementById('mobileMenuOverlay');
+
+      function openMobileMenu() {
+        mobileMenuPanel.classList.add('open');
+        mobileMenuOverlay.classList.add('open');
+      }
+      function closeMobileMenu() {
+        mobileMenuPanel.classList.remove('open');
+        mobileMenuOverlay.classList.remove('open');
+      }
+      if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', openMobileMenu);
+      if (mobileMenuToggle) mobileMenuToggle.addEventListener('click', function(e) { e.preventDefault(); openMobileMenu(); });
+      if (mobileMenuOverlay) mobileMenuOverlay.addEventListener('click', closeMobileMenu);
+      document.querySelectorAll('.mm-link').forEach(link => link.addEventListener('click', closeMobileMenu));
+
+      // ===== DROPDOWN LOGIC (generic .dropdown component used across pages) =====
       function closeAllDropdowns() {
         document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
       }
@@ -218,7 +231,7 @@
       });
 
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeAllDropdowns();
+        if (e.key === 'Escape') { closeAllDropdowns(); closeAllNavDD(); closeMobileMenu(); }
       });
 
       document.querySelectorAll('[data-dd-toggle]').forEach(btn => {

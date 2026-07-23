@@ -205,24 +205,20 @@ document.addEventListener('DOMContentLoaded', function() {
   const themeBtn = document.getElementById('themeToggle');
   if (themeBtn) {
     function setTheme(theme) {
-      const isDark = theme !== 'light';
-      if (isDark) {
-        document.body.classList.remove('light-theme');
-        themeBtn.innerHTML = '<i class="fas fa-moon"></i>';
-      } else {
-        document.body.classList.add('light-theme');
-        themeBtn.innerHTML = '<i class="fas fa-sun"></i>';
-      }
+      const isDark = theme === 'dark';
+      document.documentElement.classList.toggle('dark-theme', isDark);
+      document.body.classList.toggle('dark-theme', isDark);
+      themeBtn.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
       localStorage.setItem('theme', theme);
     }
     
-    const savedTheme = localStorage.getItem('theme') || 'dark';
+    const savedTheme = localStorage.getItem('theme') || 'light';
     setTheme(savedTheme);
-    
+
     themeBtn.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      const current = localStorage.getItem('theme') || 'dark';
+      const current = localStorage.getItem('theme') || 'light';
       setTheme(current === 'light' ? 'dark' : 'light');
     });
   }

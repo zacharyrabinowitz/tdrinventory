@@ -288,9 +288,9 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
 .tap-stat-icon { font-size:20px; color:var(--primary); margin-bottom:8px; display:block; }
 .tap-stat-val  { font-size:28px; font-weight:700; color:var(--text); line-height:1; }
 .tap-stat-lbl  { font-size:12px; color:var(--text-muted); margin-top:4px; }
-.tap-stat-warn  { border-color:rgba(245,158,11,.5); background:rgba(245,158,11,.07); }
+.tap-stat-warn  { border-color:rgba(245,158,11,.5); background:linear-gradient(rgba(245,158,11,.09),rgba(245,158,11,.09)),var(--card); }
 .tap-stat-warn  .tap-stat-icon, .tap-stat-warn  .tap-stat-val { color:var(--warning); }
-.tap-stat-danger{ border-color:rgba(185,39,58,.5);  background:rgba(185,39,58,.07);  }
+.tap-stat-danger{ border-color:rgba(185,39,58,.5);  background:linear-gradient(rgba(185,39,58,.09),rgba(185,39,58,.09)),var(--card);  }
 .tap-stat-danger .tap-stat-icon, .tap-stat-danger .tap-stat-val { color:var(--danger); }
 
 /* ── Bar tabs ── */
@@ -332,7 +332,7 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
   gap:10px; cursor:pointer; color:var(--text-muted); transition:var(--transition);
   min-height:140px;
 }
-.tap-empty:hover { border-color:var(--primary); color:var(--primary); background:rgba(37,99,235,.06); }
+.tap-empty:hover { border-color:var(--primary); color:var(--primary); background:var(--primary-tint); }
 .tap-empty-icon { font-size:28px; }
 .tap-empty-lbl  { font-size:13px; font-weight:600; }
 
@@ -341,7 +341,7 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
 .tap-num { font-size:11px; font-weight:700; color:var(--text-muted); letter-spacing:.6px; text-transform:uppercase; }
 .keg-badge {
   font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px;
-  background:rgba(255,255,255,.1); color:var(--text-muted);
+  background:var(--card2); color:var(--text-muted);
 }
 .keg-low { background:rgba(185,39,58,.2); color:var(--danger); }
 
@@ -350,7 +350,7 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
 
 /* ── Fill bar ── */
 .tap-bar-wrap { display:flex; align-items:center; gap:10px; }
-.tap-bar { flex:1; height:8px; background:rgba(255,255,255,.1); border-radius:4px; overflow:hidden; }
+.tap-bar { flex:1; height:8px; background:var(--stroke); border-radius:4px; overflow:hidden; }
 .tap-bar-fill { height:100%; background:var(--primary); border-radius:4px; transition:width .3s ease; }
 .fill-low      { background:var(--warning); }
 .fill-critical { background:var(--danger); }
@@ -359,16 +359,16 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
 /* ── Slider ── */
 .tap-slider {
   width:100%; height:6px; -webkit-appearance:none; appearance:none;
-  background:rgba(255,255,255,.1); border-radius:3px; outline:none; cursor:pointer; border:none;
+  background:var(--stroke); border-radius:3px; outline:none; cursor:pointer; border:none;
 }
 .tap-slider::-webkit-slider-thumb {
   -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
-  background:var(--primary); cursor:pointer; border:2px solid white;
+  background:var(--primary); cursor:pointer; border:2px solid var(--card);
   box-shadow:0 2px 6px rgba(0,0,0,.3);
 }
 .tap-slider::-moz-range-thumb {
   width:22px; height:22px; border-radius:50%;
-  background:var(--primary); cursor:pointer; border:2px solid white;
+  background:var(--primary); cursor:pointer; border:2px solid var(--card);
 }
 /* highlight track on low/critical cards */
 .tap-low      .tap-slider::-webkit-slider-thumb { background:var(--warning); }
@@ -380,8 +380,8 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
   flex:1; padding:8px 4px; font-size:13px; font-weight:700; border:none; border-radius:var(--radius-sm);
   cursor:pointer; transition:var(--transition); color:var(--text);
 }
-.tap-step-down { background:rgba(255,255,255,.08); }
-.tap-step-up   { background:rgba(37,99,235,.18); color:var(--primary-light); }
+.tap-step-down { background:var(--card2); }
+.tap-step-up   { background:var(--primary-tint); color:var(--primary-light); }
 .tap-step:hover { filter:brightness(1.3); }
 .tap-step:active{ transform:scale(.95); }
 
@@ -434,21 +434,15 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
   transition:background .15s;
 }
 .beer-search-result:last-child { border-bottom:none; }
-.beer-search-result:hover { background:rgba(37,99,235,.12); }
+.beer-search-result:hover { background:var(--primary-tint); }
 .beer-result-name { font-weight:600; color:var(--text); font-size:14px; }
 .beer-result-sub  { font-size:12px; color:var(--text-muted); margin-top:2px; }
 .beer-selected-label {
-  margin-top:6px; padding:8px 12px; background:rgba(37,99,235,.12);
+  margin-top:6px; padding:8px 12px; background:var(--primary-tint);
   border-radius:var(--radius-sm); font-size:13px; font-weight:600; color:var(--primary);
-  border:1px solid rgba(37,99,235,.3);
+  border:1px solid var(--primary-tint);
 }
 
-/* Light theme tweaks */
-body.light-theme .tap-empty  { background:#f9fafb; }
-body.light-theme .tap-bar    { background:rgba(0,0,0,.1); }
-body.light-theme .tap-slider { background:rgba(0,0,0,.1); }
-body.light-theme .tap-step-down { background:rgba(0,0,0,.06); }
-body.light-theme .keg-badge { background:rgba(0,0,0,.07); }
 </style>
 
 <script>

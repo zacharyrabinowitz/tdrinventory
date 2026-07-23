@@ -170,7 +170,7 @@
           <form class="form" method="POST" action="/items/{{ item.id }}/reconcile">
             <!-- Step 1: Select Boxes (FIFO) -->
             {% if available_lots_for_selection and available_lots_for_selection|length > 0 %}
-              <div class="card" style="background: rgba(255,255,255,0.03); margin-bottom:14px;">
+              <div class="card" style="background: linear-gradient(rgba(255,255,255,0.03),rgba(255,255,255,0.03)), var(--card2); margin-bottom:14px;">
                 <div class="cardhead" style="padding: 12px 14px;">
                   <div>
                     <h2 style="margin:0;">Step 1 — Select Boxes (FIFO)</h2>
@@ -217,7 +217,7 @@
 
               <div class="field">
                 <label>Units on Hand (Start)</label>
-                <input class="input" type="number" min="0" step="1" name="starting_units" id="startUnitsInput" value="{{ totals.starting_units | default(0) }}" readonly style="background: rgba(255, 255, 255, 0.04); cursor: default;">
+                <input class="input" type="number" min="0" step="1" name="starting_units" id="startUnitsInput" value="{{ totals.starting_units | default(0) }}" readonly style="background: linear-gradient(rgba(255,255,255,0.04),rgba(255,255,255,0.04)), var(--card2); cursor: default;">
 
               </div>
             </div>
@@ -244,7 +244,7 @@
 
               <div class="field">
                 <label>Items Sold (Auto)</label>
-                <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="0" readonly style="background: rgba(255, 255, 255, 0.06); cursor: default; color: var(--text-muted);">
+                <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="0" readonly style="background: linear-gradient(rgba(255,255,255,0.06),rgba(255,255,255,0.06)), var(--card2); cursor: default; color: var(--text-muted);">
               </div>
             </div>
 

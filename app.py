@@ -49,11 +49,14 @@ app.config["PREFERRED_URL_SCHEME"] = "https" if os.environ.get("FLASK_ENV") == "
 
 db = SQLAlchemy(app)
 
-# Initialize rate limiter
+# Initialize rate limiter — no blanket per-IP limit: this app is used by
+# multiple staff sharing one bar/restaurant network (one public IP), so a
+# global request cap causes false-positive lockouts during normal use.
+# The login route below has its own dedicated brute-force limit.
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=[]
 )
 
 # Register before_request to add security headers
@@ -756,6 +759,13 @@ def require_beer_edit():
     guard = require_inventory_edit()
     return guard
 
+def _asset_version(filename: str) -> int:
+    path = os.path.join(app.static_folder, filename)
+    try:
+        return int(os.path.getmtime(path))
+    except OSError:
+        return 0
+
 @app.context_processor
 def inject_user():
     u = current_user()
@@ -768,6 +778,8 @@ def inject_user():
         "auth_role_name": role_name,
         "can_edit_inventory": can_edit_inventory(),
         "can_manage_users": can_manage_users(),
+        "asset_v": _asset_version("style.css"),
+        "app_js_v": _asset_version("app.js"),
     }
 
 
@@ -2265,6 +2277,9 @@ def logout():
 # ============================================================
 @app.route("/beers/dashboard", methods=["GET"])
 def beers_dashboard():
+    guard = require_view_access()
+    if guard:
+        return guard
     ensure_beer_taps()
 
     beers = sorted(Beer.query.all(), key=lambda b: _natural_sort_key(b.name))
@@ -2283,6 +2298,9 @@ def beers_dashboard():
 
 @app.route("/beers/taps/assign", methods=["POST"])
 def assign_beer_to_tap():
+    guard = require_beer_edit()
+    if guard:
+        return guard
     tap_id = request.form.get("tap_id")
     beer_id = request.form.get("beer_id")  # can be blank for "None"
     tapped_on = request.form.get("tapped_on")  # optional
@@ -2341,6 +2359,9 @@ def assign_beer_to_tap():
 
 @app.route("/beers/taps/remove", methods=["POST"])
 def remove_beer_from_tap():
+    guard = require_beer_edit()
+    if guard:
+        return guard
     tap_id = request.form.get("tap_id")
     if not tap_id:
         flash("Missing tap.", "error")
@@ -2364,6 +2385,9 @@ def remove_beer_from_tap():
 
 @app.route("/beers/taps/save", methods=["POST"])
 def save_tap_percents():
+    guard = require_beer_edit()
+    if guard:
+        return guard
     # expects inputs like percent_<tap_id>
     taps = BeerTap.query.all()
     updated = 0
@@ -2388,42 +2412,6 @@ def save_tap_percents():
         flash("No changes to save.", "info")
 
     return redirect(url_for("beers_dashboard"))
-
-@app.route("/beers/bulk", methods=["GET", "POST"])
-def beers_bulk():
-    if request.method == "GET":
-        return render_template("beers_bulk_add.html")
-
-    payload = request.form.get("payload", "[]")
-    try:
-        beers = json.loads(payload)
-        if not isinstance(beers, list):
-            raise ValueError("payload must be list")
-    except Exception:
-        return "Invalid bulk payload", 400
-
-    created = 0
-    for b in beers:
-        name = (b.get("name") or "").strip()
-        if not name:
-            continue
-
-        beer = Beer(
-            name=name,
-            brewery=(b.get("brewery") or "").strip(),
-            style=(b.get("style") or "").strip(),
-            abv=b.get("abv"),
-            cost=b.get("cost"),
-            keg_size=(b.get("keg_size") or "half").lower() if (b.get("keg_size") or "").lower() in ("full", "half") else "half",
-            price=b.get("price"),
-            cups_per_keg=b.get("cups_per_keg")
-        )
-        db.session.add(beer)
-        created += 1
-
-    db.session.commit()
-    return redirect("/beers/dashboard")
-
 
 @app.get("/beers/bulk")
 def beers_bulk_get():
@@ -2570,12 +2558,15 @@ def beers_bulk_edit_save():
 
 @app.route("/beers", methods=["GET", "POST"])
 def beers_manage():
-    can_edit_inventory = True  # replace with your real permission logic if needed
+    guard = require_view_access()
+    if guard:
+        return guard
+    user_can_edit_inventory = can_edit_inventory()
 
     if request.method == "POST":
-        if not can_edit_inventory:
-            flash("Manager/Admin only.", "error")
-            return redirect("/beers")
+        guard = require_beer_edit()
+        if guard:
+            return guard
 
         name = (request.form.get("name") or "").strip()
         brewery = (request.form.get("brewery") or "").strip()
@@ -2617,7 +2608,7 @@ def beers_manage():
 
     return render_template("beers_manage.html", beers=beers,
                            main_taps=main_taps, lower_taps=lower_taps,
-                           can_edit_inventory=can_edit_inventory)
+                           can_edit_inventory=user_can_edit_inventory)
 
 
 @app.route("/beers/taps/cups_preview", methods=["POST"])
@@ -2627,6 +2618,9 @@ def taps_cups_preview():
     cups_left = round((percent_left/100) * cups_per_keg)
     cups_per_keg comes from the selected Beer record (or null if not set)
     """
+    guard = require_view_access()
+    if guard:
+        return guard
     try:
         data = request.get_json(force=True)
         taps = data.get("taps", [])
@@ -2661,7 +2655,10 @@ def taps_cups_preview():
 
 @app.route("/beers/<int:beer_id>/edit", methods=["GET", "POST"])
 def beers_edit(beer_id):
-    can_edit_inventory = True  # replace with your real permission logic if needed
+    guard = require_view_access()
+    if guard:
+        return guard
+    user_can_edit_inventory = can_edit_inventory()
     b = Beer.query.get_or_404(beer_id)
 
     def _clean(s):
@@ -2680,9 +2677,9 @@ def beers_edit(beer_id):
         return float(val)
 
     if request.method == "POST":
-        if not can_edit_inventory:
-            flash("Manager/Admin only.", "error")
-            return redirect(url_for("beers_edit", beer_id=beer_id))
+        guard = require_beer_edit()
+        if guard:
+            return guard
 
         try:
             # ---- text fields ----
@@ -2776,7 +2773,7 @@ def beers_edit(beer_id):
             flash("POST keys received: " + ", ".join(sorted(request.form.keys())), "error")
             return redirect(url_for("beers_edit", beer_id=beer_id))
 
-    return render_template("beers_edit.html", beer=b, can_edit_inventory=can_edit_inventory)
+    return render_template("beers_edit.html", beer=b, can_edit_inventory=user_can_edit_inventory)
 
 
 
@@ -2804,6 +2801,9 @@ def beers_delete(beer_id: int):
 
 @app.post("/beers/on-tap/save/main")
 def beers_on_tap_save_main():
+    guard = require_beer_edit()
+    if guard:
+        return guard
     rows = BeerTap.query.filter_by(bar="main").all()
     for r in rows:
         key = f"percent_full_{r.id}"
@@ -2820,6 +2820,9 @@ def beers_on_tap_save_main():
 
 @app.post("/beers/on-tap/save/lower")
 def beers_on_tap_save_lower():
+    guard = require_beer_edit()
+    if guard:
+        return guard
     rows = BeerTap.query.filter_by(bar="lower").all()
     for r in rows:
         key = f"percent_full_{r.id}"
@@ -2836,6 +2839,9 @@ def beers_on_tap_save_lower():
 
 @app.get("/beers/on-tap/<int:on_tap_id>/remove")
 def beers_on_tap_remove(on_tap_id):
+    guard = require_beer_edit()
+    if guard:
+        return guard
     r = BeerTap.query.get_or_404(on_tap_id)
     db.session.delete(r)
     db.session.commit()
@@ -2844,11 +2850,9 @@ def beers_on_tap_remove(on_tap_id):
 
 @app.route("/beers/receive", methods=["POST"])
 def beers_receive_kegs():
-    can_edit_inventory = True  # replace with your real permission logic if needed
-
-    if not can_edit_inventory:
-        flash("Manager/Admin only.", "error")
-        return redirect("/beers")
+    guard = require_beer_edit()
+    if guard:
+        return guard
 
     beer_id = request.form.get("beer_id")
     qty = request.form.get("qty")
@@ -2937,10 +2941,9 @@ def beers_save_sheet():
 
 @app.post("/items/<int:item_id>/generic_on_hand")
 def item_generic_on_hand(item_id: int):
-    # --- auth/permissions (match your existing pattern) ---
-    if not can_edit_inventory:
-        flash("Manager/Admin only.", "error")
-        return redirect(f"/items/{item_id}")
+    guard = require_inventory_edit()
+    if guard:
+        return guard
 
     item = Item.query.get_or_404(item_id)
 
@@ -2976,10 +2979,9 @@ def item_generic_on_hand(item_id: int):
 
 @app.route("/items/<int:item_id>/on_hand", methods=["POST"])
 def update_item_on_hand(item_id):
-    # ----- permission check (match your existing pattern) -----
-    role = (session.get("role") or "").lower()
-    if role not in ("admin", "manager", "breakglass"):
-        abort(403)
+    guard = require_inventory_edit()
+    if guard:
+        return guard
 
     item = Item.query.get_or_404(item_id)
 
@@ -3061,10 +3063,9 @@ def beers_create():
 
 @app.route("/beers/tap/set", methods=["POST"])
 def beers_set_tap():
-    can_edit_inventory = True  # replace with your real permission logic if needed
-    if not can_edit_inventory:
-        flash("Manager/Admin only.", "error")
-        return redirect("/beers/dashboard")
+    guard = require_beer_edit()
+    if guard:
+        return guard
 
     _ensure_taps_exist()
 
@@ -3105,10 +3106,9 @@ def beers_set_tap():
 
 @app.route("/beers/tap/percent", methods=["POST"])
 def beers_update_tap_percent():
-    can_edit_inventory = True  # replace with your real permission logic if needed
-    if not can_edit_inventory:
-        flash("Manager/Admin only.", "error")
-        return redirect("/beers/dashboard")
+    guard = require_beer_edit()
+    if guard:
+        return guard
 
     _ensure_taps_exist()
     bar = (request.form.get("bar") or "").strip().lower()
@@ -3130,6 +3130,9 @@ def beers_update_tap_percent():
 
 @app.route("/beers/taps/save_json", methods=["POST"])
 def save_beer_taps():
+    guard = require_beer_edit()
+    if guard:
+        return jsonify(ok=False, error="Not authorized"), 403
     try:
         data = request.get_json(force=True)
         taps = data.get("taps", [])
@@ -3186,6 +3189,9 @@ def save_beer_taps():
 
 @app.get("/beers/export")
 def beers_export():
+    guard = require_view_access()
+    if guard:
+        return guard
     # Export all beer + tap data in a single JSON blob
     beers = Beer.query.order_by(Beer.id.asc()).all()
     taps = BeerTap.query.order_by(BeerTap.id.asc()).all()
@@ -3246,6 +3252,9 @@ def beers_import():
     - beers.on_hand_kegs -> beers.on_hand_kegs
     - taps may have missing bar_location or use 'bar' -> map
     """
+    guard = require_beer_edit()
+    if guard:
+        return guard
     file = request.files.get("file")
     mode = request.form.get("mode", "replace")  # "replace" or "merge"
 
@@ -3361,14 +3370,11 @@ def beers_import():
         flash(f"Import failed: {e}", "error")
         return redirect("/beers")
     
-@app.get("/beers")
-def beers_page():
-    return render_template("beers.html")
-
-
 @app.route("/beers/dashboard/add-to-tap", methods=["POST"])
 def beers_add_to_tap():
-    # if "user_id" not in session: return redirect("/login")
+    guard = require_beer_edit()
+    if guard:
+        return guard
 
     ensure_default_beer_taps()
 
@@ -3756,55 +3762,22 @@ def order_items():
 
 @app.post("/items/<int:item_id>/update-onhand")
 def update_item_onhand(item_id):
-    guard = require_view_access()
+    # Quick-edit used by the Order page's pencil icon. This only makes sense
+    # for Simple Count items — lot-tracking items get their on-hand number
+    # from real Receive/Prep/Reconcile activity, and previously this route
+    # would silently fabricate untracked "raw"/"cooler" boxes to fake the
+    # difference, corrupting those items' real lot data. Just set the count.
+    guard = require_inventory_edit()
     if guard:
-        return guard
+        return {"error": "Permission denied"}, 403
 
     try:
         item = Item.query.get_or_404(item_id)
-        data = request.get_json()
-        
+        data = request.get_json(silent=True) or {}
+
         if "on_hand_count" in data:
-            new_count = int(data["on_hand_count"])
-            old_count = item.on_hand_count
-            difference = new_count - old_count
-            
-            if difference > 0:
-                # Increase: create new InventoryLot records
-                max_lot = db.session.query(func.max(InventoryLot.lot_number)).filter(
-                    InventoryLot.item_id == item_id
-                ).scalar()
-                next_lot_number = (max_lot + 1) if max_lot else 1
-                
-                # Create individual InventoryLot records for each new box
-                for i in range(difference):
-                    lot = InventoryLot(
-                        item_id=item_id,
-                        lot_number=next_lot_number + i,
-                        quantity=1.0,  # One box per lot
-                        storage="cooler",  # Default storage location
-                        state="raw",  # Default state for items
-                        received_date=date.today(),
-                        is_consumed=False
-                    )
-                    db.session.add(lot)
-            elif difference < 0:
-                # Decrease: mark the most recent unconsumed lots as consumed
-                lots_to_consume = (
-                    InventoryLot.query
-                    .filter(
-                        InventoryLot.item_id == item_id,
-                        InventoryLot.is_consumed == False
-                    )
-                    .order_by(InventoryLot.id.desc())
-                    .limit(abs(difference))
-                    .all()
-                )
-                for lot in lots_to_consume:
-                    lot.is_consumed = True
-            
-            item.on_hand_count = new_count
-        
+            item.on_hand_count = int(data["on_hand_count"])
+
         db.session.commit()
         return {"success": True, "message": "On-hand count updated"}
     except Exception as e:
@@ -4037,8 +4010,17 @@ def items_bulk():
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     categories, units = _item_form_options()
 
+    # Shelf life now lives in ItemShelfLife, not the legacy raw_*_days columns.
+    # This grid only edits the "raw" state (matches its 3 existing columns).
+    shelf_rows = ItemShelfLife.query.filter(
+        ItemShelfLife.item_id.in_([i.id for i in items]), ItemShelfLife.state_key == "raw"
+    ).all()
+    shelf_life: dict[int, dict[str, int]] = {}
+    for row in shelf_rows:
+        shelf_life.setdefault(row.item_id, {})[row.location_key] = row.days
+
     return render_template("items_bulk.html", items=items, suppliers=suppliers,
-                           categories=categories, units=units)
+                           categories=categories, units=units, shelf_life=shelf_life)
 
 @app.post("/items/bulk-save")
 def items_bulk_save():
@@ -4088,22 +4070,26 @@ def items_bulk_save():
                 except (ValueError, TypeError):
                     pass
 
-            # Update shelf-life fields
-            if "raw_freezer_days" in item_data:
+            # Update shelf-life fields (saved to ItemShelfLife, state="raw" — the
+            # table this grid edits — not the legacy raw_*_days columns, which
+            # nothing else in the app reads anymore)
+            for loc_key, field_name in (("freezer", "raw_freezer_days"), ("cooler", "raw_cooler_days"), ("out", "raw_out_days")):
+                if field_name not in item_data:
+                    continue
+                raw_val = item_data[field_name]
                 try:
-                    item.raw_freezer_days = int(item_data["raw_freezer_days"]) if item_data["raw_freezer_days"] else None
+                    days = int(raw_val) if raw_val else None
                 except (ValueError, TypeError):
-                    pass
-            if "raw_cooler_days" in item_data:
-                try:
-                    item.raw_cooler_days = int(item_data["raw_cooler_days"]) if item_data["raw_cooler_days"] else None
-                except (ValueError, TypeError):
-                    pass
-            if "raw_out_days" in item_data:
-                try:
-                    item.raw_out_days = int(item_data["raw_out_days"]) if item_data["raw_out_days"] else None
-                except (ValueError, TypeError):
-                    pass
+                    continue
+                row = ItemShelfLife.query.filter_by(item_id=item.id, state_key="raw", location_key=loc_key).first()
+                if days is None or days <= 0:
+                    if row:
+                        db.session.delete(row)
+                    continue
+                if row:
+                    row.days = days
+                else:
+                    db.session.add(ItemShelfLife(item_id=item.id, state_key="raw", location_key=loc_key, days=days))
 
         db.session.commit()
         return {"success": True, "message": f"Updated {len(data['items'])} items"}
@@ -4461,13 +4447,10 @@ def item_edit_post(item_id: int):
     item.sales_mode = sales_mode
     item.supplier_id = supplier_id
 
-    item.raw_freezer_days = to_int(request.form.get("raw_freezer_days"), 0) or None
-    item.raw_cooler_days = to_int(request.form.get("raw_cooler_days"), 0) or None
-    item.raw_out_days = to_int(request.form.get("raw_out_days"), 0) or None
-
-    item.prepped_freezer_days = to_int(request.form.get("prepped_freezer_days"), 0) or None
-    item.prepped_cooler_days = to_int(request.form.get("prepped_cooler_days"), 0) or None
-    item.prepped_out_days = to_int(request.form.get("prepped_out_days"), 0) or None
+    # NOTE: shelf life is no longer read from these legacy columns — the item
+    # form now submits dynamic sl_<state>_<location> fields, saved to
+    # ItemShelfLife via _save_item_shelf_life() below. The columns are left
+    # untouched here (not nulled) since items_bulk.html still displays them.
 
     item.pack1_label = (request.form.get("pack1_label") or "Single (10)").strip()
     item.pack1_mult = to_int(request.form.get("pack1_mult"), 10)
@@ -4804,8 +4787,9 @@ def adjust_item_stock(item_id: int):
 # ============================================================
 @app.route("/admin/backup/download", methods=["POST"])
 def admin_backup_download():
-    # TODO: Apply your admin check here (same pattern you use elsewhere)
-    # if session.get("role") != "admin": abort(403)
+    guard = require_admin()
+    if guard:
+        return guard
 
     payload = _export_db_to_dict()
     raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -4824,8 +4808,9 @@ def admin_backup_download():
 
 @app.route("/admin/backup/import", methods=["POST"])
 def admin_backup_import():
-    # TODO: Apply your admin check here (same pattern you use elsewhere)
-    # if session.get("role") != "admin": abort(403)
+    guard = require_admin()
+    if guard:
+        return guard
 
     f = request.files.get("backup_file")
     if not f or not f.filename:
@@ -5425,17 +5410,14 @@ def item_lots(item_id: int):
 
 @app.get("/items/<int:item_id>/lots/new")
 def lot_new(item_id: int):
+    # "lot_new.html" doesn't exist — receiving a box is handled by the
+    # Receive Boxes form on the item's Lots page. Redirect there instead of 500ing.
     guard = require_inventory_edit()
     if guard:
         return guard
 
     item = Item.query.get_or_404(item_id)
-    return render_template(
-        "lot_new.html",
-        item=item,
-        today=date.today().strftime("%Y-%m-%d"),
-        suggested_num=next_lot_number(item.id),
-    )
+    return redirect(f"/items/{item.id}/lots")
 
 @app.post("/items/<int:item_id>/lots/receive")
 @app.post("/items/<int:item_id>/lots/new")

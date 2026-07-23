@@ -78,17 +78,18 @@
             <input class="bulk-input" type="number" data-field="on_hand_count" 
                    value="{{ item.on_hand_count or 0 }}">
           </td>
+          {% set item_shelf = shelf_life.get(item.id, {}) if shelf_life else {} %}
           <td>
-            <input class="bulk-input" type="number" data-field="raw_freezer_days" 
-                   value="{{ item.raw_freezer_days or '' }}">
+            <input class="bulk-input" type="number" data-field="raw_freezer_days"
+                   value="{{ item_shelf.get('freezer', '') }}">
           </td>
           <td>
-            <input class="bulk-input" type="number" data-field="raw_cooler_days" 
-                   value="{{ item.raw_cooler_days or '' }}">
+            <input class="bulk-input" type="number" data-field="raw_cooler_days"
+                   value="{{ item_shelf.get('cooler', '') }}">
           </td>
           <td>
-            <input class="bulk-input" type="number" data-field="raw_out_days" 
-                   value="{{ item.raw_out_days or '' }}">
+            <input class="bulk-input" type="number" data-field="raw_out_days"
+                   value="{{ item_shelf.get('out', '') }}">
           </td>
         </tr>
         {% endfor %}
@@ -172,8 +173,8 @@ select.bulk-input {
   appearance: none;
   padding-right: 28px;
   background-image:
-    linear-gradient(45deg, transparent 50%, #2563eb 50%),
-    linear-gradient(135deg, #2563eb 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--primary) 50%),
+    linear-gradient(135deg, var(--primary) 50%, transparent 50%);
   background-position:
     calc(100% - 8px) 50%,
     calc(100% - 4px) 50%;
