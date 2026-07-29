@@ -82,10 +82,31 @@
         </div>
       </div>
 
+      {% if unit_config %}
+      <div class="field" style="padding: 0 14px 14px;">
+        <label>
+          Amount Received (in {{ unit_config.receiving_unit or "receiving unit" }})
+          {% if unit_config.conversion_type == 'variable' %}<span style="color:var(--danger)">*</span>{% endif %}
+        </label>
+        <input class="input" type="number" step="any" min="0" name="received_amount" id="receivedAmount"
+               {% if unit_config.conversion_type == 'variable' %}required{% endif %}
+               placeholder="{% if unit_config.conversion_type == 'fixed' and unit_config.fixed_ratio %}e.g. 40 (Produced Units will auto-fill at {{ unit_config.fixed_ratio }}x){% else %}e.g. 40{% endif %}">
+        {% if unit_config.conversion_type == 'variable' %}
+          <div class="muted smalltxt">Required — this item's yield varies per batch, so both the amount received and the actual resulting count must be logged every time.</div>
+        {% else %}
+          <div class="muted smalltxt">Optional. Fixed ratio: {{ unit_config.fixed_ratio or 1 }} {{ unit_config.base_unit or "base unit" }} per {{ unit_config.receiving_unit or "unit" }}.</div>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <div class="field" style="padding: 0 14px 14px;">
         <label>Produced Units</label>
-        <input class="input" type="number" min="1" name="produced_units" required placeholder="Example: Wings prepped = 840">
-        <div class="muted smalltxt">This is the usable units created after prep.</div>
+        <input class="input" type="number" min="1" name="produced_units" id="producedUnits"
+               {% if not (unit_config and unit_config.conversion_type == 'fixed' and unit_config.fixed_ratio) %}required{% endif %}
+               placeholder="Example: Wings prepped = 840">
+        <div class="muted smalltxt">
+          This is the usable {{ unit_config.base_unit if unit_config else "" }} units created after prep — the actual count, never an estimate.
+        </div>
       </div>
 
       <div class="field" style="padding: 0 14px 14px;">
@@ -144,6 +165,9 @@
       </div>
     {% else %}
       <div class="empty">No boxes available in {{ from_loc }}.</div>
+      <div class="actions" style="margin-top:10px;">
+        <button class="btn primary" type="submit">Save Prep</button>
+      </div>
     {% endif %}
   </form>
 
@@ -152,19 +176,23 @@
   <h2 style="margin-bottom:8px;">Recent Prep Batches</h2>
   {% if history and history|length > 0 %}
     <div class="table">
-      <div class="row head" style="grid-template-columns:.9fr .7fr .8fr 1.2fr .5fr;">
+      <div class="row head" style="grid-template-columns:.9fr .7fr .8fr .7fr 1.2fr .5fr;">
         <div>Date</div>
         <div>Boxes</div>
         <div>Produced</div>
+        <div>Yield</div>
         <div>Expires</div>
         <div></div>
       </div>
 
       {% for b in history %}
-        <div class="row" style="grid-template-columns:.9fr .7fr .8fr 1.2fr .5fr;">
+        <div class="row" style="grid-template-columns:.9fr .7fr .8fr .7fr 1.2fr .5fr;">
           <div class="strong">{{ b.prep_date.strftime("%b %d, %Y") }}</div>
           <div class="muted">{{ b.boxes_used }} (from {{ b.from_loc }})</div>
           <div class="muted">{{ b.produced_units }}</div>
+          <div class="muted">
+            {% if b.computed_yield %}{{ "%.2f"|format(b.computed_yield) }}/{{ unit_config.receiving_unit if unit_config else "unit" }}{% else %}—{% endif %}
+          </div>
           <div class="muted">
             {% if b.expires_on %}{{ b.expires_on.strftime("%b %d, %Y") }}{% else %}—{% endif %}
           </div>
@@ -234,6 +262,19 @@
   }
 
   syncMode();
+
+  {% if unit_config and unit_config.conversion_type == 'fixed' and unit_config.fixed_ratio %}
+  const receivedAmount = document.getElementById("receivedAmount");
+  const producedUnits = document.getElementById("producedUnits");
+  if (receivedAmount && producedUnits) {
+    receivedAmount.addEventListener("input", () => {
+      const amt = parseFloat(receivedAmount.value);
+      if (!isNaN(amt) && !producedUnits.value) {
+        producedUnits.value = Math.round(amt * {{ unit_config.fixed_ratio }});
+      }
+    });
+  }
+  {% endif %}
 })();
 </script>
 

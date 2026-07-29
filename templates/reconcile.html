@@ -222,30 +222,35 @@
               </div>
             </div>
 
-            <!-- Step 3: Multiplier + Units Counted -->
+            <!-- Step 3: Units Counted -->
             <div class="grid2" style="margin-bottom:16px;">
-              <div class="field">
-                <label>Items per Order</label>
-                <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(37, 99, 235, 0.1); border-color: var(--primary);">
-              </div>
-
               <div class="field">
                 <label>Units Counted Left</label>
                 <input class="input" type="number" min="0" step="1" name="actual_units" value="0" required>
               </div>
-            </div>
-
-            <!-- Step 4: Orders Sold + Items Sold (auto) -->
-            <div class="grid2" style="margin-bottom:16px;">
-              <div class="field">
-                <label>Orders Sold</label>
-                <input class="input" type="number" min="0" step="1" id="orders_sold_input" name="orders_sold" value="0" required>
-              </div>
 
               <div class="field">
-                <label>Items Sold (Auto)</label>
+                <label>Units Sold (Auto)</label>
                 <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="0" readonly style="background: linear-gradient(rgba(255,255,255,0.06),rgba(255,255,255,0.06)), var(--card2); cursor: default; color: var(--text-muted);">
               </div>
+            </div>
+
+            <!-- Step 4: Sell/Pack Units Sold -->
+            <div class="field" style="margin-bottom:16px;">
+              <label>How many of each sold?</label>
+              {% if item.pack_units %}
+                <div class="grid2 pack-qty-grid">
+                  {% for p in item.pack_units %}
+                    <div class="field">
+                      <label class="smalltxt muted">{{ p.name }} ({{ p.base_units_per_pack | round(2) }} units)</label>
+                      <input class="input pack-qty-input" type="number" min="0" step="1" value="0"
+                             name="packunit_{{ p.id }}_qty" data-mult="{{ p.base_units_per_pack }}">
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty">No Sell/Pack Units configured for this item — set them up in Settings → Unit Conversion.</div>
+              {% endif %}
             </div>
 
             <!-- Notes -->
@@ -314,15 +319,19 @@
             })();
 
             function updateUnitsSold() {
-              const ordersSold = parseFloat(document.getElementById('orders_sold_input').value) || 0;
-              const multiplier = parseFloat(document.getElementById('multiplier_input').value) || 1;
-              const unitsSold = ordersSold * multiplier;
+              let unitsSold = 0;
+              document.querySelectorAll('.pack-qty-input').forEach(function(inp) {
+                const qty = parseFloat(inp.value) || 0;
+                const mult = parseFloat(inp.dataset.mult) || 0;
+                unitsSold += qty * mult;
+              });
               document.getElementById('units_sold_display').value = unitsSold.toFixed(1);
             }
 
-            document.getElementById('orders_sold_input').addEventListener('input', updateUnitsSold);
-            document.getElementById('multiplier_input').addEventListener('input', updateUnitsSold);
-            
+            document.querySelectorAll('.pack-qty-input').forEach(function(inp) {
+              inp.addEventListener('input', updateUnitsSold);
+            });
+
             // Initialize on page load
             updateUnitsSold();
           </script>
@@ -387,31 +396,19 @@
               </div>
 
               <div class="strong" style="margin-top:12px; margin-bottom:8px;">Sales</div>
-              <div class="grid4">
-                <div class="field">
-                  <label>Pack 1</label>
-                  <input class="input" type="number" min="0" step="1" name="pack1_qty" value="0">
-                  <div class="muted smalltxt">{{ item.pack1_label or 'Single (10)' }}</div>
+              {% if item.pack_units %}
+                <div class="grid4">
+                  {% for p in item.pack_units %}
+                    <div class="field">
+                      <label>{{ p.name }}</label>
+                      <input class="input" type="number" min="0" step="1" name="packunit_{{ p.id }}_qty" value="0">
+                      <div class="muted smalltxt">{{ p.base_units_per_pack | round(2) }} units each</div>
+                    </div>
+                  {% endfor %}
                 </div>
-
-                <div class="field">
-                  <label>Pack 2</label>
-                  <input class="input" type="number" min="0" step="1" name="pack2_qty" value="0">
-                  <div class="muted smalltxt">{{ item.pack2_label or 'Double (20)' }}</div>
-                </div>
-
-                <div class="field">
-                  <label>Pack 3</label>
-                  <input class="input" type="number" min="0" step="1" name="pack3_qty" value="0">
-                  <div class="muted smalltxt">{{ item.pack3_label or 'Room 120 Single (10)' }}</div>
-                </div>
-
-                <div class="field">
-                  <label>Pack 4</label>
-                  <input class="input" type="number" min="0" step="1" name="pack4_qty" value="0">
-                  <div class="muted smalltxt">{{ item.pack4_label or 'Room 120 Double (20)' }}</div>
-                </div>
-              </div>
+              {% else %}
+                <div class="empty">No Sell/Pack Units configured for this item — set them up in Settings → Unit Conversion.</div>
+              {% endif %}
 
               <div class="field">
                 <label>Notes (optional)</label>

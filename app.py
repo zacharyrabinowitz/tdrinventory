@@ -1263,6 +1263,64 @@ class ItemShelfLife(db.Model):
     __table_args__ = (db.UniqueConstraint("item_id", "state_key", "location_key", name="uq_item_shelf_life"),)
 
 
+class ItemUnitConfig(db.Model):
+    """Per-item Receiving Unit -> Base Unit conversion definition. 1:1 with Item.
+    Replaces Item.unit/default_units_per_box as the source of truth."""
+    __tablename__ = "item_unit_configs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False, unique=True)
+
+    receiving_unit = db.Column(db.String(50), nullable=True)
+    base_unit = db.Column(db.String(50), nullable=True)
+    conversion_type = db.Column(db.String(20), nullable=False, default="fixed")  # "fixed" | "variable"
+    fixed_ratio = db.Column(db.Float, nullable=True)  # base units per 1 receiving unit; only meaningful when fixed
+
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    item = db.relationship("Item", backref=db.backref("unit_config", uselist=False, cascade="all, delete-orphan"))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "receiving_unit": self.receiving_unit,
+            "base_unit": self.base_unit,
+            "conversion_type": self.conversion_type,
+            "fixed_ratio": self.fixed_ratio,
+        }
+
+
+class ItemPackUnit(db.Model):
+    """Per-item Sell/Pack Unit: a named POS-facing bundle mapping to N base units.
+    Replaces Item.pack1..pack4_label/_mult and Item.multiplier (single 'Per Order' pack)."""
+    __tablename__ = "item_pack_units"
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
+
+    name = db.Column(db.String(100), nullable=False)
+    base_units_per_pack = db.Column(db.Float, nullable=False, default=1)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+
+    item = db.relationship(
+        "Item",
+        backref=db.backref("pack_units", order_by="ItemPackUnit.sort_order", cascade="all, delete-orphan"),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "name": self.name,
+            "base_units_per_pack": self.base_units_per_pack,
+            "sort_order": self.sort_order,
+        }
+
+
 class BeerOrder(db.Model):
     __tablename__ = "beer_orders"
     id = db.Column(db.Integer, primary_key=True)
@@ -1301,6 +1359,12 @@ class PrepBatch(db.Model):
 
     # legacy DB requires this
     output_units = db.Column(db.Integer, nullable=False, default=0)
+
+    # Variable-yield logging: amount consumed, in the item's receiving unit, and the
+    # resulting yield (produced_units / received_amount) stored for reporting only —
+    # never assumed for future batches.
+    received_amount = db.Column(db.Float, nullable=True)
+    computed_yield = db.Column(db.Float, nullable=True)
 
     created_prepped_lot_id = db.Column(db.Integer, nullable=True)
     expires_on = db.Column(db.Date, nullable=True)
@@ -1586,7 +1650,16 @@ def norm_storage(val: str | None, item: Optional["Item"] = None) -> str:
     keys = mode_location_keys(mode) if mode else ["freezer", "cooler", "out"]
     if v in keys:
         return v
-    return "cooler" if "cooler" in keys else (keys[0] if keys else "cooler")
+    if "cooler" in keys:
+        return "cooler"
+    # Key may have drifted from the literal "cooler" (e.g. re-saving the mode
+    # in Settings) — fall back to matching by label instead of giving up and
+    # defaulting to the first location, which is often the wrong one.
+    if mode:
+        for loc in mode.locations:
+            if loc.label.strip().lower() == "cooler":
+                return loc.key
+    return keys[0] if keys else "cooler"
 
 def compute_lot_expiration(item: Item, lot: InventoryLot) -> Optional[date]:
     if lot.expiration_override:
@@ -1973,6 +2046,8 @@ def run_migrations():
     sqlite_add_column_if_missing("prep_batches", "output_units", "INTEGER NOT NULL DEFAULT 0")
     sqlite_add_column_if_missing("prep_batches", "from_state", "VARCHAR(60)")
     sqlite_add_column_if_missing("prep_batches", "to_state", "VARCHAR(60)")
+    sqlite_add_column_if_missing("prep_batches", "received_amount", "FLOAT")
+    sqlite_add_column_if_missing("prep_batches", "computed_yield", "FLOAT")
     sqlite_add_column_if_missing("inventory_modes", "on_hand_style", "VARCHAR(20)")
 
     # item_settings columns
@@ -2113,6 +2188,42 @@ def seed_inventory_modes():
             if days is None:
                 continue
             db.session.add(ItemShelfLife(item_id=item.id, state_key=state_key, location_key=loc_key, days=days))
+    db.session.commit()
+
+
+def seed_item_unit_configs():
+    """
+    One-time seed: give every existing Item an ItemUnitConfig (receiving/base
+    unit + fixed conversion ratio from its old `unit`/`default_units_per_box`
+    columns) and ItemPackUnit row(s) (from its old pack1..pack4 fields, or a
+    single "Per Order" pack from `multiplier`), so nothing changes behavior
+    until someone edits it in Settings > Unit Conversion. Runs at startup
+    after seed_inventory_modes(). Idempotent — only runs once.
+    """
+    if ItemUnitConfig.query.first():
+        return
+
+    for item in Item.query.all():
+        db.session.add(ItemUnitConfig(
+            item_id=item.id,
+            receiving_unit=item.unit,
+            base_unit=item.unit,
+            conversion_type="fixed",
+            fixed_ratio=float(item.default_units_per_box) if item.default_units_per_box else 1.0,
+        ))
+
+        if (item.sales_mode or "") == "packs_4":
+            packs = [
+                (item.pack1_label, item.pack1_mult), (item.pack2_label, item.pack2_mult),
+                (item.pack3_label, item.pack3_mult), (item.pack4_label, item.pack4_mult),
+            ]
+            for i, (label, mult) in enumerate(packs):
+                if not label or not mult:
+                    continue
+                db.session.add(ItemPackUnit(item_id=item.id, name=label, base_units_per_pack=float(mult), sort_order=i))
+        elif item.multiplier:
+            db.session.add(ItemPackUnit(item_id=item.id, name="Per Order", base_units_per_pack=float(item.multiplier), sort_order=0))
+
     db.session.commit()
 
 
@@ -4100,6 +4211,225 @@ def items_bulk_save():
         traceback.print_exc()
         return {"error": str(e)}, 500
 
+_KNOWN_UNIT_TOKENS = {
+    "each", "ea", "case", "cs", "lb", "lbs", "#", "oz", "box", "bx", "bag",
+    "gal", "gallon", "qt", "quart", "can", "btl", "bottle", "jar", "dz",
+    "dozen", "pal", "pack", "roll", "tank", "cont", "container", "ct",
+}
+
+# Heuristic (no-API-key-required) category classifier — ordered keyword ->
+# category rules, first match wins. Used as the fallback when no AI key is
+# configured, and as a per-row safety net if an AI batch call fails.
+_CATEGORY_KEYWORD_RULES = [
+    ("Liquor", ["vodka", "whiskey", "whisky", "bourbon", "rum", "tequila", "gin ", "scotch", "liqueur", "schnapps"]),
+    ("Bottled Beer", ["bottled beer", "beer bottle"]),
+    ("Canned Beer", ["canned", "budweiser", "bud light", "coors", "miller", "michelob", "modelo", "corona", "labatt", "guinness", "peroni", "molson"]),
+    ("Canned Seltzer", ["seltzer", "surfside", "highnoon", "hard seltzer", "nutrl"]),
+    ("NA Beverages", ["soda", "coke", "sierra mist", "tonic", "ginger ale", "lemonade", "cranberry juice", "orange juice", "grapefruit juice", "pineapple juice", "red bull", "bib,", "loganberry", "juice"]),
+    ("Condiments", ["ketchup", "mustard", "mayonnaise", "vinegar", "hot sauce", "red hot", "barbecue", "sriracha", "ranch", "caesar", "italian dressing", "hollandaise", "salsa", "olive,", "jalapeno", "pizza sauce", "demi glace", "jus mix", "chimichurri"]),
+    ("Fryer Food", ["fries,", "onion ring", "calamari", "fingers", "pizza log", "mozzarella sticks"]),
+    ("Grill Food", ["burger", "steak", "chicken breast", "chopped chicken", "sausage", "meatball", "shrimp", "salmon", "tenderloin", "roast beef", "bacon"]),
+    ("Oven Food", ["pizza crust", "pretzel", "bagel", "hard roll", "hoagie", "slider roll", "sourdough"]),
+    ("Food", [
+        "wings", "cheese", "lettuce", "tomato", "onion", "cucumber", "carrot",
+        "mushroom", "celery", "broccoli", "cauliflower", "pepper", "olive",
+        "egg", "cream", "flour", "panko", "crouton", "cracker", "sun dried",
+        "prosciutto", "pepperoni", "salami", "capicola", "tortilla", "pita",
+    ]),
+]
+
+_PAPER_CLEANING_KEYWORDS = [
+    "napkin", "cup,", "cup ", "lid", "to-go", "container", "cutlery", "straw",
+    "foil", "plastic wrap", "parchment", "wax paper", "plate", "gloves",
+    "toilet", "towel", "wipes", "wiper", "soap", "bleach", "brillo", "broom",
+    "degreaser", "delimer", "dishwasher", "glass cleaner", "grill pad",
+    "mop", "oven cleaner", "test strip", "register tape", "ribbon cart",
+    "scour pad", "urinal", "spray bottle", "spray trigger", "freshener",
+]
+
+_BAR_SUPPLY_KEYWORDS = ["tank", "c02", "nitrus", "grinder", "sugar pack", "sweet & low"]
+
+
+def _classify_category_heuristic(name: str) -> str:
+    n = name.lower()
+    for kw in _PAPER_CLEANING_KEYWORDS:
+        if kw in n:
+            return "Paper & Cleaning Supplies"
+    for kw in _BAR_SUPPLY_KEYWORDS:
+        if kw in n:
+            return "Bar Supplies"
+    for category, keywords in _CATEGORY_KEYWORD_RULES:
+        for kw in keywords:
+            if kw in n:
+                return category
+    return "Food"
+
+
+def _classify_categories_ai(names: list[str], existing_categories: list[str]) -> dict[str, str] | None:
+    """Batch-classify item names into categories using Claude, if ANTHROPIC_API_KEY
+    is configured. Returns None (caller should fall back to heuristics) on any
+    failure — missing key, import error, API error, or unparseable response."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        return None
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        cat_list = ", ".join(existing_categories) or "Food"
+        numbered = "\n".join(f"{i}. {n}" for i, n in enumerate(names))
+        prompt = (
+            "You are categorizing bar/restaurant inventory items for a stock-tracking app.\n"
+            f"Existing categories: {cat_list}\n\n"
+            "For each numbered item below, pick the best-fitting existing category. "
+            "If none fit reasonably, propose a short new category name (Title Case, "
+            "2-3 words, e.g. \"Paper & Cleaning Supplies\", \"Bar Supplies\").\n\n"
+            "Respond with ONLY a JSON object mapping the item's number (as a string) "
+            "to its category name — no other text, no markdown fences.\n\n"
+            f"Items:\n{numbered}"
+        )
+        resp = client.messages.create(
+            model="claude-sonnet-5",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text_out = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+        if text_out.startswith("```"):
+            text_out = text_out.strip("`")
+            if text_out.startswith("json"):
+                text_out = text_out[4:]
+        by_index = json.loads(text_out)
+        return {names[int(i)]: cat for i, cat in by_index.items() if int(i) < len(names)}
+    except Exception:
+        return None
+
+
+def _classify_item_categories(names: list[str], existing_categories: list[str]) -> dict[str, str]:
+    """Classify every name into a category, AI first (batched, chunked to stay
+    well under any context/token limit), falling back to keyword heuristics
+    for anything the AI call didn't cover or if it's unavailable/fails."""
+    result: dict[str, str] = {}
+    chunk_size = 60
+    chunks = [names[i:i + chunk_size] for i in range(0, len(names), chunk_size)]
+    for chunk in chunks:
+        ai_result = _classify_categories_ai(chunk, existing_categories)
+        if ai_result:
+            result.update(ai_result)
+    for n in names:
+        if n not in result:
+            result[n] = _classify_category_heuristic(n)
+    return result
+
+
+def _detect_unit_from_row(cells: list[str]) -> str | None:
+    """Look across a spreadsheet row's other cells for a recognizable unit token."""
+    for cell in cells:
+        token = str(cell).strip().lower().rstrip(".,")
+        if token in _KNOWN_UNIT_TOKENS:
+            return "each" if token in ("ea", "ct") else ("lb" if token in ("lbs", "#") else ("case" if token == "cs" else ("box" if token == "bx" else ("bottle" if token == "btl" else token))))
+    return None
+
+
+def _extract_rows_from_pdf(raw: bytes) -> list[list[str]]:
+    """Extract table rows from a PDF using pdfplumber. Tries line/border-based
+    table detection first (works well for PDFs printed from Excel with visible
+    gridlines, like a typical inventory sheet export); falls back to a
+    text-alignment strategy per page if a page has no detected lines."""
+    import pdfplumber
+
+    rows: list[list[str]] = []
+    with pdfplumber.open(io.BytesIO(raw)) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            if not tables:
+                try:
+                    text_table = page.extract_table(table_settings={
+                        "vertical_strategy": "text",
+                        "horizontal_strategy": "text",
+                    })
+                except Exception:
+                    text_table = None
+                tables = [text_table] if text_table else []
+            for table in tables:
+                for r in table:
+                    r = ["" if c is None else str(c).strip() for c in r]
+                    if any(r):
+                        rows.append(r)
+    return rows
+
+
+def _parse_inventory_file(file_storage) -> list[dict]:
+    """Parse an uploaded .xlsx/.xls/.csv/.pdf inventory sheet into a flat list
+    of {"name": str, "unit_hint": str|None} rows. Assumes the item name is
+    whichever column has the most non-numeric, non-blank text values (usually
+    the first column) — real-world sheets like this are rarely clean, so we
+    don't assume a fixed header layout."""
+    filename = (file_storage.filename or "").lower()
+    raw = file_storage.read()
+
+    if filename.endswith(".csv"):
+        import csv as csv_mod
+        text_data = raw.decode("utf-8-sig", errors="ignore")
+        reader = csv_mod.reader(io.StringIO(text_data))
+        rows = [r for r in reader if any((c or "").strip() for c in r)]
+    elif filename.endswith(".pdf"):
+        rows = _extract_rows_from_pdf(raw)
+    else:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+        ws = wb.worksheets[0]
+        rows = []
+        for r in ws.iter_rows(values_only=True):
+            r = ["" if c is None else str(c) for c in r]
+            if any(c.strip() for c in r):
+                rows.append(r)
+
+    if not rows:
+        return []
+
+    # Pick the name column: whichever has the most cells that look like a
+    # product name (has letters, isn't purely a number/unit token).
+    num_cols = max(len(r) for r in rows)
+    name_col = 0
+    best_score = -1
+    for col in range(num_cols):
+        score = 0
+        for row in rows:
+            if col >= len(row):
+                continue
+            val = row[col].strip()
+            if not val or not any(ch.isalpha() for ch in val):
+                continue
+            if val.lower().rstrip(".,") in _KNOWN_UNIT_TOKENS:
+                continue
+            score += 1
+        if score > best_score:
+            best_score = score
+            name_col = col
+
+    out = []
+    seen_in_file = set()
+    header_words = {"item", "name", "product", "pack", "brk", "count", "pars", "order", "qty"}
+    for row in rows:
+        if name_col >= len(row):
+            continue
+        name = row[name_col].strip()
+        if not name or not any(ch.isalpha() for ch in name):
+            continue
+        if name.lower().strip() in header_words:
+            continue
+        key = name.lower()
+        if key in seen_in_file:
+            continue
+        seen_in_file.add(key)
+        other_cells = [c for i, c in enumerate(row) if i != name_col]
+        out.append({"name": name, "unit_hint": _detect_unit_from_row(other_cells)})
+    return out
+
+
 def _item_form_options():
     """Return (categories, units) lists for the item form dropdowns."""
     cats  = ItemSetting.query.filter_by(setting_type="category").order_by(
@@ -4261,20 +4591,6 @@ def item_new_post():
     supplier_id_raw = (request.form.get("supplier_id") or "").strip()
     supplier_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
 
-    # ✅ NEW: default units per box (used to autofill Receive/Boxes)
-    default_units_per_box = to_int(request.form.get("default_units_per_box"), 0)
-    if default_units_per_box is None or default_units_per_box < 0:
-        default_units_per_box = 0
-
-    # ✅ NEW: multiplier for reconcile calculations - safe conversion
-    multiplier_val = request.form.get("multiplier", "").strip()
-    multiplier = None
-    if multiplier_val:
-        try:
-            multiplier = float(multiplier_val)
-        except (ValueError, TypeError):
-            multiplier = None
-    
     # ✅ NEW: on_hand_count for items prep type
     on_hand_count = to_int(request.form.get("on_hand_count"), 0)
 
@@ -4287,23 +4603,6 @@ def item_new_post():
         flash("That item already exists.", "error")
         return redirect("/items/new")
 
-    raw_freezer_days = to_int(request.form.get("raw_freezer_days"), 0) or None
-    raw_cooler_days = to_int(request.form.get("raw_cooler_days"), 0) or None
-    raw_out_days = to_int(request.form.get("raw_out_days"), 0) or None
-
-    prepped_freezer_days = to_int(request.form.get("prepped_freezer_days"), 0) or None
-    prepped_cooler_days = to_int(request.form.get("prepped_cooler_days"), 0) or None
-    prepped_out_days = to_int(request.form.get("prepped_out_days"), 0) or None
-
-    pack1_label = (request.form.get("pack1_label") or "Single (10)").strip()
-    pack1_mult = to_int(request.form.get("pack1_mult"), 10)
-    pack2_label = (request.form.get("pack2_label") or "Double (20)").strip()
-    pack2_mult = to_int(request.form.get("pack2_mult"), 20)
-    pack3_label = (request.form.get("pack3_label") or "Room 120 Single (10)").strip()
-    pack3_mult = to_int(request.form.get("pack3_mult"), 10)
-    pack4_label = (request.form.get("pack4_label") or "Room 120 Double (20)").strip()
-    pack4_mult = to_int(request.form.get("pack4_mult"), 20)
-
     item = Item(
         name=name,
         category=category,
@@ -4311,30 +4610,16 @@ def item_new_post():
         prep_type=prep_type,
         sales_mode=sales_mode,
         supplier_id=supplier_id,
-
-        # ✅ NEW FIELDS SAVED HERE
-        default_units_per_box=default_units_per_box,
-        multiplier=multiplier,
         on_hand_count=on_hand_count,
-
-        raw_freezer_days=raw_freezer_days,
-        raw_cooler_days=raw_cooler_days,
-        raw_out_days=raw_out_days,
-        prepped_freezer_days=prepped_freezer_days,
-        prepped_cooler_days=prepped_cooler_days,
-        prepped_out_days=prepped_out_days,
-        pack1_label=pack1_label,
-        pack1_mult=pack1_mult,
-        pack2_label=pack2_label,
-        pack2_mult=pack2_mult,
-        pack3_label=pack3_label,
-        pack3_mult=pack3_mult,
-        pack4_label=pack4_label,
-        pack4_mult=pack4_mult,
     )
 
     db.session.add(item)
     db.session.flush()
+
+    # Give every new item a default (fixed, 1:1) unit conversion so it's
+    # immediately editable in Settings > Unit Conversion, same as existing
+    # items got from the one-time migration seed.
+    db.session.add(ItemUnitConfig(item_id=item.id, receiving_unit=unit, base_unit=unit, conversion_type="fixed", fixed_ratio=1.0))
 
     _save_item_custom_fields(item, category, request.form)
     _save_item_shelf_life(item, get_item_mode(item), request.form)
@@ -4348,7 +4633,6 @@ def item_new_post():
             "name": item.name,
             "category": item.category,
             "supplier_id": item.supplier_id,
-            "default_units_per_box": item.default_units_per_box,
         }
     )
 
@@ -4403,28 +4687,14 @@ def item_edit_post(item_id: int):
     before = {
         "name": item.name,
         "category": item.category,
-        "unit": item.unit,
         "prep_type": item.prep_type,
         "sales_mode": item.sales_mode,
         "supplier_id": item.supplier_id,
-        "raw_freezer_days": item.raw_freezer_days,
-        "raw_cooler_days": item.raw_cooler_days,
-        "raw_out_days": item.raw_out_days,
-        "prepped_freezer_days": item.prepped_freezer_days,
-        "prepped_cooler_days": item.prepped_cooler_days,
-        "prepped_out_days": item.prepped_out_days,
-        "pack1_label": item.pack1_label, "pack1_mult": item.pack1_mult,
-        "pack2_label": item.pack2_label, "pack2_mult": item.pack2_mult,
-        "pack3_label": item.pack3_label, "pack3_mult": item.pack3_mult,
-        "pack4_label": item.pack4_label, "pack4_mult": item.pack4_mult,
-        "default_units_per_box": item.default_units_per_box,
-        "multiplier": item.multiplier,
         "on_hand_count": item.on_hand_count,
     }
 
     name = (request.form.get("name") or "").strip()
     category = (request.form.get("category") or "Food").strip()
-    unit = (request.form.get("unit") or "each").strip()
     prep_type = (request.form.get("prep_type") or "generic").strip()
     sales_mode = (request.form.get("sales_mode") or "simple").strip()
 
@@ -4442,38 +4712,20 @@ def item_edit_post(item_id: int):
 
     item.name = name
     item.category = category
-    item.unit = unit
     item.prep_type = prep_type
     item.sales_mode = sales_mode
     item.supplier_id = supplier_id
 
-    # NOTE: shelf life is no longer read from these legacy columns — the item
-    # form now submits dynamic sl_<state>_<location> fields, saved to
-    # ItemShelfLife via _save_item_shelf_life() below. The columns are left
-    # untouched here (not nulled) since items_bulk.html still displays them.
+    # NOTE: shelf life is no longer read from the legacy fixed columns — the
+    # item form submits dynamic sl_<state>_<location> fields, saved to
+    # ItemShelfLife via _save_item_shelf_life() below.
+    #
+    # NOTE: unit/default_units_per_box/multiplier/pack1-4 are no longer read
+    # here either — that configuration now lives in ItemUnitConfig/ItemPackUnit,
+    # edited centrally in Settings > Unit Conversion (see
+    # settings_save_unit_conversion()). The legacy columns are left untouched
+    # (not nulled) for rollback safety.
 
-    item.pack1_label = (request.form.get("pack1_label") or "Single (10)").strip()
-    item.pack1_mult = to_int(request.form.get("pack1_mult"), 10)
-    item.pack2_label = (request.form.get("pack2_label") or "Double (20)").strip()
-    item.pack2_mult = to_int(request.form.get("pack2_mult"), 20)
-    item.pack3_label = (request.form.get("pack3_label") or "Room 120 Single (10)").strip()
-    item.pack3_mult = to_int(request.form.get("pack3_mult"), 10)
-    item.pack4_label = (request.form.get("pack4_label") or "Room 120 Double (20)").strip()
-    item.pack4_mult = to_int(request.form.get("pack4_mult"), 20)
-
-    # ✅ GENERIC BOX SETTINGS
-    item.default_units_per_box = to_int(request.form.get("default_units_per_box"), 0) or None
-    
-    # Safe multiplier conversion
-    multiplier_val = request.form.get("multiplier", "").strip()
-    if multiplier_val:
-        try:
-            item.multiplier = float(multiplier_val)
-        except (ValueError, TypeError):
-            item.multiplier = None
-    else:
-        item.multiplier = None
-    
     # ✅ ITEMS SETTINGS
     item.on_hand_count = to_int(request.form.get("on_hand_count"), 0)
 
@@ -4483,22 +4735,9 @@ def item_edit_post(item_id: int):
     after = {
         "name": item.name,
         "category": item.category,
-        "unit": item.unit,
         "prep_type": item.prep_type,
         "sales_mode": item.sales_mode,
         "supplier_id": item.supplier_id,
-        "raw_freezer_days": item.raw_freezer_days,
-        "raw_cooler_days": item.raw_cooler_days,
-        "raw_out_days": item.raw_out_days,
-        "prepped_freezer_days": item.prepped_freezer_days,
-        "prepped_cooler_days": item.prepped_cooler_days,
-        "prepped_out_days": item.prepped_out_days,
-        "pack1_label": item.pack1_label, "pack1_mult": item.pack1_mult,
-        "pack2_label": item.pack2_label, "pack2_mult": item.pack2_mult,
-        "pack3_label": item.pack3_label, "pack3_mult": item.pack3_mult,
-        "pack4_label": item.pack4_label, "pack4_mult": item.pack4_mult,
-        "default_units_per_box": item.default_units_per_box,
-        "multiplier": item.multiplier,
         "on_hand_count": item.on_hand_count,
     }
 
@@ -4616,6 +4855,92 @@ def items_bulk_delete():
         return jsonify(error=str(e)), 500
 
     return jsonify(success=True, deleted=deleted, skipped=skipped)
+
+
+# ============================================================
+# ITEM IMPORT (upload a spreadsheet, AI-classify + bulk-create, skip dupes)
+# ============================================================
+@app.get("/items/import")
+def items_import_page():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+    ai_enabled = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return render_template("items_import.html", ai_enabled=ai_enabled, result=None)
+
+
+@app.post("/items/import")
+def items_import_post():
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    ai_enabled = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Choose a file to upload.", "error")
+        return redirect("/items/import")
+
+    filename = file.filename.lower()
+    if not (filename.endswith(".xlsx") or filename.endswith(".xls") or filename.endswith(".csv") or filename.endswith(".pdf")):
+        flash("Please upload a .xlsx, .xls, .csv, or .pdf file.", "error")
+        return redirect("/items/import")
+
+    try:
+        rows = _parse_inventory_file(file)
+    except Exception as e:
+        flash(f"Could not read that file: {e}", "error")
+        return redirect("/items/import")
+
+    if not rows:
+        flash("No item rows were found in that file.", "error")
+        return redirect("/items/import")
+
+    existing_names = {n.lower() for (n,) in db.session.query(Item.name).all()}
+    existing_categories, existing_units = _item_form_options()
+
+    to_create = [r for r in rows if r["name"].lower() not in existing_names]
+    skipped = [r["name"] for r in rows if r["name"].lower() in existing_names]
+
+    categories_by_name = _classify_item_categories([r["name"] for r in to_create], existing_categories) if to_create else {}
+
+    created = []
+    known_categories = set(existing_categories)
+    for r in to_create:
+        name = r["name"]
+        category = categories_by_name.get(name, "Food")
+        unit = r["unit_hint"] or "each"
+
+        # Auto-expand the category list so newly-proposed categories (from AI
+        # or "Food" fallback) show up in Settings/dropdowns immediately.
+        if category not in known_categories:
+            max_order = db.session.query(db.func.max(ItemSetting.display_order)).filter_by(setting_type="category").scalar() or 0
+            db.session.add(ItemSetting(setting_type="category", value=category, display_order=max_order + 1))
+            known_categories.add(category)
+        if unit not in existing_units:
+            max_order = db.session.query(db.func.max(ItemSetting.display_order)).filter_by(setting_type="unit").scalar() or 0
+            db.session.add(ItemSetting(setting_type="unit", value=unit, display_order=max_order + 1))
+            existing_units.append(unit)
+
+        item = Item(name=name, category=category, unit=unit, prep_type="items", sales_mode="simple", on_hand_count=0)
+        db.session.add(item)
+        db.session.flush()
+        db.session.add(ItemUnitConfig(item_id=item.id, receiving_unit=unit, base_unit=unit, conversion_type="fixed", fixed_ratio=1.0))
+        created.append({"name": name, "category": category, "unit": unit})
+
+    audit_log(
+        action="create",
+        entity_type="Item",
+        entity_id=None,
+        message=f"Bulk import from {file.filename}",
+        details={"created_count": len(created), "skipped_count": len(skipped), "created": created, "skipped": skipped},
+    )
+
+    db.session.commit()
+
+    result = {"created": created, "skipped": skipped, "filename": file.filename}
+    flash(f"Imported {len(created)} new item(s), skipped {len(skipped)} existing.", "success")
+    return render_template("items_import.html", ai_enabled=ai_enabled, result=result)
 
 
 # ============================================================
@@ -5986,6 +6311,7 @@ def prep_home(item_id: int):
         from_state=from_state,
         to_state=to_state,
         state_choices=state_choices,
+        unit_config=item.unit_config,
     )
 
 def _prepped_expiration(item: Item, prep_date: date, to_loc: str, to_state: str = "prepped"):
@@ -6021,10 +6347,32 @@ def prep_create(item_id: int):
     if mode not in {"first_n", "selected"}:
         mode = "first_n"
 
+    unit_cfg = item.unit_config
+    received_amount = None
+    received_amount_raw = (request.form.get("received_amount") or "").strip()
+    if received_amount_raw:
+        try:
+            received_amount = float(received_amount_raw)
+        except ValueError:
+            flash("Amount received must be a number.", "error")
+            return redirect(f"/items/{item.id}/prep?from={from_loc}")
+
+    is_variable = bool(unit_cfg and unit_cfg.conversion_type == "variable")
+    if is_variable and (received_amount is None or received_amount <= 0):
+        flash(f"This item requires logging the amount received (in {unit_cfg.receiving_unit or 'its receiving unit'}) for every batch.", "error")
+        return redirect(f"/items/{item.id}/prep?from={from_loc}")
+
     produced_units = to_int(request.form.get("produced_units"), 0)
+    if produced_units <= 0 and unit_cfg and unit_cfg.conversion_type == "fixed" and unit_cfg.fixed_ratio and received_amount:
+        # Fixed-ratio items can auto-compute the base-unit count from the amount
+        # received instead of requiring a manual count — still overridable above.
+        produced_units = round(received_amount * unit_cfg.fixed_ratio)
+
     if produced_units <= 0:
         flash("Enter how many units you produced.", "error")
         return redirect(f"/items/{item.id}/prep?from={from_loc}")
+
+    computed_yield = (produced_units / received_amount) if received_amount else None
 
     notes = (request.form.get("notes") or "").strip() or None
 
@@ -6109,6 +6457,8 @@ def prep_create(item_id: int):
         expires_on=prepped_lot.expiration_override,
         shelf_life_days=shelf_days,
         output_units=produced_units,
+        received_amount=received_amount,
+        computed_yield=computed_yield,
         notes=notes,
     )
     db.session.add(batch)
@@ -6122,6 +6472,8 @@ def prep_create(item_id: int):
         details={
             "item_id": item.id,
             "produced_units": produced_units,
+            "received_amount": received_amount,
+            "computed_yield": computed_yield,
             "from_loc": from_loc,
             "to_loc": to_loc,
             "from_state": from_state,
@@ -6405,6 +6757,21 @@ def item_history(item_id: int):
         filter_location=filter_location,
         filter_state=filter_state,
     )
+def _calc_sales_units_from_pack_units(item, form):
+    """Generic replacement for the old pack1-4/orders_sold*multiplier math —
+    reads packunit_<id>_qty for each of the item's ItemPackUnit rows (however
+    many there are) and sums qty * base_units_per_pack. Returns
+    (sales_units_total, [(pack_unit, qty), ...]) so callers can still
+    positionally backfill the legacy pack1_qty..pack4_qty display columns."""
+    total = 0
+    breakdown = []
+    for p in item.pack_units:
+        qty = to_int(form.get(f"packunit_{p.id}_qty"), 0)
+        total += qty * p.base_units_per_pack
+        breakdown.append((p, qty))
+    return int(round(total)), breakdown
+
+
 @app.post("/items/<int:item_id>/reconcile")
 def reconcile_create(item_id: int):
     guard = require_inventory_edit()
@@ -6420,13 +6787,10 @@ def reconcile_create(item_id: int):
     # ✅ box_quantity style (e.g. legacy generic_food): simple reconcile (no prep required)
     if reconcile_style == "box_quantity":
         actual_units = to_int(request.form.get("actual_units"), 0)
-        orders_sold = to_int(request.form.get("orders_sold"), 0)
         notes = (request.form.get("notes") or "").strip() or None
 
-        # Use multiplier from form (user can edit it) or fall back to item multiplier
-        multiplier = float(request.form.get("multiplier") or item.multiplier or 1.0)
-        units_sold = orders_sold * multiplier
-        
+        units_sold, pack_breakdown = _calc_sales_units_from_pack_units(item, request.form)
+
         # ✅ Get selected lots for generic_food (FIFO selection)
         lot_ids_list = request.form.getlist("generic_lot_ids") or []
         selected_ids = [int(x) for x in lot_ids_list if x.strip().isdigit()]
@@ -6515,8 +6879,8 @@ def reconcile_create(item_id: int):
                 "event_date": event_date.strftime("%Y-%m-%d"),
                 "starting_units": starting_units,
                 "actual_units": actual_units,
-                "orders_sold": orders_sold,
                 "units_sold": units_sold,
+                "pack_breakdown": [{"name": p.name, "qty": qty} for p, qty in pack_breakdown],
                 "missing_units": missing_units,
                 "inventory_snapshot": snapshot,
             },
@@ -6550,17 +6914,12 @@ def reconcile_create(item_id: int):
 
     starting_units = sum(int(l.count_units or 0) for l in selected_lots)
 
-    p1 = to_int(request.form.get("pack1_qty"), 0)
-    p2 = to_int(request.form.get("pack2_qty"), 0)
-    p3 = to_int(request.form.get("pack3_qty"), 0)
-    p4 = to_int(request.form.get("pack4_qty"), 0)
-
-    m1 = int(item.pack1_mult or 0)
-    m2 = int(item.pack2_mult or 0)
-    m3 = int(item.pack3_mult or 0)
-    m4 = int(item.pack4_mult or 0)
-
-    sales_units = (p1 * m1) + (p2 * m2) + (p3 * m3) + (p4 * m4)
+    sales_units, pack_breakdown = _calc_sales_units_from_pack_units(item, request.form)
+    # Legacy display columns only hold 4 slots — backfill positionally for
+    # items with <=4 pack units (the common case); extras only count toward
+    # the aggregate sales_units above, same as box_quantity items always have.
+    legacy_qtys = [qty for _, qty in pack_breakdown[:4]] + [0, 0, 0, 0]
+    p1, p2, p3, p4 = legacy_qtys[:4]
 
     expected_units = starting_units - sales_units
     actual_units = to_int(request.form.get("actual_units"), 0)
@@ -6602,6 +6961,7 @@ def reconcile_create(item_id: int):
             "event_date": event_date.strftime("%Y-%m-%d"),
             "starting_units": starting_units,
             "sales_units": sales_units,
+            "pack_breakdown": [{"name": p.name, "qty": qty} for p, qty in pack_breakdown],
             "actual_units": actual_units,
             "missing_units": missing_units,
             "source_prepped_lot_ids": selected_ids,
@@ -6779,6 +7139,20 @@ def reconcile_edit(rec_id: int, item_id: int | None = None):
             lot_units = int(round((lot.quantity or 1) * units_per_box))
             current_units_on_hand += lot_units
 
+    # Best-effort reconstruction of "qty sold" per pack unit for the edit
+    # form's prefill — the record only stores the aggregate sales_units plus
+    # (for unit_count-style records) 4 legacy positional columns, so this is
+    # exact for a single pack unit and for the first 4 of a migrated item,
+    # same fidelity limit the old form already had.
+    pack_units = item.pack_units
+    pack_qty_map = {}
+    if len(pack_units) == 1 and pack_units[0].base_units_per_pack:
+        pack_qty_map[pack_units[0].id] = round(rec.sales_units / pack_units[0].base_units_per_pack, 2)
+    else:
+        legacy_qtys = [rec.pack1_qty, rec.pack2_qty, rec.pack3_qty, rec.pack4_qty]
+        for i, p in enumerate(pack_units[:4]):
+            pack_qty_map[p.id] = legacy_qtys[i] or 0
+
     return render_template(
         "reconcile_edit.html",
         item=item,
@@ -6787,6 +7161,7 @@ def reconcile_edit(rec_id: int, item_id: int | None = None):
         available_lots_for_selection=available_lots_for_selection,
         current_selected_lot_ids=current_selected_lot_ids,
         current_units_on_hand=current_units_on_hand,
+        pack_qty_map=pack_qty_map,
         today=date.today().strftime("%Y-%m-%d"),
     )
 
@@ -6817,13 +7192,10 @@ def reconcile_edit_post(rec_id: int):
                 pass
 
         actual_units = to_int(request.form.get("actual_units"), 0)
-        orders_sold = to_int(request.form.get("orders_sold"), 0)
         notes = (request.form.get("notes") or "").strip() or None
 
-        # Use multiplier from form or fall back to item multiplier
-        multiplier = float(request.form.get("multiplier") or item.multiplier or 1.0)
-        units_sold = orders_sold * multiplier
-        
+        units_sold, pack_breakdown = _calc_sales_units_from_pack_units(item, request.form)
+
         # ✅ Get selected lots for generic_food (FIFO selection)
         lot_ids_list = request.form.getlist("generic_lot_ids") or []
         selected_ids = [int(x) for x in lot_ids_list if x.strip().isdigit()]
@@ -6898,8 +7270,8 @@ def reconcile_edit_post(rec_id: int):
                 "event_date": event_date.strftime("%Y-%m-%d"),
                 "starting_units": starting_units,
                 "actual_units": actual_units,
-                "orders_sold": orders_sold,
                 "units_sold": units_sold,
+                "pack_breakdown": [{"name": p.name, "qty": qty} for p, qty in pack_breakdown],
                 "missing_units": missing_units,
                 "inventory_snapshot": snapshot,
             }
@@ -6932,17 +7304,9 @@ def reconcile_edit_post(rec_id: int):
 
     starting_units = sum(int(l.count_units or 0) for l in selected_lots)
 
-    p1 = to_int(request.form.get("pack1_qty"), 0)
-    p2 = to_int(request.form.get("pack2_qty"), 0)
-    p3 = to_int(request.form.get("pack3_qty"), 0)
-    p4 = to_int(request.form.get("pack4_qty"), 0)
-
-    m1 = int(item.pack1_mult or 0)
-    m2 = int(item.pack2_mult or 0)
-    m3 = int(item.pack3_mult or 0)
-    m4 = int(item.pack4_mult or 0)
-
-    sales_units = (p1 * m1) + (p2 * m2) + (p3 * m3) + (p4 * m4)
+    sales_units, pack_breakdown = _calc_sales_units_from_pack_units(item, request.form)
+    legacy_qtys = [qty for _, qty in pack_breakdown[:4]] + [0, 0, 0, 0]
+    p1, p2, p3, p4 = legacy_qtys[:4]
 
     expected_units = starting_units - sales_units
     actual_units = to_int(request.form.get("actual_units"), 0)
@@ -6989,6 +7353,7 @@ def reconcile_edit_post(rec_id: int):
             "event_date": event_date.strftime("%Y-%m-%d"),
             "starting_units": starting_units,
             "pack1_qty": p1, "pack2_qty": p2, "pack3_qty": p3, "pack4_qty": p4,
+            "pack_breakdown": [{"name": p.name, "qty": qty} for p, qty in pack_breakdown],
             "sales_units": sales_units,
             "expected_units": expected_units,
             "actual_units": actual_units,
@@ -7648,20 +8013,36 @@ def _resolve_on_hand_location_key(mode: "InventoryMode", locations_in: list) -> 
 
 
 def _sync_mode_states_locations(mode: "InventoryMode", states_in: list, locations_in: list):
-    """Diff-and-sync submitted state/location rows against existing ones, matched by key when present."""
+    """Diff-and-sync submitted state/location rows against existing ones.
+
+    The Settings UI never sends back a `key` (it only knows labels), so rows
+    are matched by key when present, else by case-insensitive label — this
+    keeps keys stable across repeated saves as long as the label is
+    unchanged. Without the label fallback, every save would treat every row
+    as brand new and mint a fresh `_2`/`_3`/... suffixed key each time,
+    silently orphaning any InventoryLot/ItemShelfLife/PrepBatch rows that
+    reference the old key.
+    """
     existing_states = {s.key: s for s in mode.states}
+    existing_states_by_label = {s.label.strip().lower(): s for s in mode.states}
     seen_keys = set()
     for i, s in enumerate(states_in or []):
         label = (s.get("label") or "").strip()
         if not label:
             continue
         key = (s.get("key") or "").strip().lower()
-        if key and key in existing_states:
+        row = None
+        if key and key in existing_states and existing_states[key].key not in seen_keys:
             row = existing_states[key]
+        else:
+            candidate = existing_states_by_label.get(label.lower())
+            if candidate and candidate.key not in seen_keys:
+                row = candidate
+        if row:
             row.label = label
             row.sort_order = i
             row.is_sellable = bool(s.get("is_sellable"))
-            seen_keys.add(key)
+            seen_keys.add(row.key)
         else:
             new_key = _slugify_field_key(label)
             n = 2
@@ -7677,17 +8058,24 @@ def _sync_mode_states_locations(mode: "InventoryMode", states_in: list, location
             db.session.delete(row)
 
     existing_locs = {l.key: l for l in mode.locations}
+    existing_locs_by_label = {l.label.strip().lower(): l for l in mode.locations}
     seen_loc_keys = set()
     for i, l in enumerate(locations_in or []):
         label = (l.get("label") or "").strip()
         if not label:
             continue
         key = (l.get("key") or "").strip().lower()
-        if key and key in existing_locs:
+        row = None
+        if key and key in existing_locs and existing_locs[key].key not in seen_loc_keys:
             row = existing_locs[key]
+        else:
+            candidate = existing_locs_by_label.get(label.lower())
+            if candidate and candidate.key not in seen_loc_keys:
+                row = candidate
+        if row:
             row.label = label
             row.sort_order = i
-            seen_loc_keys.add(key)
+            seen_loc_keys.add(row.key)
         else:
             new_key = _slugify_field_key(label)
             n = 2
@@ -7802,6 +8190,75 @@ def settings_delete_inventory_mode(mode_id):
 
 
 # ============================================================
+# UNIT CONVERSION (Settings > Unit Conversion)
+# ============================================================
+@app.get("/settings/unit-conversions.json")
+def settings_unit_conversions_json():
+    items = Item.query.order_by(Item.category.asc(), Item.name.asc()).all()
+    out = []
+    for item in items:
+        cfg = item.unit_config
+        out.append({
+            "item_id": item.id,
+            "item_name": item.name,
+            "category": item.category,
+            "receiving_unit": cfg.receiving_unit if cfg else None,
+            "base_unit": cfg.base_unit if cfg else None,
+            "conversion_type": cfg.conversion_type if cfg else "fixed",
+            "fixed_ratio": cfg.fixed_ratio if cfg else None,
+            "pack_units": [p.to_dict() for p in item.pack_units],
+        })
+    return jsonify(out)
+
+
+@app.post("/settings/unit-conversions/<int:item_id>/save")
+def settings_save_unit_conversion(item_id):
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+
+    item = Item.query.get_or_404(item_id)
+    data = request.get_json() or {}
+
+    receiving_unit = (data.get("receiving_unit") or "").strip() or None
+    base_unit = (data.get("base_unit") or "").strip() or None
+    conversion_type = (data.get("conversion_type") or "fixed").strip().lower()
+    if conversion_type not in ("fixed", "variable"):
+        conversion_type = "fixed"
+
+    fixed_ratio = None
+    if conversion_type == "fixed":
+        try:
+            fixed_ratio = float(data.get("fixed_ratio")) if data.get("fixed_ratio") not in (None, "") else None
+        except (TypeError, ValueError):
+            return jsonify(error="Fixed ratio must be a number"), 400
+
+    cfg = item.unit_config
+    if not cfg:
+        cfg = ItemUnitConfig(item_id=item.id)
+        db.session.add(cfg)
+    cfg.receiving_unit = receiving_unit
+    cfg.base_unit = base_unit
+    cfg.conversion_type = conversion_type
+    cfg.fixed_ratio = fixed_ratio
+
+    # Replace the pack-unit list wholesale (no cross-references to preserve).
+    ItemPackUnit.query.filter_by(item_id=item.id).delete()
+    for i, p in enumerate(data.get("pack_units") or []):
+        name = (p.get("name") or "").strip()
+        try:
+            mult = float(p.get("base_units_per_pack"))
+        except (TypeError, ValueError):
+            continue
+        if not name or mult <= 0:
+            continue
+        db.session.add(ItemPackUnit(item_id=item.id, name=name, base_units_per_pack=mult, sort_order=i))
+
+    db.session.commit()
+    return jsonify(success=True)
+
+
+# ============================================================
 # INIT DB + MIGRATE + SEED
 # ============================================================
 with app.app_context():
@@ -7816,6 +8273,10 @@ with app.app_context():
         pass
     try:
         seed_inventory_modes()
+    except Exception:
+        pass
+    try:
+        seed_item_unit_configs()
     except Exception:
         pass
 

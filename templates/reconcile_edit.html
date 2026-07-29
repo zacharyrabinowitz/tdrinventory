@@ -82,30 +82,35 @@
         </div>
       </div>
 
-      <!-- Step 3: Multiplier + Units Counted -->
+      <!-- Step 3: Units Counted -->
       <div class="grid2" style="margin-bottom:16px;">
-        <div class="field">
-          <label>Items per Order</label>
-          <input class="input" type="number" min="0.1" step="0.1" id="multiplier_input" name="multiplier" value="{{ item.multiplier | default(1) }}" required style="background: rgba(37, 99, 235, 0.1); border-color: var(--primary);">
-        </div>
-
         <div class="field">
           <label>Units Counted Left</label>
           <input class="input" type="number" min="0" step="1" name="actual_units" value="{{ rec.actual_units }}" required>
         </div>
-      </div>
-
-      <!-- Step 4: Orders Sold + Items Sold (auto) -->
-      <div class="grid2" style="margin-bottom:16px;">
-        <div class="field">
-          <label>Orders Sold</label>
-          <input class="input" type="number" min="0" step="1" id="orders_sold_input" name="orders_sold" value="{{ rec.sales_units / (item.multiplier or 1) }}" required>
-        </div>
 
         <div class="field">
-          <label>Items Sold (Auto)</label>
+          <label>Units Sold (Auto)</label>
           <input class="input" type="number" min="0" step="0.1" id="units_sold_display" value="{{ rec.sales_units }}" readonly style="background: linear-gradient(rgba(255,255,255,0.06),rgba(255,255,255,0.06)), var(--card2); cursor: default; color: var(--text-muted);">
         </div>
+      </div>
+
+      <!-- Step 4: Sell/Pack Units Sold -->
+      <div class="field" style="margin-bottom:16px;">
+        <label>How many of each sold?</label>
+        {% if item.pack_units %}
+          <div class="grid2 pack-qty-grid">
+            {% for p in item.pack_units %}
+              <div class="field">
+                <label class="smalltxt muted">{{ p.name }} ({{ p.base_units_per_pack | round(2) }} units)</label>
+                <input class="input pack-qty-input" type="number" min="0" step="1" value="{{ pack_qty_map.get(p.id, 0) }}"
+                       name="packunit_{{ p.id }}_qty" data-mult="{{ p.base_units_per_pack }}">
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty">No Sell/Pack Units configured for this item — set them up in Settings → Unit Conversion.</div>
+        {% endif %}
       </div>
 
       <div class="field" style="margin-bottom:14px;">
@@ -137,15 +142,19 @@
       })();
 
       function updateUnitsSold() {
-        const ordersSold = parseFloat(document.getElementById('orders_sold_input').value) || 0;
-        const multiplier = parseFloat(document.getElementById('multiplier_input').value) || 1;
-        const unitsSold = ordersSold * multiplier;
+        let unitsSold = 0;
+        document.querySelectorAll('.pack-qty-input').forEach(function(inp) {
+          const qty = parseFloat(inp.value) || 0;
+          const mult = parseFloat(inp.dataset.mult) || 0;
+          unitsSold += qty * mult;
+        });
         document.getElementById('units_sold_display').value = unitsSold.toFixed(1);
       }
 
-      document.getElementById('orders_sold_input').addEventListener('input', updateUnitsSold);
-      document.getElementById('multiplier_input').addEventListener('input', updateUnitsSold);
-      
+      document.querySelectorAll('.pack-qty-input').forEach(function(inp) {
+        inp.addEventListener('input', updateUnitsSold);
+      });
+
       // Initialize on page load
       updateUnitsSold();
     </script>
@@ -252,46 +261,23 @@
       <div class="table" style="margin-top: 6px;">
         <div class="row head" style="grid-template-columns:1fr .7fr .9fr .7fr;">
           <div>Pack Type</div>
-          <div>Multiplier</div>
+          <div>Base Units</div>
           <div>Qty Sold / Used</div>
           <div>Units</div>
         </div>
 
+        {% for p in item.pack_units %}
         <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack1_label or "Pack 1" }}</div>
-          <div class="muted">{{ item.pack1_mult or 0 }}</div>
+          <div class="strong">{{ p.name }}</div>
+          <div class="muted">{{ p.base_units_per_pack | round(2) }}</div>
           <div>
-            <input class="input packQty" type="number" min="0" name="pack1_qty" value="0" data-mult="{{ item.pack1_mult or 0 }}">
+            <input class="input packQty" type="number" min="0" name="packunit_{{ p.id }}_qty" value="{{ pack_qty_map.get(p.id, 0) }}" data-mult="{{ p.base_units_per_pack }}">
           </div>
-          <div class="strong"><span class="packUnits" data-for="pack1">0</span></div>
+          <div class="strong"><span class="packUnits">0</span></div>
         </div>
-
-        <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack2_label or "Pack 2" }}</div>
-          <div class="muted">{{ item.pack2_mult or 0 }}</div>
-          <div>
-            <input class="input packQty" type="number" min="0" name="pack2_qty" value="0" data-mult="{{ item.pack2_mult or 0 }}">
-          </div>
-          <div class="strong"><span class="packUnits" data-for="pack2">0</span></div>
-        </div>
-
-        <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack3_label or "Pack 3" }}</div>
-          <div class="muted">{{ item.pack3_mult or 0 }}</div>
-          <div>
-            <input class="input packQty" type="number" min="0" name="pack3_qty" value="0" data-mult="{{ item.pack3_mult or 0 }}">
-          </div>
-          <div class="strong"><span class="packUnits" data-for="pack3">0</span></div>
-        </div>
-
-        <div class="row" style="grid-template-columns:1fr .7fr .9fr .7fr;">
-          <div class="strong">{{ item.pack4_label or "Pack 4" }}</div>
-          <div class="muted">{{ item.pack4_mult or 0 }}</div>
-          <div>
-            <input class="input packQty" type="number" min="0" name="pack4_qty" value="0" data-mult="{{ item.pack4_mult or 0 }}">
-          </div>
-          <div class="strong"><span class="packUnits" data-for="pack4">0</span></div>
-        </div>
+        {% else %}
+        <div class="empty" style="margin: 10px 14px;">No Sell/Pack Units configured for this item — set them up in Settings → Unit Conversion.</div>
+        {% endfor %}
       </div>
 
       <div class="grid3" style="padding: 12px 14px;">
@@ -382,7 +368,7 @@
     // update per-row units preview
     packs.forEach((inp, idx) => {
       const qty = intVal(inp.value);
-      const mult = intVal(inp.getAttribute("data-mult"));
+      const mult = parseFloat(inp.getAttribute("data-mult")) || 0;
       const u = qty * mult;
       sales += u;
 

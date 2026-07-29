@@ -69,19 +69,6 @@
 
     <div class="grid2">
       <div class="field">
-        <label>Unit</label>
-        <select class="input" name="unit">
-          {% set cur_unit = item.unit if is_edit else 'each' %}
-          {% for u in units %}
-          <option value="{{ u }}" {% if u == cur_unit %}selected{% endif %}>{{ u }}</option>
-          {% endfor %}
-          {% if is_edit and item.unit and item.unit not in units %}
-          <option value="{{ item.unit }}" selected>{{ item.unit }}</option>
-          {% endif %}
-        </select>
-      </div>
-
-      <div class="field">
         <label>Supplier (optional)</label>
         <select class="input" name="supplier_id">
           <option value="">— none —</option>
@@ -92,6 +79,22 @@
           {% endfor %}
         </select>
       </div>
+
+      {% if is_edit %}
+      <div class="field">
+        <label>Unit Conversion</label>
+        <div class="input" style="background:var(--card2); cursor:default;">
+          {% if item.unit_config %}
+            {{ item.unit_config.receiving_unit or "—" }} → {{ item.unit_config.base_unit or "—" }}
+            ({{ "Fixed " ~ (item.unit_config.fixed_ratio|round(2)|string ~ "x") if item.unit_config.conversion_type == "fixed" else "Variable" }})
+            · {{ item.pack_units|length }} pack unit{{ "" if item.pack_units|length == 1 else "s" }}
+          {% else %}
+            Not configured
+          {% endif %}
+        </div>
+        <div class="muted smalltxt"><a href="/settings#unit-conversion">Configure in Settings → Unit Conversion</a></div>
+      </div>
+      {% endif %}
     </div>
 
     {# ── INVENTORY MODE (Prep Type + Sales Mode) ─────────────
@@ -146,28 +149,6 @@
       <div style="height:8px;"></div>
     </div>
 
-    {# ── GENERIC BOX SETTINGS ───────────────────── #}
-    <div id="generic_box_wrap" style="display:none;">
-      <h2>Box / Case Settings</h2>
-      <div class="muted smalltxt" style="margin-bottom:12px;">How many units come in one box or case (optional).</div>
-      <div class="grid2">
-        <div class="field">
-          <label>Units Per Box (optional)</label>
-          <input class="input" type="number" min="1" step="1" name="default_units_per_box" id="units_per_box"
-                 value="{{ item.default_units_per_box if is_edit and item.default_units_per_box is not none else '' }}"
-                 placeholder="e.g. 40">
-        </div>
-        <div class="field">
-          <label>Multiplier for Count/Reconcile (optional)</label>
-          <input class="input" type="number" min="0" step="0.01" id="multiplier" name="multiplier"
-                 value="{{ item.multiplier if is_edit and item.multiplier is not none else '' }}"
-                 placeholder="e.g. 1.0">
-          <div class="muted smalltxt">Adjusts counts during reconciliation</div>
-        </div>
-      </div>
-      <div style="height:8px;"></div>
-    </div>
-
     {# ── SHELF LIFE (days) — dynamic per the category's Inventory Mode states x locations ── #}
     <div id="shelf_life_wrap" style="display:none;">
       <h2>Shelf-Life (days)</h2>
@@ -189,38 +170,6 @@
         {% endfor %}
       </div>
       <div style="height:8px;"></div>
-    </div>
-
-    {# ── PACK COUNTERS ──────────────────────────── #}
-    <div id="pack_counters_wrap" style="display:none;">
-      <h2>Pack Counters <span class="muted smalltxt">(packs_4 sales mode)</span></h2>
-      <div class="muted smalltxt" style="margin-bottom:12px;">Reconcile converts pack qty → units using these multipliers.</div>
-      <div class="grid2">
-        <div class="field"><label>Pack 1 Label</label>
-          <input class="input" name="pack1_label" value="{{ item.pack1_label if is_edit and item.pack1_label else 'Single (10)' }}">
-        </div>
-        <div class="field"><label>Pack 1 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack1_mult" value="{{ item.pack1_mult if is_edit and item.pack1_mult is not none else 10 }}">
-        </div>
-        <div class="field"><label>Pack 2 Label</label>
-          <input class="input" name="pack2_label" value="{{ item.pack2_label if is_edit and item.pack2_label else 'Double (20)' }}">
-        </div>
-        <div class="field"><label>Pack 2 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack2_mult" value="{{ item.pack2_mult if is_edit and item.pack2_mult is not none else 20 }}">
-        </div>
-        <div class="field"><label>Pack 3 Label</label>
-          <input class="input" name="pack3_label" value="{{ item.pack3_label if is_edit and item.pack3_label else 'Room 120 Single (10)' }}">
-        </div>
-        <div class="field"><label>Pack 3 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack3_mult" value="{{ item.pack3_mult if is_edit and item.pack3_mult is not none else 10 }}">
-        </div>
-        <div class="field"><label>Pack 4 Label</label>
-          <input class="input" name="pack4_label" value="{{ item.pack4_label if is_edit and item.pack4_label else 'Room 120 Double (20)' }}">
-        </div>
-        <div class="field"><label>Pack 4 Multiplier</label>
-          <input class="input" type="number" min="0" name="pack4_mult" value="{{ item.pack4_mult if is_edit and item.pack4_mult is not none else 20 }}">
-        </div>
-      </div>
     </div>
 
     {# ── CUSTOM FIELDS (category-defined, Settings > Edit Category) ── #}
@@ -260,11 +209,9 @@ const prepTypeEl    = document.getElementById('prep_type');
 const salesModeEl   = document.getElementById('salesModeSelect');
 const catSelectEl   = document.getElementById('categorySelect');
 
-const genericWrap    = document.getElementById('generic_box_wrap');
 const itemsWrap      = document.getElementById('items_wrap');
 const shelfLifeWrap  = document.getElementById('shelf_life_wrap');
 const shelfLifeGrid  = document.getElementById('shelf_life_grid');
-const packWrap       = document.getElementById('pack_counters_wrap');
 
 // ── Toggle sections based on prep type ───────────────────────
 function toggleByPrepType() {
@@ -278,12 +225,8 @@ function toggleByPrepType() {
 
   // Items wrap
   if (itemsWrap)  itemsWrap.style.display  = isSimple  ? '' : 'none';
-  // Generic box wrap
-  if (genericWrap) genericWrap.style.display = isGeneric ? '' : 'none';
   // Shelf life — only for lot-tracking modes (has states/locations to set days for)
   if (shelfLifeWrap) shelfLifeWrap.style.display = (isLotTracking && shelfLifeGrid && shelfLifeGrid.children.length) ? '' : 'none';
-  // Pack counters — only when packs_4 mode selected
-  if (packWrap) packWrap.style.display = (sm === 'packs_4') ? '' : 'none';
 }
 
 if (prepTypeEl)  prepTypeEl.addEventListener('change', toggleByPrepType);

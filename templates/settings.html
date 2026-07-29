@@ -89,6 +89,23 @@
 </section>
 
 <!-- ══════════════════════════════════════════════
+     UNIT CONVERSION
+     ══════════════════════════════════════════════ -->
+<section class="card" style="margin-bottom:20px;">
+  <div class="cardhead">
+    <div>
+      <h2>Unit Conversion</h2>
+      <span class="muted">Configure each item's Receiving Unit → Base Unit conversion (fixed or per-batch variable), and its Sell/Pack Units for Reconcile</span>
+    </div>
+  </div>
+
+  <div style="padding:0 20px 20px;">
+    <input type="text" id="ucSearch" class="input" placeholder="Search items…" style="margin-bottom:12px; max-width:320px;">
+    <div id="uc-list"><p class="muted smalltxt">Loading…</p></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════
      UNITS
      ══════════════════════════════════════════════ -->
 <section class="card" style="margin-bottom:20px;">
@@ -374,6 +391,68 @@
                 padding:14px 20px; border-top:1px solid var(--stroke);">
       <button type="button" class="btn" onclick="closeModeModal()">Cancel</button>
       <button type="button" class="btn primary" id="modeModalSaveBtn">
+        <i class="fas fa-check"></i> Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="ucModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+     z-index:2000; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;"
+     onclick="if(event.target===this)closeUcModal()">
+  <div style="background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+              width:100%; max-width:560px; box-shadow:var(--shadow); position:relative;">
+
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:18px 20px; border-bottom:1px solid var(--stroke);">
+      <h2 style="margin:0; font-size:17px;" id="ucModalTitle">Unit Conversion</h2>
+      <button type="button" onclick="closeUcModal()"
+              style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px 8px;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <div style="padding:20px; display:flex; flex-direction:column; gap:18px;">
+      <div class="grid2">
+        <div class="s-field">
+          <label>Receiving Unit</label>
+          <input type="text" id="ucReceivingUnit" class="input" placeholder='e.g. "lb", "case"'>
+        </div>
+        <div class="s-field">
+          <label>Base Unit</label>
+          <input type="text" id="ucBaseUnit" class="input" placeholder='e.g. "wing", "each"'>
+        </div>
+      </div>
+
+      <div class="s-field">
+        <label>Conversion Type</label>
+        <select id="ucConversionType" class="input">
+          <option value="fixed">Fixed — a known, static ratio</option>
+          <option value="variable">Variable — logged per prep/receive batch (yield differs each time)</option>
+        </select>
+      </div>
+
+      <div id="ucFixedRatioWrap" class="s-field">
+        <label>Fixed Ratio (base units per 1 receiving unit)</label>
+        <input type="number" step="any" min="0" id="ucFixedRatio" class="input" placeholder="e.g. 24">
+      </div>
+      <p id="ucVariableNote" class="muted smalltxt" style="display:none; margin:-8px 0 0;">
+        No ratio to set — every prep/receive batch for this item will require logging the amount received and the actual resulting base-unit count.
+      </p>
+
+      <hr style="border:none; border-top:1px solid var(--stroke); margin:0;">
+      <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                color:var(--text-muted); margin:0 0 4px;">Sell / Pack Units
+        <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
+          — POS-facing names mapped to a fixed number of base units, e.g. "Double Wings (20)" = 20.</span></p>
+      <div id="ucPackList" style="display:flex; flex-direction:column; gap:6px; margin:8px 0;"></div>
+      <button type="button" class="btn small" onclick="addPackRow()"><i class="fas fa-plus"></i> Add Pack Unit</button>
+    </div>
+
+    <div style="display:flex; gap:10px; justify-content:flex-end;
+                padding:14px 20px; border-top:1px solid var(--stroke);">
+      <button type="button" class="btn" onclick="closeUcModal()">Cancel</button>
+      <button type="button" class="btn primary" id="ucModalSaveBtn">
         <i class="fas fa-check"></i> Save
       </button>
     </div>
@@ -942,6 +1021,142 @@ document.addEventListener('click', function(e) {
       loadModes();
     });
   }
+});
+
+// ══════════════════════════════════════════════
+// UNIT CONVERSION
+// ══════════════════════════════════════════════
+let _ucItems = [];
+let _ucEditItemId = null;
+
+function buildUcRow(u) {
+  const row = document.createElement('div');
+  row.className = 'opt-row';
+  row.dataset.itemId = u.item_id;
+  const chain = (u.receiving_unit || '—') + ' → ' + (u.base_unit || '—');
+  const typeBadge = u.conversion_type === 'variable'
+    ? `<span class="opt-badge">Variable</span>`
+    : `<span class="opt-badge badge-blue">Fixed${u.fixed_ratio ? ' · ' + u.fixed_ratio + 'x' : ''}</span>`;
+  const packCount = u.pack_units.length;
+  row.innerHTML = `
+    <div class="opt-info">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="opt-value">${escHtml(u.item_name)}</span>
+        <span class="opt-badge">${escHtml(u.category)}</span>
+        ${typeBadge}
+        <span class="opt-badge badge-green">${packCount} pack unit${packCount===1?'':'s'}</span>
+      </div>
+      <span class="opt-desc">${escHtml(chain)}</span>
+    </div>
+    <div class="opt-actions">
+      <button type="button" class="btn small uc-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
+    </div>`;
+  return row;
+}
+
+async function loadUnitConversions() {
+  const list = document.getElementById('uc-list');
+  try {
+    const r = await fetch('/settings/unit-conversions.json');
+    _ucItems = await r.json();
+    renderUcList();
+  } catch (e) {
+    list.innerHTML = '<p class="muted smalltxt">Could not load unit conversions.</p>';
+  }
+}
+
+function renderUcList() {
+  const list = document.getElementById('uc-list');
+  const q = (document.getElementById('ucSearch').value || '').toLowerCase().trim();
+  const filtered = q ? _ucItems.filter(u => u.item_name.toLowerCase().includes(q) || u.category.toLowerCase().includes(q)) : _ucItems;
+  list.innerHTML = '';
+  if (!filtered.length) {
+    list.innerHTML = '<p class="muted smalltxt">No items found.</p>';
+  } else {
+    filtered.forEach(u => list.appendChild(buildUcRow(u)));
+  }
+}
+document.getElementById('ucSearch').addEventListener('input', renderUcList);
+loadUnitConversions();
+
+function packRowHtml(name, mult) {
+  return `
+    <div class="pack-row" style="display:flex;gap:8px;align-items:center;">
+      <input type="text" class="input pack-row-name" value="${escHtml(name || '')}" placeholder="Name (e.g. Double Wings (20))" style="flex:2;">
+      <input type="number" step="any" min="0" class="input pack-row-mult" value="${mult != null ? mult : ''}" placeholder="Base units" style="flex:1;">
+      <button type="button" class="btn small danger" onclick="this.closest('.pack-row').remove()"><i class="fas fa-trash"></i></button>
+    </div>`;
+}
+
+function addPackRow(name, mult) {
+  const list = document.getElementById('ucPackList');
+  const div = document.createElement('div');
+  div.innerHTML = packRowHtml(name, mult);
+  list.appendChild(div.firstElementChild);
+}
+
+function collectPackRows() {
+  const rows = document.querySelectorAll('#ucPackList .pack-row');
+  return Array.from(rows).map(row => ({
+    name: row.querySelector('.pack-row-name').value.trim(),
+    base_units_per_pack: parseFloat(row.querySelector('.pack-row-mult').value),
+  })).filter(r => r.name && !isNaN(r.base_units_per_pack) && r.base_units_per_pack > 0);
+}
+
+function toggleUcConversionFields() {
+  const isFixed = document.getElementById('ucConversionType').value === 'fixed';
+  document.getElementById('ucFixedRatioWrap').style.display = isFixed ? '' : 'none';
+  document.getElementById('ucVariableNote').style.display = isFixed ? 'none' : '';
+}
+document.getElementById('ucConversionType').addEventListener('change', toggleUcConversionFields);
+
+function openUcModal(u) {
+  _ucEditItemId = u.item_id;
+  document.getElementById('ucModalTitle').textContent = 'Unit Conversion — ' + u.item_name;
+  document.getElementById('ucReceivingUnit').value = u.receiving_unit || '';
+  document.getElementById('ucBaseUnit').value = u.base_unit || '';
+  document.getElementById('ucConversionType').value = u.conversion_type || 'fixed';
+  document.getElementById('ucFixedRatio').value = u.fixed_ratio != null ? u.fixed_ratio : '';
+
+  const packList = document.getElementById('ucPackList');
+  packList.innerHTML = '';
+  u.pack_units.forEach(p => addPackRow(p.name, p.base_units_per_pack));
+
+  toggleUcConversionFields();
+  document.getElementById('ucModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('ucReceivingUnit').focus(), 60);
+}
+
+function closeUcModal() {
+  document.getElementById('ucModal').style.display = 'none';
+  _ucEditItemId = null;
+}
+
+document.getElementById('ucModalSaveBtn').addEventListener('click', async function() {
+  const conversionType = document.getElementById('ucConversionType').value;
+  const payload = {
+    receiving_unit: document.getElementById('ucReceivingUnit').value.trim(),
+    base_unit: document.getElementById('ucBaseUnit').value.trim(),
+    conversion_type: conversionType,
+    fixed_ratio: conversionType === 'fixed' ? document.getElementById('ucFixedRatio').value : null,
+    pack_units: collectPackRows(),
+  };
+
+  const data = await apiPost(`/settings/unit-conversions/${_ucEditItemId}/save`, payload);
+  if (data.error) { showToast(data.error, false); return; }
+
+  showToast('Unit conversion saved.');
+  closeUcModal();
+  loadUnitConversions();
+});
+
+document.addEventListener('click', function(e) {
+  const editBtn = e.target.closest('.uc-edit-btn');
+  if (!editBtn) return;
+  const row = e.target.closest('.opt-row');
+  const itemId = parseInt(row.dataset.itemId, 10);
+  const u = _ucItems.find(x => x.item_id === itemId);
+  if (u) openUcModal(u);
 });
 </script>
 
