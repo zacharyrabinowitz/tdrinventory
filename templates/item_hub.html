@@ -73,6 +73,23 @@
        ══════════════════════════════════════════════ -->
   <div class="grid3">
 
+    {# ── PAR STATUS — shown for every mode, same on-hand math as Order page/report ── #}
+    {% set has_par = item.par_level is not none %}
+    {% set needed = (item.par_level - current_on_hand) if has_par and (item.par_level - current_on_hand) > 0 else 0 %}
+    <div class="card mini" {% if needed > 0 %}style="border-color: rgba(239,75,75,.4); background: var(--danger-light);"{% endif %}>
+      <div class="muted">Par Status</div>
+      {% if needed > 0 %}
+        <div class="big" style="color:var(--danger);">{{ needed }} short</div>
+        <div class="muted smalltxt">On Hand {{ current_on_hand }} · Par {{ item.par_level }}</div>
+      {% elif has_par %}
+        <div class="big" style="color:var(--success); font-size:22px;">At Par</div>
+        <div class="muted smalltxt">On Hand {{ current_on_hand }} · Par {{ item.par_level }}</div>
+      {% else %}
+        <div class="big" style="font-size:18px;">No par set</div>
+        <div class="muted smalltxt">On Hand: {{ current_on_hand }}{% if can_edit_inventory %} — <a href="/items/{{ item.id }}/edit">set a par</a>{% endif %}</div>
+      {% endif %}
+    </div>
+
     {# ── SIMPLE COUNT ────────────────────────────── #}
     {% if is_simple %}
     <div class="card mini">
@@ -207,8 +224,9 @@
                  style="background:linear-gradient(rgba(255,255,255,.04),rgba(255,255,255,.04)), var(--card2);">
         </div>
         <div class="field">
-          <label>Adjustment (+/−)</label>
-          <input class="input" type="number" name="adjustment" placeholder="e.g. +10 or -5" required>
+          <label>New Stock Count</label>
+          <input class="input" type="number" min="0" step="1" name="new_count"
+                 value="{{ item.on_hand_count or 0 }}" placeholder="e.g. 24" required>
         </div>
       </div>
       <div class="field" style="margin-bottom:12px;">

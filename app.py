@@ -19,7 +19,7 @@ from flask import Flask, flash, redirect, render_template, request, session, abo
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_, and_
 from werkzeug.security import generate_password_hash, check_password_hash
 from io import BytesIO
 from sqlalchemy import text
@@ -995,6 +995,11 @@ class Item(db.Model):
         default=0,
         server_default=db.text("0"),
     )
+
+    # Desired on-hand target ("par level"). When set, Order/Dashboard show
+    # how far below par the item is (par - on_hand) instead of a fixed
+    # hardcoded low-stock threshold.
+    par_level = db.Column(db.Integer, nullable=True)
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
@@ -2018,6 +2023,7 @@ def run_migrations():
     sqlite_add_column_if_missing("reconcile_records", "applied_lot_units", "TEXT")
 
     sqlite_add_column_if_missing("items", "on_hand_count", "INTEGER NOT NULL DEFAULT 0")
+    sqlite_add_column_if_missing("items", "par_level", "INTEGER")
     
     # ✅ FIX: Set any NULL on_hand_count values to 0
     try:
@@ -3709,9 +3715,16 @@ def dashboard():
     for cat in extras:
         categories.append({"name": cat, "count": counts_map.get(cat, 0)})
 
-    # Ordering Analytics
+    # Ordering Analytics — prefer each item's own Par level when set (below
+    # par = low stock); items with no par configured yet fall back to the
+    # old fixed "<5" heuristic so nothing regresses before pars are set up.
     total_items = Item.query.count()
-    low_stock_items = Item.query.filter(Item.on_hand_count < 5).count()
+    low_stock_items = Item.query.filter(
+        or_(
+            and_(Item.par_level.isnot(None), Item.on_hand_count < Item.par_level),
+            and_(Item.par_level.is_(None), Item.on_hand_count < 5),
+        )
+    ).count()
     items_needing_order = Item.query.filter(Item.on_hand_count == 0).count()
     average_stock = db.session.query(func.avg(Item.on_hand_count)).scalar() or 0
     
@@ -3770,8 +3783,9 @@ def items_all():
 
     items = query.order_by(Item.category.asc(), Item.name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    on_hand = _compute_on_hand_map(items)
 
-    return render_template("items.html", items=items, suppliers=suppliers, q=q)
+    return render_template("items.html", items=items, suppliers=suppliers, q=q, on_hand=on_hand)
 
 @app.get("/api/beers")
 def api_get_beers():
@@ -3798,27 +3812,9 @@ def api_get_beers():
     ]
     return jsonify(beers_data)
 
-@app.get("/order")
-def order_items():
-    guard = require_view_access()
-    if guard:
-        return guard
-
-    q = (request.args.get("q") or "").strip()
-    category_filter = (request.args.get("category") or "").strip()
-
-    query = Item.query
-    if q:
-        query = query.filter(Item.name.ilike(f"%{q}%"))
-    if category_filter:
-        query = query.filter(Item.category == category_filter)
-
-    items = query.order_by(Item.category.asc(), Item.name.asc()).all()
-    categories = db.session.query(Item.category).distinct().order_by(Item.category.asc()).all()
-    categories = [c[0] for c in categories if c[0]]
-
-    # ── Compute actual on-hand from live lot data ────────────────
-    # Start with on_hand_count (used by simple-count items)
+def _compute_on_hand_map(items):
+    """Actual on-hand per item from live lot data, falling back to on_hand_count
+    for simple-count items. Shared by the Order page and the Inventory Report PDF."""
     on_hand = {i.id: (i.on_hand_count or 0) for i in items}
 
     item_id_list = [i.id for i in items]
@@ -3868,8 +3864,136 @@ def order_items():
             for item_id, units in rows:
                 on_hand[item_id] = int(units or 0)
 
+    return on_hand
+
+
+@app.get("/order")
+def order_items():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    q = (request.args.get("q") or "").strip()
+    category_filter = (request.args.get("category") or "").strip()
+
+    query = Item.query
+    if q:
+        query = query.filter(Item.name.ilike(f"%{q}%"))
+    if category_filter:
+        query = query.filter(Item.category == category_filter)
+
+    items = query.order_by(Item.category.asc(), Item.name.asc()).all()
+    categories = db.session.query(Item.category).distinct().order_by(Item.category.asc()).all()
+    categories = [c[0] for c in categories if c[0]]
+
+    on_hand = _compute_on_hand_map(items)
+
     return render_template("order.html", items=items, categories=categories,
                            q=q, category_filter=category_filter, on_hand=on_hand)
+
+
+@app.get("/items/report.pdf")
+def items_report_pdf():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+    items = Item.query.order_by(Item.category.asc(), Item.name.asc()).all()
+    on_hand = _compute_on_hand_map(items)
+
+    pending_orders = Order.query.filter_by(status="pending").all()
+    on_order = {o.item_id: o.quantity for o in pending_orders}
+
+    u = current_user()
+    generated_by = "Break-glass Admin" if session.get("break_glass_admin") else (u.display_name() if u else "Unknown")
+
+    by_category: dict[str, list] = {}
+    for item in items:
+        by_category.setdefault(item.category or "Uncategorized", []).append(item)
+    ordered_categories = [c for c in CATEGORY_ORDER if c in by_category]
+    ordered_categories += sorted([c for c in by_category if c not in CATEGORY_ORDER])
+
+    styles = getSampleStyleSheet()
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
+    summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=11, spaceBefore=4, spaceAfter=14)
+    cat_style = ParagraphStyle("cat", parent=styles["Heading2"], spaceBefore=16, spaceAfter=6,
+                                textColor=colors.HexColor("#18181b"))
+
+    header = ["Item", "Unit", "On Hand", "Par", "Status", "On Order"]
+    col_widths = [2.3 * inch, 0.85 * inch, 0.8 * inch, 0.6 * inch, 1.15 * inch, 0.9 * inch]
+
+    story = [
+        Paragraph("The Draft Room — Inventory Report", styles["Title"]),
+        Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %I:%M %p')} by {generated_by}", sub_style),
+    ]
+
+    total_short = 0
+    category_tables = []
+    for cat in ordered_categories:
+        cat_items = by_category[cat]
+        table_data = [header]
+        short_rows = []
+        for item in cat_items:
+            oh = on_hand.get(item.id, 0)
+            has_par = item.par_level is not None
+            needed = max(0, item.par_level - oh) if has_par else 0
+            if has_par and needed > 0:
+                status, is_short = f"{needed} short", True
+                total_short += 1
+            elif has_par:
+                status, is_short = "At par", False
+            else:
+                status, is_short = "—", False
+            qty_ordered = on_order.get(item.id)
+            table_data.append([item.name, item.unit or "—", str(oh),
+                                str(item.par_level) if has_par else "—", status,
+                                str(qty_ordered) if qty_ordered else "—"])
+            short_rows.append(is_short)
+
+        t = Table(table_data, colWidths=col_widths, repeatRows=1)
+        style_cmds = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f4f5")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (2, 0), (5, -1), "CENTER"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+        ]
+        for idx, is_short in enumerate(short_rows, start=1):
+            if is_short:
+                style_cmds.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#fdecea")))
+                style_cmds.append(("TEXTCOLOR", (4, idx), (4, idx), colors.HexColor("#dc2626")))
+                style_cmds.append(("FONTNAME", (4, idx), (4, idx), "Helvetica-Bold"))
+            if table_data[idx][5] != "—":
+                style_cmds.append(("TEXTCOLOR", (5, idx), (5, idx), colors.HexColor("#16a34a")))
+                style_cmds.append(("FONTNAME", (5, idx), (5, idx), "Helvetica-Bold"))
+        t.setStyle(TableStyle(style_cmds))
+        category_tables.append((cat, t))
+
+    story.append(Paragraph(
+        f"{len(items)} items total &nbsp;&bull;&nbsp; "
+        f"<font color='#dc2626'><b>{total_short} below par</b></font> &nbsp;&bull;&nbsp; "
+        f"<font color='#16a34a'><b>{len(on_order)} on order</b></font>",
+        summary_style
+    ))
+    for cat, t in category_tables:
+        story.append(Paragraph(cat, cat_style))
+        story.append(t)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
+                             leftMargin=0.5 * inch, rightMargin=0.5 * inch)
+    doc.build(story)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                      download_name=f"inventory_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
 
 @app.post("/items/<int:item_id>/update-onhand")
 def update_item_onhand(item_id):
@@ -4324,13 +4448,108 @@ def _classify_item_categories(names: list[str], existing_categories: list[str]) 
     return result
 
 
+def _normalize_unit_token(token: str) -> str:
+    """Map a raw unit token from a sheet (gal, #, btl, ea, cs, ...) to the
+    app's canonical unit name."""
+    t = (token or "").strip().lower().rstrip(".,")
+    mapping = {
+        "ea": "each", "ct": "each", "#": "lb", "lbs": "lb",
+        "cs": "case", "bx": "box", "btl": "bottle", "dz": "dozen",
+        "cont": "container", "gal": "gallon", "qt": "quart",
+    }
+    return mapping.get(t, t)
+
+
 def _detect_unit_from_row(cells: list[str]) -> str | None:
     """Look across a spreadsheet row's other cells for a recognizable unit token."""
     for cell in cells:
         token = str(cell).strip().lower().rstrip(".,")
         if token in _KNOWN_UNIT_TOKENS:
-            return "each" if token in ("ea", "ct") else ("lb" if token in ("lbs", "#") else ("case" if token == "cs" else ("box" if token == "bx" else ("bottle" if token == "btl" else token))))
+            return _normalize_unit_token(token)
     return None
+
+
+def _extract_leading_number(text: str) -> float | None:
+    """Pull the first number out of a messy cell like '1 case', '25 lbs',
+    '2 cases', or '48/case' — returns None if the cell has no digits at all
+    (e.g. a bare 'case' with no count)."""
+    if text is None:
+        return None
+    m = re.search(r"-?\d+\.?\d*", str(text))
+    if not m:
+        return None
+    try:
+        return float(m.group())
+    except ValueError:
+        return None
+
+
+def _detect_column_roles(rows: list[list[str]]) -> dict:
+    """Find which column index plays which role (name/on_hand/unit/par/order)
+    by scanning for a header row with recognizable labels, since real-world
+    sheets like this rarely have a single clean header. Falls back to
+    position-based heuristics for anything a header doesn't explain:
+      - name: the column with the most product-name-looking text (existing
+        heuristic), used whether or not a header word for it was found.
+      - on_hand: the numeric column immediately after the name column,
+        per the user's sheet layout (an unlabeled qty column right after
+        the item name) — only used if that slot isn't already claimed by
+        a header-detected column.
+    """
+    num_cols = max((len(r) for r in rows), default=0)
+    roles: dict[str, int] = {}
+
+    # Look for a header row: whichever row has the most keyword hits.
+    header_keywords = {
+        "name_col": ("item", "name", "product"),
+        "unit_col": ("count", "uom", "unit"),
+        "par_col": ("par", "pars"),
+        "order_col": ("order", "qty to order", "reorder"),
+    }
+    best_row_idx, best_hits = -1, 0
+    for ri, row in enumerate(rows[:5]):  # header is always near the top
+        hits = 0
+        for cell in row:
+            c = (cell or "").strip().lower()
+            if any(c == kw or c.startswith(kw) for kws in header_keywords.values() for kw in kws):
+                hits += 1
+        if hits > best_hits:
+            best_hits, best_row_idx = hits, ri
+
+    if best_row_idx >= 0:
+        header = [(cell or "").strip().lower() for cell in rows[best_row_idx]]
+        for role, kws in header_keywords.items():
+            for i, cell in enumerate(header):
+                if any(cell == kw or cell.startswith(kw) for kw in kws):
+                    roles[role] = i
+                    break
+
+    # Name column: reuse the "most product-name-looking text" heuristic,
+    # ignoring the header row itself, unless a header already found it.
+    if "name_col" not in roles:
+        best_score, name_col = -1, 0
+        for col in range(num_cols):
+            score = 0
+            for ri, row in enumerate(rows):
+                if ri == best_row_idx or col >= len(row):
+                    continue
+                val = (row[col] or "").strip()
+                if not val or not any(ch.isalpha() for ch in val):
+                    continue
+                if val.lower().rstrip(".,") in _KNOWN_UNIT_TOKENS:
+                    continue
+                score += 1
+            if score > best_score:
+                best_score, name_col = score, col
+        roles["name_col"] = name_col
+
+    # On-hand column: the unlabeled column immediately after the name column.
+    on_hand_candidate = roles["name_col"] + 1
+    if on_hand_candidate < num_cols and on_hand_candidate not in roles.values():
+        roles["on_hand_col"] = on_hand_candidate
+
+    roles["header_row_idx"] = best_row_idx
+    return roles
 
 
 def _extract_rows_from_pdf(raw: bytes) -> list[list[str]]:
@@ -4363,10 +4582,12 @@ def _extract_rows_from_pdf(raw: bytes) -> list[list[str]]:
 
 def _parse_inventory_file(file_storage) -> list[dict]:
     """Parse an uploaded .xlsx/.xls/.csv/.pdf inventory sheet into a flat list
-    of {"name": str, "unit_hint": str|None} rows. Assumes the item name is
-    whichever column has the most non-numeric, non-blank text values (usually
-    the first column) — real-world sheets like this are rarely clean, so we
-    don't assume a fixed header layout."""
+    of {"name", "unit_hint", "on_hand", "par", "order_qty"} rows, matching
+    this app's sheet convention: ITEM, an unlabeled on-hand qty column right
+    after it, PACK BRK (ignored), Count (the counting unit), Pars (target
+    on-hand level), order (qty to order). Column roles are detected from
+    whatever header text is present — real-world sheets like this are rarely
+    clean, so we don't assume a fixed layout."""
     filename = (file_storage.filename or "").lower()
     raw = file_storage.read()
 
@@ -4390,33 +4611,21 @@ def _parse_inventory_file(file_storage) -> list[dict]:
     if not rows:
         return []
 
-    # Pick the name column: whichever has the most cells that look like a
-    # product name (has letters, isn't purely a number/unit token).
-    num_cols = max(len(r) for r in rows)
-    name_col = 0
-    best_score = -1
-    for col in range(num_cols):
-        score = 0
-        for row in rows:
-            if col >= len(row):
-                continue
-            val = row[col].strip()
-            if not val or not any(ch.isalpha() for ch in val):
-                continue
-            if val.lower().rstrip(".,") in _KNOWN_UNIT_TOKENS:
-                continue
-            score += 1
-        if score > best_score:
-            best_score = score
-            name_col = col
+    roles = _detect_column_roles(rows)
+    name_col = roles["name_col"]
+    on_hand_col = roles.get("on_hand_col")
+    unit_col = roles.get("unit_col")
+    par_col = roles.get("par_col")
+    order_col = roles.get("order_col")
+    header_row_idx = roles.get("header_row_idx", -1)
 
     out = []
     seen_in_file = set()
-    header_words = {"item", "name", "product", "pack", "brk", "count", "pars", "order", "qty"}
-    for row in rows:
-        if name_col >= len(row):
+    header_words = {"item", "name", "product", "pack", "brk", "count", "pars", "order", "qty", "par", "uom", "unit"}
+    for ri, row in enumerate(rows):
+        if ri == header_row_idx or name_col >= len(row):
             continue
-        name = row[name_col].strip()
+        name = (row[name_col] or "").strip()
         if not name or not any(ch.isalpha() for ch in name):
             continue
         if name.lower().strip() in header_words:
@@ -4425,8 +4634,26 @@ def _parse_inventory_file(file_storage) -> list[dict]:
         if key in seen_in_file:
             continue
         seen_in_file.add(key)
-        other_cells = [c for i, c in enumerate(row) if i != name_col]
-        out.append({"name": name, "unit_hint": _detect_unit_from_row(other_cells)})
+
+        def cell(idx):
+            return row[idx] if idx is not None and idx < len(row) else None
+
+        unit_hint = _normalize_unit_token(cell(unit_col)) if unit_col is not None and cell(unit_col) else None
+        if not unit_hint:
+            other_cells = [c for i, c in enumerate(row) if i != name_col]
+            unit_hint = _detect_unit_from_row(other_cells)
+
+        on_hand = _extract_leading_number(cell(on_hand_col))
+        par = _extract_leading_number(cell(par_col))
+        order_qty = _extract_leading_number(cell(order_col))
+
+        out.append({
+            "name": name,
+            "unit_hint": unit_hint,
+            "on_hand": int(on_hand) if on_hand is not None else None,
+            "par": int(par) if par is not None else None,
+            "order_qty": int(order_qty) if order_qty else None,
+        })
     return out
 
 
@@ -4593,6 +4820,7 @@ def item_new_post():
 
     # ✅ NEW: on_hand_count for items prep type
     on_hand_count = to_int(request.form.get("on_hand_count"), 0)
+    par_level = to_int(request.form.get("par_level"), 0) or None
 
     if not name:
         flash("Item name is required.", "error")
@@ -4611,6 +4839,7 @@ def item_new_post():
         sales_mode=sales_mode,
         supplier_id=supplier_id,
         on_hand_count=on_hand_count,
+        par_level=par_level,
     )
 
     db.session.add(item)
@@ -4691,6 +4920,7 @@ def item_edit_post(item_id: int):
         "sales_mode": item.sales_mode,
         "supplier_id": item.supplier_id,
         "on_hand_count": item.on_hand_count,
+        "par_level": item.par_level,
     }
 
     name = (request.form.get("name") or "").strip()
@@ -4728,6 +4958,7 @@ def item_edit_post(item_id: int):
 
     # ✅ ITEMS SETTINGS
     item.on_hand_count = to_int(request.form.get("on_hand_count"), 0)
+    item.par_level = to_int(request.form.get("par_level"), 0) or None
 
     _save_item_custom_fields(item, category, request.form)
     _save_item_shelf_life(item, get_item_mode(item), request.form)
@@ -4739,6 +4970,7 @@ def item_edit_post(item_id: int):
         "sales_mode": item.sales_mode,
         "supplier_id": item.supplier_id,
         "on_hand_count": item.on_hand_count,
+        "par_level": item.par_level,
     }
 
     audit_log(
@@ -4896,23 +5128,39 @@ def items_import_post():
         flash("No item rows were found in that file.", "error")
         return redirect("/items/import")
 
-    existing_names = {n.lower() for (n,) in db.session.query(Item.name).all()}
+    existing_items_by_name = {i.name.lower(): i for i in Item.query.all()}
     existing_categories, existing_units = _item_form_options()
 
-    to_create = [r for r in rows if r["name"].lower() not in existing_names]
-    skipped = [r["name"] for r in rows if r["name"].lower() in existing_names]
+    to_create = [r for r in rows if r["name"].lower() not in existing_items_by_name]
+    existing_rows = [r for r in rows if r["name"].lower() in existing_items_by_name]
 
     categories_by_name = _classify_item_categories([r["name"] for r in to_create], existing_categories) if to_create else {}
 
     created = []
+    par_updated = []
+    orders_created = []
     known_categories = set(existing_categories)
+
+    def _queue_order(item_id: int, item_name: str, qty: int):
+        """Upsert a pending Order for this item, same rule save_order() uses:
+        one pending order per item, so re-importing the same sheet twice
+        just updates the quantity instead of piling up duplicate orders."""
+        existing_order = Order.query.filter_by(item_id=item_id, status="pending").first()
+        if existing_order:
+            existing_order.quantity = qty
+            existing_order.order_date = date.today()
+        else:
+            db.session.add(Order(item_id=item_id, quantity=qty, order_date=date.today(), status="pending"))
+        orders_created.append({"name": item_name, "quantity": qty})
+
     for r in to_create:
         name = r["name"]
         category = categories_by_name.get(name, "Food")
         unit = r["unit_hint"] or "each"
 
-        # Auto-expand the category list so newly-proposed categories (from AI
-        # or "Food" fallback) show up in Settings/dropdowns immediately.
+        # Auto-expand the category/unit lists so anything new (an AI-proposed
+        # category, or a unit token straight from the sheet's Count column)
+        # shows up in Settings/dropdowns immediately instead of erroring.
         if category not in known_categories:
             max_order = db.session.query(db.func.max(ItemSetting.display_order)).filter_by(setting_type="category").scalar() or 0
             db.session.add(ItemSetting(setting_type="category", value=category, display_order=max_order + 1))
@@ -4922,24 +5170,54 @@ def items_import_post():
             db.session.add(ItemSetting(setting_type="unit", value=unit, display_order=max_order + 1))
             existing_units.append(unit)
 
-        item = Item(name=name, category=category, unit=unit, prep_type="items", sales_mode="simple", on_hand_count=0)
+        item = Item(
+            name=name, category=category, unit=unit, prep_type="items", sales_mode="simple",
+            on_hand_count=r["on_hand"] or 0, par_level=r["par"],
+        )
         db.session.add(item)
         db.session.flush()
         db.session.add(ItemUnitConfig(item_id=item.id, receiving_unit=unit, base_unit=unit, conversion_type="fixed", fixed_ratio=1.0))
-        created.append({"name": name, "category": category, "unit": unit})
+        created.append({"name": name, "category": category, "unit": unit, "par": r["par"], "on_hand": r["on_hand"] or 0})
+
+        if r["order_qty"]:
+            _queue_order(item.id, name, r["order_qty"])
+
+    # Existing items: never touch name/category/unit/prep_type — only bring
+    # in the Par value (this sheet IS the par list) and queue an order if
+    # the sheet has one, exactly like the user's normal ordering workflow.
+    for r in existing_rows:
+        item = existing_items_by_name[r["name"].lower()]
+        if r["par"] is not None and item.par_level != r["par"]:
+            item.par_level = r["par"]
+            par_updated.append({"name": item.name, "par": r["par"]})
+        if r["order_qty"]:
+            _queue_order(item.id, item.name, r["order_qty"])
+
+    skipped = [r["name"] for r in existing_rows]
 
     audit_log(
         action="create",
         entity_type="Item",
         entity_id=None,
         message=f"Bulk import from {file.filename}",
-        details={"created_count": len(created), "skipped_count": len(skipped), "created": created, "skipped": skipped},
+        details={
+            "created_count": len(created), "skipped_count": len(skipped),
+            "par_updated_count": len(par_updated), "orders_created_count": len(orders_created),
+            "created": created, "skipped": skipped, "par_updated": par_updated, "orders_created": orders_created,
+        },
     )
 
     db.session.commit()
 
-    result = {"created": created, "skipped": skipped, "filename": file.filename}
-    flash(f"Imported {len(created)} new item(s), skipped {len(skipped)} existing.", "success")
+    result = {
+        "created": created, "skipped": skipped, "par_updated": par_updated,
+        "orders_created": orders_created, "filename": file.filename,
+    }
+    flash(
+        f"Imported {len(created)} new item(s), skipped {len(skipped)} existing, "
+        f"updated par for {len(par_updated)}, queued {len(orders_created)} order(s).",
+        "success",
+    )
     return render_template("items_import.html", ai_enabled=ai_enabled, result=result)
 
 
@@ -5048,6 +5326,7 @@ def item_hub(item_id: int):
 
     cat_cfg = _get_cat_cfg(item.category)
     custom_fields = _get_item_custom_fields(item)
+    current_on_hand = _compute_on_hand_map([item]).get(item.id, 0)
 
     return render_template(
         "item_hub.html",
@@ -5057,6 +5336,7 @@ def item_hub(item_id: int):
         prepped_units_available=prepped_units_available,
         cooler_boxes_available=cooler_boxes_available,
         cooler_units_available=cooler_units_available,
+        current_on_hand=current_on_hand,
         totals=totals,
         expiring_soon=expiring_soon,
         expiring_soon_count=expiring_soon_count,
@@ -5081,11 +5361,11 @@ def adjust_item_stock(item_id: int):
         flash("Stock adjustment only available for 'items' prep type.", "error")
         return redirect(f"/items/{item_id}")
     
-    adjustment = to_int(request.form.get("adjustment"), 0)
     notes = (request.form.get("notes") or "").strip() or None
-    
+
     old_count = item.on_hand_count or 0
-    new_count = max(0, old_count + adjustment)
+    new_count = max(0, to_int(request.form.get("new_count"), old_count))
+    adjustment = new_count - old_count
     item.on_hand_count = new_count
     
     audit_log(

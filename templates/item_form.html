@@ -97,6 +97,16 @@
       {% endif %}
     </div>
 
+    <div class="grid2">
+      <div class="field">
+        <label>Par Level (optional)</label>
+        <input class="input" type="number" min="0" step="1" name="par_level"
+               value="{{ item.par_level if is_edit and item.par_level is not none else '' }}"
+               placeholder="e.g. 10">
+        <div class="muted smalltxt">Target on-hand quantity — the Order page shows how far below this the item is.</div>
+      </div>
+    </div>
+
     {# ── INVENTORY MODE (Prep Type + Sales Mode) ─────────────
        Always editable, but auto-fills from category on new items.
        A hint shows what the category recommends.

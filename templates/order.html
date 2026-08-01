@@ -8,7 +8,10 @@
     <h1 style="margin:0;">New Order</h1>
     <span class="muted">Order items and beers</span>
   </div>
-  <a href="/orders" class="btn"><i class="fas fa-clipboard-list"></i> View Orders</a>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a href="/orders" class="btn"><i class="fas fa-clipboard-list"></i> View Orders</a>
+    <a href="/items/report.pdf" class="btn"><i class="fas fa-file-pdf"></i> Download Report</a>
+  </div>
 </div>
 
 <!-- TABS -->
@@ -55,6 +58,8 @@
           <th>Category</th>
           <th>On Hand</th>
           <th>Unit</th>
+          <th>Par</th>
+          <th>Needed</th>
           <th class="input-col">Qty to Order</th>
           <th class="input-col">Order By</th>
           <th class="notes-col">Notes</th>
@@ -63,20 +68,33 @@
       </thead>
       <tbody id="itemsTableBody">
         {% for item in items %}
-        <tr class="order-row" data-item-id="{{ item.id }}"
+        {% set oh = on_hand.get(item.id, 0) %}
+        {% set has_par = item.par_level is not none %}
+        {% set needed = (item.par_level - oh) if has_par and (item.par_level - oh) > 0 else 0 %}
+        <tr class="order-row {{ 'short-row' if needed > 0 else '' }}" data-item-id="{{ item.id }}"
             data-name="{{ item.name.lower() }}" data-category="{{ item.category }}">
           <td class="item-name"><span class="item-title">{{ item.name }}</span></td>
           <td class="muted" style="font-size:13px;">{{ item.category }}</td>
           <td style="text-align:center;">
-            <span class="on-hand-badge">{{ on_hand.get(item.id, 0) }}</span>
+            <span class="on-hand-badge {{ 'badge-short' if needed > 0 else ('badge-ok' if has_par else '') }}">{{ oh }}</span>
             <button type="button" class="btn-edit-onhand" title="Edit on-hand count"
                     data-item-id="{{ item.id }}" data-item-name="{{ item.name }}">
               <i class="fas fa-edit"></i>
             </button>
           </td>
           <td class="muted" style="font-size:13px;">{{ item.unit or '—' }}</td>
+          <td class="muted" style="font-size:13px; text-align:center;">{{ item.par_level if has_par else '—' }}</td>
+          <td style="text-align:center;">
+            {% if needed > 0 %}
+              <span class="pill critical"><i class="fas fa-arrow-down"></i> {{ needed }} short</span>
+            {% elif has_par %}
+              <span class="pill ok"><i class="fas fa-check"></i> At par</span>
+            {% else %}
+              <span class="muted smalltxt">No par set</span>
+            {% endif %}
+          </td>
           <td class="input-col">
-            <input type="number" class="qty-input" placeholder="0" min="0" step="1">
+            <input type="number" class="qty-input" placeholder="0" min="0" step="1" data-needed="{{ needed }}" value="{{ needed if needed > 0 else '' }}">
           </td>
           <td class="input-col">
             <input type="date" class="date-input">
@@ -207,6 +225,16 @@
   padding: 3px 10px; border-radius: 20px; font-weight: 600;
   font-size: 12px; min-width: 36px; text-align: center;
 }
+.on-hand-badge.badge-short { background: var(--danger); }
+.on-hand-badge.badge-ok    { background: var(--success); }
+
+/* ── Needed pill (extends shared .pill) ── */
+.pill.ok { border-color: rgba(74, 222, 128, 0.4); background: var(--ok-light); color: var(--success); }
+
+/* ── Rows below par: flag clearly at a glance ── */
+.order-row.short-row td { background: var(--danger-light); }
+.order-row.short-row:hover td { background: var(--danger-light); filter: brightness(1.08); }
+.order-row.short-row td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 
 /* ── Inputs inside table ── */
 .qty-input, .date-input, .notes-input {

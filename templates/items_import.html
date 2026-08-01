@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 
-<section class="card" style="max-width:800px;">
+<section class="card" style="max-width:900px;">
   <div class="cardhead">
     <div>
       <h1>Import Items</h1>
-      <span class="muted">Upload an existing inventory sheet (.xlsx, .xls, .csv, or .pdf) — new items get added automatically, anything that already exists by name is skipped and left untouched.</span>
+      <span class="muted">Upload your inventory sheet (.xlsx, .xls, .csv, or .pdf). Columns are matched by header text: the unlabeled column right after the item name is On Hand, "Count" is the unit it's counted in, "Pars" is the target on-hand level, "order" queues an order. New items are created automatically (with a new unit or category if needed); items that already exist are never renamed/recategorized — only their Par gets refreshed and an order gets queued if the sheet has one.</span>
     </div>
     <div class="actions">
       <a class="btn" href="/items">Back to Items</a>
+      <a class="btn" href="/orders">View Orders</a>
     </div>
   </div>
 
@@ -18,7 +19,7 @@
       <div class="muted smalltxt" style="margin-top:4px;">
         No <code>ANTHROPIC_API_KEY</code> is configured, so categories are assigned with a built-in keyword
         classifier instead of a real AI call. It works reasonably well for common bar/restaurant items, but
-        add an API key to your <code>.env</code> file for smarter categorization of the tricker names — no
+        add an API key to your <code>.env</code> file for smarter categorization of the trickier names — no
         other change needed, it upgrades automatically.
       </div>
     </div>
@@ -28,7 +29,7 @@
     <div class="field">
       <label>Inventory File</label>
       <input class="input" type="file" name="file" accept=".xlsx,.xls,.csv,.pdf" required>
-      <div class="muted smalltxt">The item name column is auto-detected — no need to reformat your sheet first. PDFs need a real table/text layer (not a scanned photo) to parse correctly.</div>
+      <div class="muted smalltxt">PDFs need a real table/text layer (not a scanned photo) to parse correctly.</div>
     </div>
     <div class="actions">
       <button class="btn primary" type="submit"><i class="fas fa-upload"></i> Upload &amp; Import</button>
@@ -48,28 +49,75 @@
         <div class="muted">Skipped (already exist)</div>
         <div class="big">{{ result.skipped|length }}</div>
       </div>
+      <div class="card mini">
+        <div class="muted">Par Updated</div>
+        <div class="big">{{ result.par_updated|length }}</div>
+      </div>
+      <div class="card mini">
+        <div class="muted">Orders Queued</div>
+        <div class="big">{{ result.orders_created|length }}</div>
+      </div>
     </div>
+
+    {% if result.orders_created and result.orders_created|length > 0 %}
+      <h3 style="margin-bottom:8px;">Orders Queued (from the "order" column)</h3>
+      <div class="table" style="margin-bottom:16px;">
+        <div class="row head" style="grid-template-columns:1.4fr .6fr;">
+          <div>Name</div>
+          <div>Qty</div>
+        </div>
+        {% for o in result.orders_created %}
+        <div class="row" style="grid-template-columns:1.4fr .6fr;">
+          <div class="strong">{{ o.name }}</div>
+          <div class="muted">{{ o.quantity }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="muted smalltxt" style="margin-bottom:16px;">
+        These are saved as pending orders — <a href="/orders">view/manage them on the Orders page</a>.
+      </div>
+    {% endif %}
 
     {% if result.created and result.created|length > 0 %}
       <h3 style="margin-bottom:8px;">New Items</h3>
       <div class="table" style="margin-bottom:16px;">
-        <div class="row head" style="grid-template-columns:1.4fr .8fr .5fr;">
+        <div class="row head" style="grid-template-columns:1.2fr .7fr .5fr .5fr .5fr;">
           <div>Name</div>
           <div>Category</div>
           <div>Unit</div>
+          <div>On Hand</div>
+          <div>Par</div>
         </div>
         {% for c in result.created %}
-        <div class="row" style="grid-template-columns:1.4fr .8fr .5fr;">
+        <div class="row" style="grid-template-columns:1.2fr .7fr .5fr .5fr .5fr;">
           <div class="strong">{{ c.name }}</div>
           <div class="muted">{{ c.category }}</div>
           <div class="muted">{{ c.unit }}</div>
+          <div class="muted">{{ c.on_hand }}</div>
+          <div class="muted">{{ c.par if c.par is not none else '—' }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if result.par_updated and result.par_updated|length > 0 %}
+      <h3 style="margin-bottom:8px;">Par Updated (existing items)</h3>
+      <div class="table" style="margin-bottom:16px;">
+        <div class="row head" style="grid-template-columns:1.4fr .6fr;">
+          <div>Name</div>
+          <div>New Par</div>
+        </div>
+        {% for p in result.par_updated %}
+        <div class="row" style="grid-template-columns:1.4fr .6fr;">
+          <div class="strong">{{ p.name }}</div>
+          <div class="muted">{{ p.par }}</div>
         </div>
         {% endfor %}
       </div>
     {% endif %}
 
     {% if result.skipped and result.skipped|length > 0 %}
-      <h3 style="margin-bottom:8px;">Skipped (name already exists — untouched)</h3>
+      <h3 style="margin-bottom:8px;">Skipped (name already exists — item config untouched)</h3>
       <div class="table">
         <div class="row head" style="grid-template-columns:1fr;">
           <div>Name</div>
