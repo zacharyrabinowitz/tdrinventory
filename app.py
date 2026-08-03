@@ -2442,7 +2442,7 @@ def beer_taps_report_pdf():
 
     story = [
         Paragraph("The Draft Room — Beer Taps Report", styles["Title"]),
-        Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %I:%M %p')} by {generated_by}", sub_style),
+        Paragraph(f"Generated {local_now().strftime('%B %d, %Y at %I:%M %p %Z')} by {generated_by}", sub_style),
     ]
 
     total_taps = len(main_taps) + len(lower_taps)
@@ -2500,7 +2500,7 @@ def beer_taps_report_pdf():
     doc.build(story)
     buf.seek(0)
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                      download_name=f"beer_taps_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+                      download_name=f"beer_taps_report_{local_now().strftime('%Y%m%d_%H%M%S')}.pdf")
 
 
 @app.route("/beers/taps/assign", methods=["POST"])
@@ -2844,7 +2844,7 @@ def beers_report_pdf():
 
     story = [
         Paragraph("The Draft Room — Beer List Report", styles["Title"]),
-        Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %I:%M %p')} by {generated_by}", sub_style),
+        Paragraph(f"Generated {local_now().strftime('%B %d, %Y at %I:%M %p %Z')} by {generated_by}", sub_style),
     ]
 
     zero_stock = sum(1 for b in beers if (b.on_hand_kegs or 0) == 0)
@@ -2892,7 +2892,7 @@ def beers_report_pdf():
     doc.build(story)
     buf.seek(0)
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                      download_name=f"beer_list_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+                      download_name=f"TDR Beer Keg Inventory Report.pdf")
 
 
 @app.route("/beers/taps/cups_preview", methods=["POST"])
@@ -4097,7 +4097,7 @@ def items_report_pdf():
 
     story = [
         Paragraph("The Draft Room — Inventory Report", styles["Title"]),
-        Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %I:%M %p')} by {generated_by}", sub_style),
+        Paragraph(f"Generated {local_now().strftime('%B %d, %Y at %I:%M %p %Z')} by {generated_by}", sub_style),
     ]
 
     total_short = 0
@@ -4160,7 +4160,7 @@ def items_report_pdf():
     doc.build(story)
     buf.seek(0)
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                      download_name=f"inventory_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+                      download_name=f"inventory_report_{local_now().strftime('%Y%m%d_%H%M%S')}.pdf")
 
 @app.post("/items/<int:item_id>/update-onhand")
 def update_item_onhand(item_id):
@@ -5566,7 +5566,7 @@ def admin_backup_download():
     payload = _export_db_to_dict()
     raw = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
-    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    stamp = local_now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"inventory_backup_{stamp}.json"
 
     bio = BytesIO(raw)
