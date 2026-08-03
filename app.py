@@ -4160,7 +4160,7 @@ def items_report_pdf():
     doc.build(story)
     buf.seek(0)
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                      download_name=f"inventory_report_{local_now().strftime('%Y%m%d_%H%M%S')}.pdf")
+                      download_name=f"TDR Inventory Report.pdf")
 
 @app.post("/items/<int:item_id>/update-onhand")
 def update_item_onhand(item_id):
