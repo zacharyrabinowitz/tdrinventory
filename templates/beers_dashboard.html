@@ -30,6 +30,7 @@ const ALL_BEERS  = [{% for b in beers %}{ id:{{ b.id }}, name:{{ b.name|tojson }
   </div>
   <div class="actions">
     <a href="/beers" class="btn"><i class="fas fa-list"></i> Manage Beers</a>
+    <a href="/beers/taps/report.pdf" class="btn"><i class="fas fa-file-pdf"></i> Download Report</a>
     <button class="btn primary" id="saveAllBtn" type="button">
       <i class="fas fa-save"></i> Save All
     </button>

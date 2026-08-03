@@ -2412,6 +2412,96 @@ def beers_dashboard():
     )
 
 
+@app.get("/beers/taps/report.pdf")
+def beer_taps_report_pdf():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+
+    ensure_beer_taps()
+    main_taps = BeerTap.query.filter_by(bar_location="main").order_by(BeerTap.id.asc()).all()
+    lower_taps = BeerTap.query.filter_by(bar_location="lower").order_by(BeerTap.id.asc()).all()
+
+    u = current_user()
+    generated_by = "Break-glass Admin" if session.get("break_glass_admin") else (u.display_name() if u else "Unknown")
+
+    styles = getSampleStyleSheet()
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
+    summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=11, spaceBefore=4, spaceAfter=14)
+    bar_style = ParagraphStyle("bar", parent=styles["Heading2"], spaceBefore=16, spaceAfter=6,
+                                textColor=colors.HexColor("#18181b"))
+
+    header = ["Tap", "Beer", "Brewery / Style", "ABV", "% Remaining", "Kegs On Hand"]
+    col_widths = [0.5 * inch, 1.6 * inch, 1.6 * inch, 0.6 * inch, 1.0 * inch, 1.0 * inch]
+
+    story = [
+        Paragraph("The Draft Room — Beer Taps Report", styles["Title"]),
+        Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %I:%M %p')} by {generated_by}", sub_style),
+    ]
+
+    total_taps = len(main_taps) + len(lower_taps)
+    on_taps = sum(1 for t in main_taps + lower_taps if t.beer_id)
+    low_taps = sum(1 for t in main_taps + lower_taps if t.beer_id and (t.percent_remaining or 0) <= 20)
+
+    story.append(Paragraph(
+        f"{total_taps} taps total &nbsp;&bull;&nbsp; "
+        f"{on_taps} on tap &nbsp;&bull;&nbsp; "
+        f"<font color='#dc2626'><b>{low_taps} running low</b></font>",
+        summary_style
+    ))
+
+    for bar_name, taps in (("Main Bar", main_taps), ("Lower Bar", lower_taps)):
+        table_data = [header]
+        low_rows = []
+        for idx, t in enumerate(taps, start=1):
+            beer = t.beer
+            if beer:
+                sub = " / ".join([x for x in [beer.brewery, beer.style] if x])
+                abv = f"{beer.abv:.1f}%" if beer.abv is not None else "—"
+                pct = f"{t.percent_remaining or 0}%"
+                kegs = str(beer.on_hand_kegs or 0)
+                is_low = (t.percent_remaining or 0) <= 20
+                table_data.append([str(idx), beer.name, sub or "—", abv, pct, kegs])
+            else:
+                table_data.append([str(idx), "— Empty —", "—", "—", "—", "—"])
+                is_low = False
+            low_rows.append(is_low)
+
+        t_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        style_cmds = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f4f5")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("ALIGN", (3, 0), (5, -1), "CENTER"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+        ]
+        for idx, is_low in enumerate(low_rows, start=1):
+            if is_low:
+                style_cmds.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#fdecea")))
+                style_cmds.append(("TEXTCOLOR", (4, idx), (4, idx), colors.HexColor("#dc2626")))
+                style_cmds.append(("FONTNAME", (4, idx), (4, idx), "Helvetica-Bold"))
+        t_table.setStyle(TableStyle(style_cmds))
+
+        story.append(Paragraph(bar_name, bar_style))
+        story.append(t_table)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
+                             leftMargin=0.5 * inch, rightMargin=0.5 * inch)
+    doc.build(story)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                      download_name=f"beer_taps_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+
 
 @app.route("/beers/taps/assign", methods=["POST"])
 def assign_beer_to_tap():
@@ -2726,6 +2816,83 @@ def beers_manage():
     return render_template("beers_manage.html", beers=beers,
                            main_taps=main_taps, lower_taps=lower_taps,
                            can_edit_inventory=user_can_edit_inventory)
+
+
+@app.get("/beers/report.pdf")
+def beers_report_pdf():
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+
+    beers = sorted(Beer.query.all(), key=lambda b: _natural_sort_key(b.name))
+
+    u = current_user()
+    generated_by = "Break-glass Admin" if session.get("break_glass_admin") else (u.display_name() if u else "Unknown")
+
+    styles = getSampleStyleSheet()
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
+    summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=11, spaceBefore=4, spaceAfter=14)
+
+    header = ["Beer", "Style", "ABV", "Keg", "Cups", "Cost", "Price", "Backstock"]
+    col_widths = [1.7 * inch, 1.0 * inch, 0.6 * inch, 0.6 * inch, 0.6 * inch, 0.7 * inch, 0.7 * inch, 0.8 * inch]
+
+    story = [
+        Paragraph("The Draft Room — Beer List Report", styles["Title"]),
+        Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %I:%M %p')} by {generated_by}", sub_style),
+    ]
+
+    zero_stock = sum(1 for b in beers if (b.on_hand_kegs or 0) == 0)
+    story.append(Paragraph(
+        f"{len(beers)} beers total &nbsp;&bull;&nbsp; "
+        f"<font color='#dc2626'><b>{zero_stock} out of backstock</b></font>",
+        summary_style
+    ))
+
+    table_data = [header]
+    zero_rows = []
+    for b in beers:
+        abv = f"{b.abv:.1f}%" if b.abv is not None else "—"
+        cost = f"${b.cost:.2f}" if b.cost is not None else "—"
+        price = f"${b.price:.2f}" if b.price is not None else "—"
+        kegs = b.on_hand_kegs or 0
+        table_data.append([
+            f"{b.name}\n{b.brewery or ''}", b.style or "—", abv,
+            (b.keg_size or "—").capitalize(), str(b.cups_per_keg or "—"),
+            cost, price, str(kegs)
+        ])
+        zero_rows.append(kegs == 0)
+
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f4f5")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (2, 0), (7, -1), "CENTER"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+    ]
+    for idx, is_zero in enumerate(zero_rows, start=1):
+        if is_zero:
+            style_cmds.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#fdecea")))
+            style_cmds.append(("TEXTCOLOR", (7, idx), (7, idx), colors.HexColor("#dc2626")))
+            style_cmds.append(("FONTNAME", (7, idx), (7, idx), "Helvetica-Bold"))
+    t.setStyle(TableStyle(style_cmds))
+    story.append(t)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
+                             leftMargin=0.5 * inch, rightMargin=0.5 * inch)
+    doc.build(story)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                      download_name=f"beer_list_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
 
 
 @app.route("/beers/taps/cups_preview", methods=["POST"])
