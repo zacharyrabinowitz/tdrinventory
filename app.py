@@ -2500,7 +2500,7 @@ def beer_taps_report_pdf():
     doc.build(story)
     buf.seek(0)
     return send_file(buf, mimetype="application/pdf", as_attachment=True,
-                      download_name=f"beer_taps_report_{local_now().strftime('%Y%m%d_%H%M%S')}.pdf")
+                      download_name=f"TDR Beer On Tap Report.pdf")
 
 
 @app.route("/beers/taps/assign", methods=["POST"])
