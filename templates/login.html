@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no"/>
   <meta name="theme-color" content="#18181b">
-  <title>The Draft Room Inventory Portal• Login</title>
+  <title>{{ business_name }} Inventory Portal • Login</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,8 +21,8 @@
 
   <div class="login-screen">
     <div class="login-panel">
-      <img src="{{ url_for('static', filename='favicon-96x96.png') }}" alt="The Draft Room" class="login-logo">
-      <h1>TDR Inventory System</h1>
+      <img src="{{ url_for('static', filename='favicon-96x96.png') }}" alt="{{ business_name }}" class="login-logo">
+      <h1>{{ business_name }} Inventory System</h1>
 
 
       {% with messages = get_flashed_messages(with_categories=true) %}

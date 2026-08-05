@@ -9,8 +9,32 @@
 </div>
 
 <!-- ══════════════════════════════════════════════
+     TABS
+     ══════════════════════════════════════════════ -->
+<div class="card" style="padding:0; margin-bottom:20px;">
+  <div style="display:flex; border-bottom:2px solid var(--stroke); overflow-x:auto;">
+    <button class="settings-tab-btn active" type="button" data-tab="tab-categories">
+      <i class="fas fa-tags"></i> Categories
+    </button>
+    <button class="settings-tab-btn" type="button" data-tab="tab-modes">
+      <i class="fas fa-layer-group"></i> Inventory Modes
+    </button>
+    <button class="settings-tab-btn" type="button" data-tab="tab-unitconv">
+      <i class="fas fa-arrows-turn-to-dots"></i> Unit Conversion
+    </button>
+    <button class="settings-tab-btn" type="button" data-tab="tab-units">
+      <i class="fas fa-ruler"></i> Units
+    </button>
+    <button class="settings-tab-btn" type="button" data-tab="tab-general">
+      <i class="fas fa-sliders"></i> General
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
      CATEGORIES
      ══════════════════════════════════════════════ -->
+<div id="tab-categories" class="settings-tab-content">
 <section class="card" style="margin-bottom:20px;">
   <div class="cardhead">
     <div>
@@ -32,13 +56,21 @@
            data-sales-mode="{{ c.default_sales_mode or 'simple' }}"
            data-has-reconcile="{{ '1' if c.has_reconcile else '' }}"
            data-has-locations="{{ '1' if c.has_locations else '' }}"
+           data-has-cooler-stock="{{ '1' if c.has_cooler_stock else '' }}"
            data-state-label-raw="{{ c.state_label_raw or '' }}"
            data-state-label-prepped="{{ c.state_label_prepped or '' }}"
            data-storage-label-freezer="{{ c.storage_label_freezer or '' }}"
            data-storage-label-cooler="{{ c.storage_label_cooler or '' }}"
-           data-storage-label-out="{{ c.storage_label_out or '' }}">
+           data-storage-label-out="{{ c.storage_label_out or '' }}"
+           data-icon="{{ c.icon or '' }}"
+           data-color="{{ c.color or '' }}"
+           data-default-par="{{ c.default_par_level if c.default_par_level is not none else '' }}"
+           data-default-supplier-id="{{ c.default_supplier_id or '' }}">
         <div class="opt-info">
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span class="cat-badge" style="{% if c.color %}background:{{ c.color }}22; color:{{ c.color }}; border-color:{{ c.color }}55;{% endif %}">
+              <i class="fas fa-{{ c.icon or 'tag' }}"></i>
+            </span>
             <span class="opt-value">{{ c.value }}</span>
             {% if c.inv_mode %}
             <span class="opt-badge">{{ {
@@ -48,16 +80,22 @@
               'wings':        'Wings Prep',
               'raw_protein':  'Raw Protein',
               'portion_pack': 'Portion Packs'
-            }.get(c.inv_mode, c.inv_mode) }}</span>
+            }.get(c.inv_mode, mode_names.get(c.inv_mode, c.inv_mode)) }}</span>
             {% endif %}
             {% if c.has_reconcile %}<span class="opt-badge badge-green">Reconcile</span>{% endif %}
-            {% if c.has_locations %}<span class="opt-badge badge-blue">Locations</span>{% endif %}
+            {% if c.has_locations %}<span class="opt-badge badge-blue">Bars</span>{% endif %}
+            {% if c.has_cooler_stock %}<span class="opt-badge badge-blue">Cooler</span>{% endif %}
+            {% set n = cat_counts.get(c.value, 0) %}
+            <span class="opt-badge{% if n == 0 %} muted{% endif %}">{{ n }} item{{ '' if n == 1 else 's' }}</span>
           </div>
           {% if c.description %}
           <span class="opt-desc">{{ c.description }}</span>
           {% endif %}
         </div>
         <div class="opt-actions">
+          <button type="button" class="btn small opt-move-btn" data-dir="up" title="Move up"><i class="fas fa-arrow-up"></i></button>
+          <button type="button" class="btn small opt-move-btn" data-dir="down" title="Move down"><i class="fas fa-arrow-down"></i></button>
+          <button type="button" class="btn small opt-duplicate-btn" title="Duplicate this category"><i class="fas fa-copy"></i></button>
           <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
           <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
         </div>
@@ -68,10 +106,12 @@
     </div>
   </div>
 </section>
+</div><!-- /tab-categories -->
 
 <!-- ══════════════════════════════════════════════
      INVENTORY MODES
      ══════════════════════════════════════════════ -->
+<div id="tab-modes" class="settings-tab-content" style="display:none;">
 <section class="card" style="margin-bottom:20px;">
   <div class="cardhead">
     <div>
@@ -87,10 +127,12 @@
     <div id="mode-list"><p class="muted smalltxt">Loading…</p></div>
   </div>
 </section>
+</div><!-- /tab-modes -->
 
 <!-- ══════════════════════════════════════════════
      UNIT CONVERSION
      ══════════════════════════════════════════════ -->
+<div id="tab-unitconv" class="settings-tab-content" style="display:none;">
 <section class="card" style="margin-bottom:20px;">
   <div class="cardhead">
     <div>
@@ -104,10 +146,12 @@
     <div id="uc-list"><p class="muted smalltxt">Loading…</p></div>
   </div>
 </section>
+</div><!-- /tab-unitconv -->
 
 <!-- ══════════════════════════════════════════════
      UNITS
      ══════════════════════════════════════════════ -->
+<div id="tab-units" class="settings-tab-content" style="display:none;">
 <section class="card" style="margin-bottom:20px;">
   <div class="cardhead">
     <div>
@@ -132,12 +176,16 @@
             {% if u.abbreviation %}
             <span class="opt-badge">{{ u.abbreviation }}</span>
             {% endif %}
+            {% set n = unit_counts.get(u.value, 0) %}
+            <span class="opt-badge{% if n == 0 %} muted{% endif %}">{{ n }} item{{ '' if n == 1 else 's' }}</span>
           </div>
           {% if u.description %}
           <span class="opt-desc">{{ u.description }}</span>
           {% endif %}
         </div>
         <div class="opt-actions">
+          <button type="button" class="btn small opt-move-btn" data-dir="up" title="Move up"><i class="fas fa-arrow-up"></i></button>
+          <button type="button" class="btn small opt-move-btn" data-dir="down" title="Move down"><i class="fas fa-arrow-down"></i></button>
           <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
           <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
         </div>
@@ -148,6 +196,32 @@
     </div>
   </div>
 </section>
+</div><!-- /tab-units -->
+
+<!-- ══════════════════════════════════════════════
+     GENERAL
+     ══════════════════════════════════════════════ -->
+<div id="tab-general" class="settings-tab-content" style="display:none;">
+<section class="card" style="margin-bottom:20px;">
+  <div class="cardhead">
+    <div>
+      <h2>General</h2>
+      <span class="muted">Business-wide settings used across the app and on printed reports</span>
+    </div>
+  </div>
+
+  <div style="padding:0 20px 20px; max-width:480px;">
+    <div class="s-field">
+      <label>Business Name</label>
+      <input type="text" id="genBusinessName" class="input" value="{{ business_name_setting }}" placeholder="e.g. The Draft Room">
+      <div class="muted smalltxt" style="margin-top:4px;">Shown in the navbar, login page, and on every PDF report title.</div>
+    </div>
+    <div class="actions" style="margin-top:14px;">
+      <button type="button" class="btn primary" id="genSaveBtn"><i class="fas fa-save"></i> Save</button>
+    </div>
+  </div>
+</section>
+</div><!-- /tab-general -->
 
 <!-- ══════════════════════════════════════════════
      ADD / EDIT MODAL
@@ -186,6 +260,28 @@
 
       <!-- ── CATEGORY FIELDS ── -->
       <div id="catFields">
+
+        <!-- ── APPEARANCE ── -->
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 10px;">Appearance
+          <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
+            — shown as a colored icon badge on items, the item page, and here</span></p>
+        <div class="s-field" style="margin-bottom:8px;">
+          <label>Icon</label>
+          <input type="hidden" id="mIcon" value="">
+          <div id="iconPicker" class="picker-grid"></div>
+        </div>
+        <div class="s-field" style="margin-bottom:16px;">
+          <label>Color</label>
+          <input type="hidden" id="mColor" value="">
+          <div id="colorPicker" class="picker-grid"></div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; margin:-4px 0 16px; padding:8px 10px;
+                    border-radius:var(--radius-md); background:var(--card2); border:1px solid var(--stroke);">
+          <span class="muted smalltxt">Preview:</span>
+          <span id="badgePreview" class="cat-badge"><i class="fas fa-tag"></i></span>
+        </div>
+
         <hr style="border:none; border-top:1px solid var(--stroke); margin:0 0 18px;">
         <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
                   color:var(--text-muted); margin:0 0 14px;">Inventory Behavior</p>
@@ -223,7 +319,14 @@
             <input type="checkbox" id="mHasLocations">
             <span>
               <strong>Track by Bar Location</strong>
-              <span class="s-check-sub">Differentiate stock between Main Bar and Lower Bar</span>
+              <span class="s-check-sub">Differentiate stock between Main Bar and Lower Bar, for Simple Count items.</span>
+            </span>
+          </label>
+          <label class="s-check">
+            <input type="checkbox" id="mHasCoolerStock">
+            <span>
+              <strong>Track Cooler Stock</strong>
+              <span class="s-check-sub">Adds a Cooler/backup stock count and a Receive Boxes shortcut (boxes × units/box), for Simple Count items. Works on its own or together with Track by Bar Location — either way, On Hand becomes the auto-calculated total.</span>
             </span>
           </label>
         </div>
@@ -260,6 +363,27 @@
           </div>
         </div>
 
+        <hr style="border:none; border-top:1px solid var(--stroke); margin:16px 0 14px;">
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 4px;">New-Item Defaults
+          <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
+            — pre-fills when adding an item here; each item can still override it</span></p>
+        <div class="grid2" style="gap:10px; margin-bottom:4px;">
+          <div class="s-field">
+            <label>Default Par Level <span class="s-opt">optional</span></label>
+            <input type="number" min="0" step="1" id="mDefaultPar" class="input" placeholder="e.g. 10">
+          </div>
+          <div class="s-field">
+            <label>Default Supplier <span class="s-opt">optional</span></label>
+            <select id="mDefaultSupplier" class="input">
+              <option value="">— none —</option>
+              {% for s in suppliers %}
+              <option value="{{ s.id }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
         <!-- ── CUSTOM FIELDS (edit mode only — needs a saved category) ── -->
         <div id="customFieldsSection" style="display:none;">
           <hr style="border:none; border-top:1px solid var(--stroke); margin:14px 0 14px;">
@@ -282,6 +406,8 @@
                   <option value="number">Number</option>
                   <option value="currency">Currency ($)</option>
                   <option value="text">Text</option>
+                  <option value="date">Date</option>
+                  <option value="checkbox">Checkbox (Yes/No)</option>
                   <option value="formula">Formula (computed)</option>
                 </select>
               </div>
@@ -336,7 +462,7 @@
      z-index:2000; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;"
      onclick="if(event.target===this)closeModeModal()">
   <div style="background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
-              width:100%; max-width:560px; box-shadow:var(--shadow); position:relative;">
+              width:100%; max-width:620px; box-shadow:var(--shadow); position:relative;">
 
     <div style="display:flex; align-items:center; justify-content:space-between;
                 padding:18px 20px; border-bottom:1px solid var(--stroke);">
@@ -354,15 +480,47 @@
       </div>
 
       <div class="s-field">
+        <label>Description <span class="s-opt">optional</span></label>
+        <textarea id="modeDesc" class="input" rows="2" style="resize:vertical;"
+                  placeholder="What kind of items is this for, and why?"></textarea>
+      </div>
+
+      <div class="s-field">
         <label>How does this mode track stock?</label>
         <select id="modeEngine" class="input">
           <option value="simple_count">Simple Count — just track how many you have, no lots</option>
           <option value="lot_tracking">Lot Tracking — receive boxes, optional Prep stages, Reconcile</option>
         </select>
+        <div class="muted smalltxt" style="margin-top:4px;">
+          <b>Simple Count</b> is one flat number, edited directly — best for items you never receive in lots (e.g. cans/bottles you count by hand).
+          <b>Lot Tracking</b> receives dated boxes/cases that flow through the Stages below, land in a Storage Location, and can be reconciled.
+        </div>
       </div>
+
+      <!-- ── LIVE SUMMARY — updates as you edit, so you can see how the mode will actually behave ── -->
+      <div id="modeSummary" style="padding:12px 14px; border-radius:var(--radius-md);
+           background:var(--primary-tint); border:1px solid var(--primary-tint); font-size:13px; line-height:1.5;"></div>
 
       <div id="modeLotFields">
         <hr style="border:none; border-top:1px solid var(--stroke); margin:0 0 14px;">
+
+        <!-- ── QUICK START — most box/case items (e.g. a case of beer) need
+             no prep step at all; jump straight to one stage instead of the
+             Raw -> Prepped default that only makes sense when there IS one. ── -->
+        <div class="s-field" style="margin-bottom:16px;">
+          <label>Quick Start</label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn small" onclick="applyModePreset('direct')">
+              <i class="fas fa-box"></i> No prep — what you receive is what you sell
+            </button>
+            <button type="button" class="btn small" onclick="applyModePreset('prep')">
+              <i class="fas fa-layer-group"></i> Has a prep step first
+            </button>
+          </div>
+          <div class="muted smalltxt" style="margin-top:4px;">
+            e.g. a case of beer needs no prep — it's sellable the moment it's received. Raw wings do — they get cooked/portioned first. Pick one to set up Reconcile Style and Stages below, then adjust as needed.
+          </div>
+        </div>
 
         <div class="s-field" style="margin-bottom:14px;">
           <label>Reconcile Style</label>
@@ -370,20 +528,74 @@
             <option value="unit_count">Track individual units in a stage (needs a Prep step)</option>
             <option value="box_quantity">Track raw box/case quantity directly (no Prep step)</option>
           </select>
+          <div class="muted smalltxt" style="margin-top:4px;">
+            Pick <b>individual units</b> if stock gets prepped/portioned before it's sellable (e.g. raw wings → cooked wings).
+            Pick <b>raw box/case</b> if what you receive is what you sell, no prep step (e.g. cases of beer or liquor).
+          </div>
         </div>
+
+        <label class="s-check" style="margin-bottom:14px;">
+          <input type="checkbox" id="modeSumsAllLocations">
+          <span>
+            <strong>On-hand counts every storage location</strong>
+            <span class="s-check-sub">
+              Turn this on when you've got several storage spots for this mode (e.g. Cooler + a cage room + behind each bar) and everything in
+              every one of them is equally sellable — on-hand becomes the total across all locations, not just one.
+              Leave off for modes with a real prep step, where stock elsewhere (e.g. raw in the freezer) genuinely isn't sellable yet.
+            </span>
+          </span>
+        </label>
 
         <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
                   color:var(--text-muted); margin:0 0 4px;">Stages
           <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
-            — the order stock moves through, e.g. Raw → Prepped. Mark the LAST one Sellable.</span></p>
+            — the order stock moves through, e.g. Raw → Prepped</span></p>
+        <p class="muted smalltxt" style="margin:0 0 8px;">
+          Most box/case items only need <b>one</b> stage — mark it Sellable and you're done (a case of beer isn't "prepped," it's just received and sellable). Only add more stages if items actually go through a preparation step first.
+          Use the arrows to set the order; mark exactly one stage <b>Sellable</b> — that's the stage counted as "available" everywhere (Item Hub, Order page, reports).
+        </p>
         <div id="modeStatesList" style="display:flex; flex-direction:column; gap:6px; margin:8px 0;"></div>
         <button type="button" class="btn small" onclick="addModeRow('modeStatesList','state')"><i class="fas fa-plus"></i> Add Stage</button>
 
         <hr style="border:none; border-top:1px solid var(--stroke); margin:16px 0 14px;">
         <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
                   color:var(--text-muted); margin:0 0 4px;">Storage Locations</p>
+        <p class="muted smalltxt" style="margin:0 0 8px;">
+          e.g. Freezer / Cooler / Out. Mark exactly one location <b>On-Hand</b> — that's where the Sellable stage's units are counted from as "in stock."
+        </p>
         <div id="modeLocationsList" style="display:flex; flex-direction:column; gap:6px; margin:8px 0;"></div>
         <button type="button" class="btn small" onclick="addModeRow('modeLocationsList','location')"><i class="fas fa-plus"></i> Add Location</button>
+      </div>
+
+      <hr style="border:none; border-top:1px solid var(--stroke); margin:0;">
+      <div>
+        <p style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.5px;
+                  color:var(--text-muted); margin:0 0 4px;">Category Defaults
+          <span class="s-opt" style="font-weight:400; text-transform:none; letter-spacing:0;">
+            — pre-fills for any category that picks this mode; each category can still change it</span></p>
+        <div class="s-field" style="margin:10px 0 12px;">
+          <label>Default Sales Mode</label>
+          <select id="modeDefaultSalesMode" class="input">
+            <option value="simple">Simple — enter units sold manually</option>
+            <option value="packs_4">Packs (4 counters) — track by pack sizes</option>
+          </select>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <label class="s-check">
+            <input type="checkbox" id="modeDefaultHasReconcile">
+            <span>
+              <strong>Requires Reconciliation by default</strong>
+              <span class="s-check-sub">New categories using this mode start with Reconcile turned on</span>
+            </span>
+          </label>
+          <label class="s-check">
+            <input type="checkbox" id="modeDefaultHasLocations">
+            <span>
+              <strong>Track by Bar Location by default</strong>
+              <span class="s-check-sub">New categories using this mode start with Main/Lower bar tracking turned on</span>
+            </span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -392,6 +604,37 @@
       <button type="button" class="btn" onclick="closeModeModal()">Cancel</button>
       <button type="button" class="btn primary" id="modeModalSaveBtn">
         <i class="fas fa-check"></i> Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── REASSIGN & DELETE MODAL (shown when a category/unit is still in use) ── -->
+<div id="reassignModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+     z-index:2000; align-items:flex-start; justify-content:center; padding:32px 16px; overflow-y:auto;"
+     onclick="if(event.target===this)closeReassignModal()">
+  <div style="background:var(--card); border:1px solid var(--stroke); border-radius:var(--radius-lg);
+              width:100%; max-width:480px; box-shadow:var(--shadow); position:relative;">
+    <div style="display:flex; align-items:center; justify-content:space-between;
+                padding:18px 20px; border-bottom:1px solid var(--stroke);">
+      <h2 style="margin:0; font-size:17px;">Still In Use</h2>
+      <button type="button" onclick="closeReassignModal()"
+              style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px 8px;">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div style="padding:20px; display:flex; flex-direction:column; gap:14px;">
+      <p id="reassignMsg" class="muted" style="margin:0;"></p>
+      <div class="s-field">
+        <label>Move those items to</label>
+        <select id="reassignTarget" class="input"></select>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;
+                padding:14px 20px; border-top:1px solid var(--stroke);">
+      <button type="button" class="btn" onclick="closeReassignModal()">Cancel</button>
+      <button type="button" class="btn danger" id="reassignSaveBtn">
+        <i class="fas fa-right-left"></i> Reassign &amp; Delete
       </button>
     </div>
   </div>
@@ -482,6 +725,40 @@
 .btn.small   { padding:5px 11px; font-size:12px; }
 .btn.danger  { background:var(--danger); color:#fff; border-color:var(--danger); }
 .btn.danger:hover { opacity:.85; }
+.opt-move-btn { padding:5px 9px; }
+.opt-move-btn:disabled { opacity:.35; cursor:not-allowed; }
+
+/* ── Category icon badge ── */
+.cat-badge {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:50%; flex-shrink:0;
+  background:var(--card2); color:var(--text-muted); border:1px solid var(--stroke);
+  font-size:12px;
+}
+
+/* ── Icon / color picker grids ── */
+.picker-grid { display:flex; flex-wrap:wrap; gap:6px; }
+.picker-icon-btn, .picker-color-btn {
+  width:32px; height:32px; border-radius:8px; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:2px solid var(--stroke); background:var(--card2); color:var(--text-muted);
+  font-size:13px; transition:var(--transition); padding:0;
+}
+.picker-icon-btn:hover, .picker-color-btn:hover { border-color:var(--primary); }
+.picker-icon-btn.selected { border-color:var(--primary); background:var(--primary-tint); color:var(--primary); }
+.picker-color-btn.selected { border-color:var(--text); box-shadow:0 0 0 2px var(--card); }
+.picker-color-btn[data-empty="1"] { background:var(--card2) !important; color:var(--text-muted); font-size:16px; }
+
+/* ── Settings tabs ── */
+.settings-tab-btn {
+  flex: 0 0 auto; padding: 13px 20px; border: none; background: none;
+  color: var(--text-muted); font-size: 14px; font-weight: 600;
+  cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: var(--transition); display: inline-flex; align-items: center;
+  gap: 7px; justify-content: center; white-space: nowrap;
+}
+.settings-tab-btn:hover { color: var(--text); background: rgba(255,255,255,.04); }
+.settings-tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
 
 /* modal form helpers */
 .s-field { display:flex; flex-direction:column; gap:6px; }
@@ -546,7 +823,8 @@ function buildCatRow(d) {
   const badges = [];
   if (d.inv_mode) badges.push(`<span class="opt-badge">${escHtml(INV_MODE_LABEL[d.inv_mode]||d.inv_mode)}</span>`);
   if (d.has_reconcile) badges.push('<span class="opt-badge badge-green">Reconcile</span>');
-  if (d.has_locations) badges.push('<span class="opt-badge badge-blue">Locations</span>');
+  if (d.has_locations) badges.push('<span class="opt-badge badge-blue">Bars</span>');
+  if (d.has_cooler_stock) badges.push('<span class="opt-badge badge-blue">Cooler</span>');
 
   const row = document.createElement('div');
   row.className = 'opt-row';
@@ -558,20 +836,30 @@ function buildCatRow(d) {
   row.dataset.salesMode          = d.default_sales_mode||'simple';
   row.dataset.hasReconcile       = d.has_reconcile ? '1' : '';
   row.dataset.hasLocations       = d.has_locations ? '1' : '';
+  row.dataset.hasCoolerStock     = d.has_cooler_stock ? '1' : '';
   row.dataset.stateLabelRaw      = d.state_label_raw      ||'';
   row.dataset.stateLabelPrepped  = d.state_label_prepped  ||'';
   row.dataset.storageLabelFreezer= d.storage_label_freezer||'';
   row.dataset.storageLabelCooler = d.storage_label_cooler ||'';
   row.dataset.storageLabelOut    = d.storage_label_out    ||'';
+  row.dataset.icon               = d.icon                 ||'';
+  row.dataset.color              = d.color                ||'';
+  row.dataset.defaultPar         = (d.default_par_level ?? '') + '';
+  row.dataset.defaultSupplierId  = d.default_supplier_id  ||'';
+  const badgeStyle = d.color ? `background:${d.color}22; color:${d.color}; border-color:${d.color}55;` : '';
   row.innerHTML = `
     <div class="opt-info">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="cat-badge" style="${badgeStyle}"><i class="fas fa-${escHtml(d.icon || 'tag')}"></i></span>
         <span class="opt-value">${escHtml(d.value)}</span>
         ${badges.join('')}
       </div>
       ${d.description ? `<span class="opt-desc">${escHtml(d.description)}</span>` : ''}
     </div>
     <div class="opt-actions">
+      <button type="button" class="btn small opt-move-btn" data-dir="up" title="Move up"><i class="fas fa-arrow-up"></i></button>
+      <button type="button" class="btn small opt-move-btn" data-dir="down" title="Move down"><i class="fas fa-arrow-down"></i></button>
+      <button type="button" class="btn small opt-duplicate-btn" title="Duplicate this category"><i class="fas fa-copy"></i></button>
       <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
       <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
     </div>`;
@@ -595,6 +883,8 @@ function buildUnitRow(d) {
       ${d.description ? `<span class="opt-desc">${escHtml(d.description)}</span>` : ''}
     </div>
     <div class="opt-actions">
+      <button type="button" class="btn small opt-move-btn" data-dir="up" title="Move up"><i class="fas fa-arrow-up"></i></button>
+      <button type="button" class="btn small opt-move-btn" data-dir="down" title="Move down"><i class="fas fa-arrow-down"></i></button>
       <button type="button" class="btn small opt-edit-btn"><i class="fas fa-pencil-alt"></i> Edit</button>
       <button type="button" class="btn small danger opt-delete-btn"><i class="fas fa-trash"></i></button>
     </div>`;
@@ -602,6 +892,65 @@ function buildUnitRow(d) {
 }
 
 // ── Open / close modal ────────────────────────────────────────
+// ── Icon / color pickers (category appearance) ─────────────────
+const CATEGORY_ICONS = [
+  'beer-mug-empty', 'wine-bottle', 'martini-glass', 'whiskey-glass', 'bottle-water',
+  'mug-hot', 'glass-water', 'box', 'boxes-stacked', 'snowflake',
+  'drumstick-bite', 'burger', 'pizza-slice', 'fish', 'carrot',
+  'bread-slice', 'lemon', 'pepper-hot', 'broom', 'toilet-paper',
+  'receipt', 'tags', 'star', 'layer-group', 'utensils',
+];
+const CATEGORY_COLORS = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16',
+  '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1',
+  '#8b5cf6', '#ec4899',
+];
+
+function updateBadgePreview() {
+  const icon  = document.getElementById('mIcon').value || 'tag';
+  const color = document.getElementById('mColor').value;
+  const badge = document.getElementById('badgePreview');
+  badge.innerHTML = `<i class="fas fa-${escHtml(icon)}"></i>`;
+  badge.style.background   = color ? `${color}22` : '';
+  badge.style.color        = color || '';
+  badge.style.borderColor  = color ? `${color}55` : '';
+}
+
+function buildIconPicker(selected) {
+  const wrap = document.getElementById('iconPicker');
+  wrap.innerHTML = CATEGORY_ICONS.map(icon => `
+    <button type="button" class="picker-icon-btn${icon === selected ? ' selected' : ''}" data-icon="${icon}" title="${icon}">
+      <i class="fas fa-${icon}"></i>
+    </button>`).join('');
+  document.getElementById('mIcon').value = selected || '';
+}
+
+function buildColorPicker(selected) {
+  const wrap = document.getElementById('colorPicker');
+  const noneBtn = `<button type="button" class="picker-color-btn${selected ? '' : ' selected'}" data-color="" data-empty="1" title="None"><i class="fas fa-ban"></i></button>`;
+  const swatches = CATEGORY_COLORS.map(c => `
+    <button type="button" class="picker-color-btn${c === selected ? ' selected' : ''}" data-color="${c}" style="background:${c};" title="${c}"></button>`).join('');
+  wrap.innerHTML = noneBtn + swatches;
+  document.getElementById('mColor').value = selected || '';
+}
+
+document.addEventListener('click', function(e) {
+  const iconBtn = e.target.closest('.picker-icon-btn');
+  if (iconBtn) {
+    document.getElementById('mIcon').value = iconBtn.dataset.icon;
+    document.querySelectorAll('.picker-icon-btn').forEach(b => b.classList.toggle('selected', b === iconBtn));
+    updateBadgePreview();
+    return;
+  }
+  const colorBtn = e.target.closest('.picker-color-btn');
+  if (colorBtn) {
+    document.getElementById('mColor').value = colorBtn.dataset.color;
+    document.querySelectorAll('.picker-color-btn').forEach(b => b.classList.toggle('selected', b === colorBtn));
+    updateBadgePreview();
+    return;
+  }
+});
+
 function openModal(mode, type, row) {
   _mode = mode; _stype = type; _editRow = row;
 
@@ -618,11 +967,17 @@ function openModal(mode, type, row) {
       document.getElementById('mSalesMode').value        = row.dataset.salesMode    || 'simple';
       document.getElementById('mHasReconcile').checked   = row.dataset.hasReconcile === '1';
       document.getElementById('mHasLocations').checked   = row.dataset.hasLocations === '1';
+      document.getElementById('mHasCoolerStock').checked = row.dataset.hasCoolerStock === '1';
       document.getElementById('mLblRaw').value     = row.dataset.stateLabelRaw      || '';
       document.getElementById('mLblPrepped').value = row.dataset.stateLabelPrepped  || '';
       document.getElementById('mLblFreezer').value = row.dataset.storageLabelFreezer|| '';
       document.getElementById('mLblCooler').value  = row.dataset.storageLabelCooler || '';
       document.getElementById('mLblOut').value     = row.dataset.storageLabelOut    || '';
+      document.getElementById('mDefaultPar').value = row.dataset.defaultPar || '';
+      document.getElementById('mDefaultSupplier').value = row.dataset.defaultSupplierId || '';
+      buildIconPicker(row.dataset.icon || '');
+      buildColorPicker(row.dataset.color || '');
+      updateBadgePreview();
     } else {
       document.getElementById('mAbbr').value = row.dataset.abbreviation || '';
     }
@@ -633,12 +988,16 @@ function openModal(mode, type, row) {
     document.getElementById('mSalesMode').value= 'simple';
     document.getElementById('mHasReconcile').checked = false;
     document.getElementById('mHasLocations').checked = false;
+    document.getElementById('mHasCoolerStock').checked = false;
     document.getElementById('mLblRaw').value     = '';
     document.getElementById('mLblPrepped').value = '';
     document.getElementById('mLblFreezer').value = '';
     document.getElementById('mLblOut').value     = '';
     document.getElementById('mLblCooler').value  = '';
     document.getElementById('mAbbr').value     = '';
+    document.getElementById('mDefaultPar').value = '';
+    document.getElementById('mDefaultSupplier').value = '';
+    if (type === 'category') { buildIconPicker(''); buildColorPicker(''); updateBadgePreview(); }
   }
 
   // Custom fields only make sense once a category is saved (needs a name to attach to)
@@ -665,7 +1024,7 @@ function closeModal() {
 // ── Custom Fields (per-category, edit-modal only) ─────────────
 let _cfCategory = null, _cfEditId = null;
 
-const CF_TYPE_LABEL = { number: 'Number', currency: 'Currency', text: 'Text', formula: 'Formula' };
+const CF_TYPE_LABEL = { number: 'Number', currency: 'Currency', text: 'Text', date: 'Date', checkbox: 'Checkbox', formula: 'Formula' };
 
 function resetCfForm() {
   _cfEditId = null;
@@ -789,11 +1148,101 @@ document.addEventListener('click', async function(e) {
   const btn = e.target.closest('.opt-delete-btn');
   if (!btn) return;
   const row = btn.closest('.opt-row');
-  if (!confirm(`Delete "${row.dataset.value}"? Items already using it keep their value but it won't appear in dropdowns.`)) return;
+  if (!confirm(`Delete "${row.dataset.value}"?`)) return;
   const data = await apiPost(`/settings/item-options/${row.dataset.id}/delete`, {});
-  if (data.error) { showToast(data.error, false); return; }
+  if (data.error) {
+    if (data.in_use) { openReassignModal(row, data); return; }
+    showToast(data.error, false);
+    return;
+  }
   row.remove();
   showToast(`"${row.dataset.value}" deleted.`);
+});
+
+// ── Duplicate delegation ───────────────────────────────────────
+document.addEventListener('click', async function(e) {
+  const btn = e.target.closest('.opt-duplicate-btn');
+  if (!btn) return;
+  const row = btn.closest('.opt-row');
+  const suggested = `${row.dataset.value} Copy`;
+  const newName = prompt('Name for the duplicate:', suggested);
+  if (!newName || !newName.trim()) return;
+  const data = await apiPost(`/settings/item-options/${row.dataset.id}/duplicate`, { value: newName.trim() });
+  if (data.error) { showToast(data.error, false); return; }
+  const listEl = document.getElementById(row.dataset.type === 'category' ? 'cat-list' : 'unit-list');
+  listEl.appendChild(row.dataset.type === 'category' ? buildCatRow(data) : buildUnitRow(data));
+  showToast(`"${data.value}" created from "${row.dataset.value}".`);
+});
+
+// ── Reassign & Delete modal (category/unit still in use by items) ─────
+let _reassignRow = null;
+
+function openReassignModal(row, data) {
+  _reassignRow = row;
+  document.getElementById('reassignMsg').textContent = data.error;
+  const sel = document.getElementById('reassignTarget');
+  const listId = row.dataset.type === 'category' ? 'cat-list' : 'unit-list';
+  const others = [...document.querySelectorAll(`#${listId} .opt-row`)]
+    .filter(r => r.dataset.id !== row.dataset.id)
+    .map(r => r.dataset.value);
+  sel.innerHTML = others.length
+    ? others.map(v => `<option value="${escAttrJs(v)}">${escHtml(v)}</option>`).join('')
+    : `<option value="">— create another ${row.dataset.type} first —</option>`;
+  document.getElementById('reassignModal').style.display = 'flex';
+}
+
+function closeReassignModal() {
+  document.getElementById('reassignModal').style.display = 'none';
+  _reassignRow = null;
+}
+
+function escAttrJs(s) { return escHtml(s).replace(/'/g, '&#39;'); }
+
+document.getElementById('reassignSaveBtn').addEventListener('click', async function() {
+  if (!_reassignRow) return;
+  const newValue = document.getElementById('reassignTarget').value;
+  if (!newValue) { showToast('No target to reassign to', false); return; }
+  const data = await apiPost(`/settings/item-options/${_reassignRow.dataset.id}/reassign-and-delete`, { new_value: newValue });
+  if (data.error) { showToast(data.error, false); return; }
+  showToast(`Moved ${data.reassigned} item(s) to "${newValue}" and deleted "${_reassignRow.dataset.value}".`);
+  _reassignRow.remove();
+  closeReassignModal();
+});
+
+// ── Tab switching ──────────────────────────────────────────────
+document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.settings-tab-content').forEach(t => t.style.display = 'none');
+    this.classList.add('active');
+    const tab = document.getElementById(this.dataset.tab);
+    if (tab) tab.style.display = '';
+  });
+});
+
+// ── Reorder (move up/down) ─────────────────────────────────────
+document.addEventListener('click', async function(e) {
+  const btn = e.target.closest('.opt-move-btn');
+  if (!btn) return;
+  const row = btn.closest('.opt-row');
+  const dir = btn.dataset.dir;
+  const sibling = dir === 'up' ? row.previousElementSibling : row.nextElementSibling;
+  if (!sibling || !sibling.classList || !sibling.classList.contains('opt-row')) return; // already at the edge
+
+  const data = await apiPost(`/settings/item-options/${row.dataset.id}/move`, { direction: dir });
+  if (data.error) { showToast(data.error, false); return; }
+
+  if (dir === 'up') row.parentNode.insertBefore(row, sibling);
+  else row.parentNode.insertBefore(sibling, row);
+});
+
+// ── General settings save ──────────────────────────────────────
+document.getElementById('genSaveBtn')?.addEventListener('click', async function() {
+  const name = document.getElementById('genBusinessName').value.trim();
+  if (!name) { showToast('Business name can\'t be blank', false); return; }
+  const data = await apiPost('/settings/general/save', { business_name: name });
+  if (data.error) { showToast(data.error, false); return; }
+  showToast('Saved. Reload to see it everywhere (navbar, login, reports).');
 });
 
 // ── Save ─────────────────────────────────────────────────────
@@ -808,11 +1257,16 @@ document.getElementById('modalSaveBtn').addEventListener('click', async function
     default_sales_mode: document.getElementById('mSalesMode').value,
     has_reconcile:      document.getElementById('mHasReconcile').checked,
     has_locations:      document.getElementById('mHasLocations').checked,
+    has_cooler_stock:   document.getElementById('mHasCoolerStock').checked,
     state_label_raw:       document.getElementById('mLblRaw').value.trim(),
     state_label_prepped:   document.getElementById('mLblPrepped').value.trim(),
     storage_label_freezer: document.getElementById('mLblFreezer').value.trim(),
     storage_label_cooler:  document.getElementById('mLblCooler').value.trim(),
     storage_label_out:     document.getElementById('mLblOut').value.trim(),
+    icon:  document.getElementById('mIcon').value,
+    color: document.getElementById('mColor').value,
+    default_par_level:   document.getElementById('mDefaultPar').value.trim(),
+    default_supplier_id: document.getElementById('mDefaultSupplier').value,
     abbreviation:       document.getElementById('mAbbr').value.trim(),
   };
 
@@ -860,13 +1314,18 @@ function buildModeRow(m) {
   const stageInfo = m.engine === 'lot_tracking'
     ? `<span class="opt-badge">${m.states.length} stage${m.states.length===1?'':'s'}</span><span class="opt-badge">${m.locations.length} location${m.locations.length===1?'':'s'}</span>`
     : '';
+  const usedBy = (m.category_count || m.item_count)
+    ? `${m.category_count || 0} categor${(m.category_count||0)===1?'y':'ies'} · ${m.item_count || 0} item${(m.item_count||0)===1?'':'s'}`
+    : 'not in use';
   row.innerHTML = `
     <div class="opt-info">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span class="opt-value">${escHtml(m.name)}</span>
         <span class="opt-badge badge-blue">${engineLabel(m)}</span>
         ${stageInfo}
+        <span class="opt-badge${(m.category_count || m.item_count) ? '' : ' muted'}">${usedBy}</span>
       </div>
+      ${m.description ? `<span class="opt-desc">${escHtml(m.description)}</span>` : ''}
       ${m.engine === 'lot_tracking' && m.states.length ? `<span class="opt-desc">${m.states.map(s => escHtml(s.label)).join(' → ')}</span>` : ''}
     </div>
     <div class="opt-actions">
@@ -914,10 +1373,12 @@ function modeRowHtml(kind, label, isFlagged) {
          <input type="radio" name="modeOnHandRadio" ${isFlagged ? 'checked' : ''}> On-Hand
        </label>`;
   return `
-    <div class="mode-row" style="display:flex;gap:8px;align-items:center;">
+    <div class="mode-row" style="display:flex;gap:6px;align-items:center;">
+      <button type="button" class="btn small mode-row-move" data-dir="up" title="Move up"><i class="fas fa-arrow-up"></i></button>
+      <button type="button" class="btn small mode-row-move" data-dir="down" title="Move down"><i class="fas fa-arrow-down"></i></button>
       <input type="text" class="input mode-row-label" value="${escHtml(label || '')}" placeholder="Label" style="flex:1;">
       ${flagHtml}
-      <button type="button" class="btn small danger" onclick="this.closest('.mode-row').remove()"><i class="fas fa-trash"></i></button>
+      <button type="button" class="btn small danger mode-row-delete"><i class="fas fa-trash"></i></button>
     </div>`;
 }
 
@@ -926,7 +1387,33 @@ function addModeRow(listId, kind, label, isFlagged) {
   const div = document.createElement('div');
   div.innerHTML = modeRowHtml(kind, label, isFlagged);
   list.appendChild(div.firstElementChild);
+  updateModeSummary();
 }
+
+// Delegated: row delete / move up / move down, plus live-update the summary
+// whenever a row's label or flag changes.
+document.addEventListener('click', function(e) {
+  const delBtn = e.target.closest('.mode-row-delete');
+  if (delBtn) { delBtn.closest('.mode-row').remove(); updateModeSummary(); return; }
+
+  const moveBtn = e.target.closest('.mode-row-move');
+  if (moveBtn) {
+    const row = moveBtn.closest('.mode-row');
+    const sibling = moveBtn.dataset.dir === 'up' ? row.previousElementSibling : row.nextElementSibling;
+    if (sibling) {
+      if (moveBtn.dataset.dir === 'up') row.parentNode.insertBefore(row, sibling);
+      else row.parentNode.insertBefore(sibling, row);
+      updateModeSummary();
+    }
+    return;
+  }
+});
+document.addEventListener('input', function(e) {
+  if (e.target.closest('#modeStatesList, #modeLocationsList')) updateModeSummary();
+});
+document.addEventListener('change', function(e) {
+  if (e.target.closest('#modeStatesList, #modeLocationsList')) updateModeSummary();
+});
 
 function collectModeRows(listId, kind) {
   const rows = document.querySelectorAll(`#${listId} .mode-row`);
@@ -947,15 +1434,61 @@ function collectModeRows(listId, kind) {
 function toggleModeEngineFields() {
   const isLot = document.getElementById('modeEngine').value === 'lot_tracking';
   document.getElementById('modeLotFields').style.display = isLot ? '' : 'none';
+  updateModeSummary();
 }
 document.getElementById('modeEngine').addEventListener('change', toggleModeEngineFields);
+document.getElementById('modeReconcileStyle').addEventListener('change', updateModeSummary);
+document.getElementById('modeSumsAllLocations').addEventListener('change', updateModeSummary);
+
+// ── Live plain-English summary — reflects exactly what will be saved,
+// so you can tell how the mode behaves without guessing ──
+function updateModeSummary() {
+  const box = document.getElementById('modeSummary');
+  if (!box) return;
+  const engine = document.getElementById('modeEngine').value;
+
+  if (engine === 'simple_count') {
+    box.innerHTML = `<i class="fas fa-circle-info"></i> A single on-hand number. No receiving, no stages, no storage locations — items using this mode are edited directly on the Item page.`;
+    return;
+  }
+
+  const states = collectModeRows('modeStatesList', 'state');
+  const locations = collectModeRows('modeLocationsList', 'location');
+  const style = document.getElementById('modeReconcileStyle').value;
+
+  if (!states.length || !locations.length) {
+    box.innerHTML = `<i class="fas fa-circle-info"></i> Add at least one Stage and one Storage Location below to complete this mode.`;
+    return;
+  }
+
+  const chain = states.map(s => s.is_sellable ? `<b>${escHtml(s.label)}</b> (sellable)` : escHtml(s.label)).join(' → ');
+  const sellableLabel = (states.find(s => s.is_sellable) || states[states.length - 1]).label;
+  const onHandLoc = (locations.find(l => l.is_on_hand) || locations[locations.length - 1]).label;
+  const locList = locations.map(l => escHtml(l.label)).join(', ');
+  const styleText = style === 'box_quantity'
+    ? 'Reconcile compares raw box/case quantity directly.'
+    : `Reconcile compares individual "${escHtml(sellableLabel)}" units.`;
+  const sumsAll = document.getElementById('modeSumsAllLocations').checked && style === 'box_quantity';
+
+  const onHandText = sumsAll
+    ? `<b>On-hand</b> everywhere in the app = "${escHtml(sellableLabel)}" units added up across <b>all</b> of: ${locList}.`
+    : `<b>On-hand</b> everywhere in the app = "${escHtml(sellableLabel)}" units sitting in <b>${escHtml(onHandLoc)}</b> only.`;
+
+  box.innerHTML = `<i class="fas fa-circle-info"></i> Stock moves: ${chain}. Storage: ${locList}.
+    ${onHandText} ${styleText}`;
+}
 
 function openModeModal(mode) {
   _modeEditId = mode ? mode.id : null;
   document.getElementById('modeModalTitle').textContent = mode ? 'Edit Inventory Mode' : 'New Inventory Mode';
   document.getElementById('modeName').value = mode ? mode.name : '';
+  document.getElementById('modeDesc').value = (mode && mode.description) || '';
   document.getElementById('modeEngine').value = mode ? mode.engine : 'lot_tracking';
   document.getElementById('modeReconcileStyle').value = (mode && mode.reconcile_style) || 'unit_count';
+  document.getElementById('modeDefaultSalesMode').value = (mode && mode.default_sales_mode) || 'simple';
+  document.getElementById('modeDefaultHasReconcile').checked = !!(mode && mode.default_has_reconcile);
+  document.getElementById('modeDefaultHasLocations').checked = !!(mode && mode.default_has_locations);
+  document.getElementById('modeSumsAllLocations').checked = !!(mode && mode.sums_all_locations);
 
   const statesList = document.getElementById('modeStatesList');
   const locsList = document.getElementById('modeLocationsList');
@@ -965,14 +1498,41 @@ function openModeModal(mode) {
     mode.states.forEach(s => addModeRow('modeStatesList', 'state', s.label, s.is_sellable));
     mode.locations.forEach(l => addModeRow('modeLocationsList', 'location', l.label, l.key === mode.on_hand_location_key));
   } else if (!mode) {
-    addModeRow('modeStatesList', 'state', 'Raw', false);
-    addModeRow('modeStatesList', 'state', 'Prepped', true);
+    // Default a brand-new mode to the common case — receive it, sell it,
+    // no prep step (e.g. a case of beer) — rather than assuming a Raw ->
+    // Prepped flow that only applies when there actually IS a prep step.
+    document.getElementById('modeReconcileStyle').value = 'box_quantity';
+    addModeRow('modeStatesList', 'state', 'Received', true);
     addModeRow('modeLocationsList', 'location', 'Cooler', true);
   }
 
   toggleModeEngineFields();
+  updateModeSummary();
   document.getElementById('modeModal').style.display = 'flex';
   setTimeout(() => document.getElementById('modeName').focus(), 60);
+}
+
+// ── Quick Start presets — rebuild just the Stages (+ Reconcile Style) for
+// a fresh start; Storage Locations are left alone since prep-vs-direct
+// doesn't change where things are stored. ──
+function applyModePreset(kind) {
+  const statesList = document.getElementById('modeStatesList');
+  statesList.innerHTML = '';
+  if (kind === 'direct') {
+    document.getElementById('modeReconcileStyle').value = 'box_quantity';
+    addModeRow('modeStatesList', 'state', 'Received', true);
+  } else {
+    document.getElementById('modeReconcileStyle').value = 'unit_count';
+    addModeRow('modeStatesList', 'state', 'Raw', false);
+    addModeRow('modeStatesList', 'state', 'Prepped', true);
+    // A real prep step means stock elsewhere isn't sellable yet — per-location totals don't make sense.
+    document.getElementById('modeSumsAllLocations').checked = false;
+  }
+  // Make sure there's at least one storage location to receive into.
+  if (!document.querySelectorAll('#modeLocationsList .mode-row').length) {
+    addModeRow('modeLocationsList', 'location', 'Cooler', true);
+  }
+  updateModeSummary();
 }
 
 function closeModeModal() {
@@ -987,10 +1547,15 @@ document.getElementById('modeModalSaveBtn').addEventListener('click', async func
   const engine = document.getElementById('modeEngine').value;
   const payload = {
     name,
+    description: document.getElementById('modeDesc').value.trim(),
     engine,
     reconcile_style: document.getElementById('modeReconcileStyle').value,
     states: engine === 'lot_tracking' ? collectModeRows('modeStatesList', 'state') : [],
     locations: engine === 'lot_tracking' ? collectModeRows('modeLocationsList', 'location') : [],
+    default_sales_mode: document.getElementById('modeDefaultSalesMode').value,
+    default_has_reconcile: document.getElementById('modeDefaultHasReconcile').checked,
+    default_has_locations: document.getElementById('modeDefaultHasLocations').checked,
+    sums_all_locations: document.getElementById('modeSumsAllLocations').checked,
   };
 
   const url = _modeEditId ? `/settings/inventory-modes/${_modeEditId}/edit` : '/settings/inventory-modes/add';

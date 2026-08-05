@@ -4,25 +4,25 @@
 
 <section class="card" style="max-width:640px; margin:0 auto;">
   <div class="cardhead">
-    <h2>Edit Order</h2>
+    <h2>Edit Beer Order</h2>
     <a href="/orders" class="btn"><i class="fas fa-arrow-left"></i> Back</a>
   </div>
 
   <form id="editOrderForm" style="padding:24px;">
     <div class="edit-row">
       <div class="edit-field">
-        <label>Item</label>
-        <input type="text" class="input" value="{{ order.item.name }}" disabled>
+        <label>Beer</label>
+        <input type="text" class="input" value="{{ order.beer.name }}" disabled>
       </div>
       <div class="edit-field">
-        <label>Category</label>
-        <input type="text" class="input" value="{{ order.item.category }}" disabled>
+        <label>Brewery</label>
+        <input type="text" class="input" value="{{ order.beer.brewery or '—' }}" disabled>
       </div>
     </div>
 
     <div class="edit-row">
       <div class="edit-field">
-        <label>Quantity {% if order.order_unit == 'case' and order.case_size %}(units — {{ order.case_size }}/case){% endif %}</label>
+        <label>Quantity {% if order.order_unit == 'case' and order.case_size %}(units — {{ order.case_size }}/case){% else %}(kegs/units){% endif %}</label>
         <input type="number" id="quantity" class="input" name="quantity"
                value="{{ order.quantity }}" min="0" step="1" required>
         {% if order.order_unit == 'case' and order.case_size %}
@@ -98,7 +98,7 @@ document.getElementById('editOrderForm').addEventListener('submit', async functi
   };
 
   try {
-    const r    = await fetch(`/order/${orderId}/update`, {
+    const r    = await fetch(`/beer-order/${orderId}/update`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });

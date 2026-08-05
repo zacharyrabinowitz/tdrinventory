@@ -60,6 +60,7 @@
           <th>Unit</th>
           <th>Par</th>
           <th>Needed</th>
+          <th class="input-col">Order As</th>
           <th class="input-col">Qty to Order</th>
           <th class="input-col">Order By</th>
           <th class="notes-col">Notes</th>
@@ -72,7 +73,8 @@
         {% set has_par = item.par_level is not none %}
         {% set needed = (item.par_level - oh) if has_par and (item.par_level - oh) > 0 else 0 %}
         <tr class="order-row {{ 'short-row' if needed > 0 else '' }}" data-item-id="{{ item.id }}"
-            data-name="{{ item.name.lower() }}" data-category="{{ item.category }}">
+            data-name="{{ item.name.lower() }}" data-category="{{ item.category }}"
+            data-case-size="{{ item.default_units_per_box or '' }}">
           <td class="item-name"><span class="item-title">{{ item.name }}</span></td>
           <td class="muted" style="font-size:13px;">{{ item.category }}</td>
           <td style="text-align:center;">
@@ -94,7 +96,17 @@
             {% endif %}
           </td>
           <td class="input-col">
+            <select class="order-unit-select">
+              <option value="individual">Individual</option>
+              <option value="case">Case</option>
+            </select>
+          </td>
+          <td class="input-col">
             <input type="number" class="qty-input" placeholder="0" min="0" step="1" data-needed="{{ needed }}" value="{{ needed if needed > 0 else '' }}">
+            <div class="case-size-wrap" style="display:none;">
+              <input type="number" class="case-size-input" min="1" step="1" placeholder="units/case" value="{{ item.default_units_per_box or '' }}">
+            </div>
+            <div class="qty-hint muted" style="font-size:11px; display:none;"></div>
           </td>
           <td class="input-col">
             <input type="date" class="date-input">
@@ -139,6 +151,7 @@
           <th>Style</th>
           <th>On Hand</th>
           <th>Keg Size</th>
+          <th class="input-col">Order As</th>
           <th class="input-col">Qty to Order</th>
           <th class="input-col">Order By</th>
           <th class="notes-col">Notes</th>
@@ -237,15 +250,19 @@
 .order-row.short-row td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
 
 /* ── Inputs inside table ── */
-.qty-input, .date-input, .notes-input {
+.qty-input, .date-input, .notes-input, .order-unit-select {
   width: 100%; padding: 7px 9px; border: 1px solid var(--stroke);
   border-radius: var(--radius-sm); background: var(--card2); color: var(--text);
   font-size: 13px; font-family: inherit; transition: var(--transition);
 }
-.qty-input:focus, .date-input:focus, .notes-input:focus {
+.qty-input:focus, .date-input:focus, .notes-input:focus, .order-unit-select:focus {
   outline: none; border-color: var(--primary); background: var(--card);
   box-shadow: 0 0 0 3px var(--focus);
 }
+.order-unit-select:disabled { opacity: .5; cursor: not-allowed; }
+.case-size-wrap { margin-top: 4px; }
+.case-size-input { font-size: 12px !important; padding: 5px 7px !important; }
+.qty-hint { margin-top: 3px; }
 
 /* ── Row save button ── */
 .btn-save-row {
@@ -298,13 +315,26 @@ function initializeBeersTable() {
     tr.className = 'order-row';
     tr.dataset.beerId = beer.id;
     tr.dataset.name = (beer.name || '').toLowerCase();
+    tr.dataset.caseSize = beer.units_per_case || '';
     tr.innerHTML = `
       <td class="item-name"><span class="item-title">${beer.name || '—'}</span></td>
       <td class="muted" style="font-size:13px;">${beer.brewery || '—'}</td>
       <td class="muted" style="font-size:13px;">${beer.style || '—'}</td>
       <td style="text-align:center;"><span class="on-hand-badge">${beer.on_hand_kegs || 0}</span></td>
       <td class="muted" style="font-size:13px;">${beer.keg_size || '—'}</td>
-      <td class="input-col"><input type="number" class="qty-input" placeholder="0" min="0" step="1"></td>
+      <td class="input-col">
+        <select class="order-unit-select">
+          <option value="individual">Individual</option>
+          <option value="case">Case</option>
+        </select>
+      </td>
+      <td class="input-col">
+        <input type="number" class="qty-input" placeholder="0" min="0" step="1">
+        <div class="case-size-wrap" style="display:none;">
+          <input type="number" class="case-size-input" min="1" step="1" placeholder="units/case" value="${beer.units_per_case || ''}">
+        </div>
+        <div class="qty-hint muted" style="font-size:11px; display:none;"></div>
+      </td>
       <td class="input-col"><input type="date" class="date-input"></td>
       <td class="notes-col"><input type="text" class="notes-input" placeholder="Notes…"></td>
       <td class="action-col">
@@ -351,6 +381,52 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   });
 
+  // ── Order As: Individual / Case, for both Items and Beers rows ──
+  // Selecting "Case" reveals an inline "units/case" input (pre-filled from
+  // whatever was used last time, editable in the moment) and resolves the
+  // total quantity as entered-cases x units-per-case.
+  function resolveOrderRow(row) {
+    const enteredQty  = parseInt(row.querySelector('.qty-input').value) || 0;
+    const unitSelect  = row.querySelector('.order-unit-select');
+    const orderUnit   = unitSelect && unitSelect.value === 'case' ? 'case' : 'individual';
+    const caseInput   = row.querySelector('.case-size-input');
+    const caseSize    = orderUnit === 'case' ? (parseInt(caseInput && caseInput.value) || 0) : 0;
+    if (orderUnit === 'case' && caseSize > 0) {
+      return { quantity: enteredQty * caseSize, order_unit: 'case', case_size: caseSize, entered: enteredQty };
+    }
+    return { quantity: enteredQty, order_unit: 'individual', case_size: null, entered: enteredQty };
+  }
+
+  function updateOrderRowUI(row) {
+    const unitSelect = row.querySelector('.order-unit-select');
+    const caseWrap    = row.querySelector('.case-size-wrap');
+    const hint        = row.querySelector('.qty-hint');
+    if (!unitSelect) return;
+    const isCase = unitSelect.value === 'case';
+    if (caseWrap) caseWrap.style.display = isCase ? '' : 'none';
+
+    const resolved = resolveOrderRow(row);
+    if (hint) {
+      if (isCase && resolved.entered > 0 && resolved.case_size > 0) {
+        hint.textContent = `= ${resolved.quantity} units`;
+        hint.style.display = '';
+      } else {
+        hint.style.display = 'none';
+      }
+    }
+  }
+
+  document.addEventListener('input', function(e) {
+    if (e.target.matches('.order-row .qty-input, .order-row .case-size-input')) {
+      updateOrderRowUI(e.target.closest('.order-row'));
+    }
+  });
+  document.addEventListener('change', function(e) {
+    if (e.target.matches('.order-row .order-unit-select')) {
+      updateOrderRowUI(e.target.closest('.order-row'));
+    }
+  });
+
   // ── Delegated click handler ──
   document.addEventListener('click', function(e) {
 
@@ -393,16 +469,17 @@ document.addEventListener('DOMContentLoaded', function() {
       e.preventDefault(); e.stopPropagation();
       const btn  = e.target.closest('.btn-save-row');
       const row  = btn.closest('.order-row');
-      const qty  = parseInt(row.querySelector('.qty-input').value) || 0;
       const date = row.querySelector('.date-input').value;
       const note = row.querySelector('.notes-input').value;
-      if (qty === 0 && !date && !note) { alert('Enter at least a quantity, date, or note.'); return; }
 
       const isBeer   = !!row.dataset.beerId;
+      const resolved = resolveOrderRow(row);
+      if (resolved.entered === 0 && !date && !note) { alert('Enter at least a quantity, date, or note.'); return; }
+
       const endpoint = isBeer ? '/beer-order/save' : '/order/save';
       const body     = isBeer
-        ? { beer_id: parseInt(row.dataset.beerId), quantity: qty, order_date: date, notes: note }
-        : { item_id: parseInt(row.dataset.itemId), quantity: qty, order_date: date, notes: note };
+        ? { beer_id: parseInt(row.dataset.beerId), quantity: resolved.quantity, order_unit: resolved.order_unit, case_size: resolved.case_size, order_date: date, notes: note }
+        : { item_id: parseInt(row.dataset.itemId), quantity: resolved.quantity, order_unit: resolved.order_unit, case_size: resolved.case_size, order_date: date, notes: note };
 
       fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(r => r.json())
@@ -423,25 +500,25 @@ document.addEventListener('DOMContentLoaded', function() {
       const promises = [];
 
       document.querySelectorAll('#itemsTableBody .order-row').forEach(row => {
-        const qty = parseInt(row.querySelector('.qty-input').value) || 0;
-        const dt  = row.querySelector('.date-input').value;
-        const nt  = row.querySelector('.notes-input').value;
-        if (qty > 0 || dt || nt) {
+        const resolved = resolveOrderRow(row);
+        const dt = row.querySelector('.date-input').value;
+        const nt = row.querySelector('.notes-input').value;
+        if (resolved.entered > 0 || dt || nt) {
           promises.push(fetch('/order/save', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: parseInt(row.dataset.itemId), quantity: qty, order_date: dt, notes: nt })
+            body: JSON.stringify({ item_id: parseInt(row.dataset.itemId), quantity: resolved.quantity, order_unit: resolved.order_unit, case_size: resolved.case_size, order_date: dt, notes: nt })
           }).then(r => r.json()));
         }
       });
 
       document.querySelectorAll('#beersTableBody .order-row').forEach(row => {
-        const qty = parseInt(row.querySelector('.qty-input').value) || 0;
-        const dt  = row.querySelector('.date-input').value;
-        const nt  = row.querySelector('.notes-input').value;
-        if (qty > 0 || dt || nt) {
+        const resolved = resolveOrderRow(row);
+        const dt = row.querySelector('.date-input').value;
+        const nt = row.querySelector('.notes-input').value;
+        if (resolved.entered > 0 || dt || nt) {
           promises.push(fetch('/beer-order/save', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ beer_id: parseInt(row.dataset.beerId), quantity: qty, order_date: dt, notes: nt })
+            body: JSON.stringify({ beer_id: parseInt(row.dataset.beerId), quantity: resolved.quantity, order_unit: resolved.order_unit, case_size: resolved.case_size, order_date: dt, notes: nt })
           }).then(r => r.json()));
         }
       });
@@ -461,6 +538,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.target.closest('#clearOrderBtn')) {
       e.preventDefault();
       document.querySelectorAll('.qty-input, .date-input, .notes-input').forEach(i => i.value = '');
+      document.querySelectorAll('.order-unit-select').forEach(s => s.value = 'individual');
+      document.querySelectorAll('.case-size-wrap').forEach(w => w.style.display = 'none');
+      document.querySelectorAll('.qty-hint').forEach(h => h.style.display = 'none');
       return;
     }
   });

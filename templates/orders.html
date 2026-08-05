@@ -8,7 +8,12 @@
       <h1>Orders</h1>
       <span class="muted">Manage pending and completed orders</span>
     </div>
-    <a href="/order" class="btn primary"><i class="fas fa-plus"></i> New Order</a>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <a href="/orders/report.pdf?status={{ status_filter }}" class="btn">
+        <i class="fas fa-file-pdf"></i> Download PDF
+      </a>
+      <a href="/order" class="btn primary"><i class="fas fa-plus"></i> New Order</a>
+    </div>
   </div>
 
   <!-- Status filter tabs -->
@@ -31,7 +36,7 @@
     </a>
   </div>
 
-  <!-- Orders table / empty state -->
+  <!-- Item orders table / empty state -->
   {% if orders %}
   <div style="overflow-x:auto;">
     <table class="otable">
@@ -48,10 +53,15 @@
       </thead>
       <tbody>
         {% for order in orders %}
-        <tr class="order-row" data-order-id="{{ order.id }}">
+        <tr class="order-row" data-order-id="{{ order.id }}" data-kind="item">
           <td style="font-weight:500;">{{ order.item.name }}</td>
           <td class="muted" style="font-size:13px;">{{ order.item.category }}</td>
-          <td class="col-sm" style="text-align:center;">{{ order.quantity }}</td>
+          <td class="col-sm" style="text-align:center;">
+            {{ order.quantity }}
+            {% if order.order_unit == 'case' and order.case_size %}
+            <div class="muted" style="font-size:11px;">({{ (order.quantity / order.case_size) | round(1) }} case{{ '' if order.quantity == order.case_size else 's' }} × {{ order.case_size }})</div>
+            {% endif %}
+          </td>
           <td class="col-md muted" style="font-size:13px;">{{ order.order_date or '—' }}</td>
           <td class="col-sm">
             <span class="status-badge status-{{ order.status }}">{{ order.status.title() }}</span>
@@ -82,13 +92,72 @@
       </tbody>
     </table>
   </div>
-  {% else %}
+  {% elif not beer_orders %}
   <div class="empty">
     No orders found.
     {% if status_filter and status_filter != 'all' %}
       <a href="/orders?status=all">View all</a> or
     {% endif %}
     <a href="/order">create one</a>.
+  </div>
+  {% endif %}
+
+  <!-- Beer orders table -->
+  {% if beer_orders %}
+  <h3 style="margin:24px 0 4px; padding:0 20px;">Beers</h3>
+  <div style="overflow-x:auto;">
+    <table class="otable">
+      <thead>
+        <tr>
+          <th>Beer</th>
+          <th>Brewery / Style</th>
+          <th class="col-sm">Qty</th>
+          <th class="col-md">Order By</th>
+          <th class="col-sm">Status</th>
+          <th class="col-lg">Notes</th>
+          <th class="col-act"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for order in beer_orders %}
+        <tr class="order-row" data-order-id="{{ order.id }}" data-kind="beer">
+          <td style="font-weight:500;">{{ order.beer.name }}</td>
+          <td class="muted" style="font-size:13px;">{{ order.beer.brewery or '—' }}{% if order.beer.style %} · {{ order.beer.style }}{% endif %}</td>
+          <td class="col-sm" style="text-align:center;">
+            {{ order.quantity }}
+            {% if order.order_unit == 'case' and order.case_size %}
+            <div class="muted" style="font-size:11px;">({{ (order.quantity / order.case_size) | round(1) }} case{{ '' if order.quantity == order.case_size else 's' }} × {{ order.case_size }})</div>
+            {% endif %}
+          </td>
+          <td class="col-md muted" style="font-size:13px;">{{ order.order_date or '—' }}</td>
+          <td class="col-sm">
+            <span class="status-badge status-{{ order.status }}">{{ order.status.title() }}</span>
+          </td>
+          <td class="col-lg muted" style="font-size:13px;">{{ order.notes or '—' }}</td>
+          <td class="col-act">
+            <div style="display:flex; gap:2px; justify-content:center; align-items:center;">
+              <a href="/beer-order/{{ order.id }}/edit" class="oact" title="Edit">
+                <i class="fas fa-edit"></i>
+              </a>
+              {% if order.status == 'pending' %}
+              <button type="button" class="oact" data-action="check" title="Mark ordered">
+                <i class="fas fa-check"></i>
+              </button>
+              {% endif %}
+              {% if order.status == 'ordered' %}
+              <button type="button" class="oact" data-action="received" title="Mark received">
+                <i class="fas fa-box"></i>
+              </button>
+              {% endif %}
+              <button type="button" class="oact danger" data-action="delete" title="Delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   {% endif %}
 
@@ -148,20 +217,24 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const tbody = document.querySelector('.otable tbody');
-  if (!tbody) return;
+  // Delegate from the section so it covers both the Items table and the
+  // Beers table (each order row carries data-kind="item"|"beer" to pick
+  // the right endpoint: /order/... vs /beer-order/...).
+  const container = document.querySelector('section.card');
+  if (!container) return;
 
-  tbody.addEventListener('click', function(e) {
+  container.addEventListener('click', function(e) {
     const row    = e.target.closest('.order-row');
     const button = e.target.closest('button[data-action]');
     if (!row || !button) return;
 
     const orderId = row.dataset.orderId;
+    const base    = row.dataset.kind === 'beer' ? '/beer-order' : '/order';
     const action  = button.dataset.action;
 
-    if (action === 'check')    markStatus(row, orderId, 'ordered',  button);
-    if (action === 'received') markStatus(row, orderId, 'received', button);
-    if (action === 'delete')   deleteOrder(row, orderId, button);
+    if (action === 'check')    markStatus(row, base, orderId, 'ordered',  button);
+    if (action === 'received') markStatus(row, base, orderId, 'received', button);
+    if (action === 'delete')   deleteOrder(row, base, orderId, button);
   });
 
   function pulse(btn, iconOk, color, ms = 1500) {
@@ -172,8 +245,8 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => { icon.className = origClass; btn.style.color = ''; }, ms);
   }
 
-  function markStatus(row, orderId, status, btn) {
-    fetch(`/order/${orderId}/update`, {
+  function markStatus(row, base, orderId, status, btn) {
+    fetch(`${base}/${orderId}/update`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status })
     })
@@ -202,9 +275,10 @@ document.addEventListener('DOMContentLoaded', function() {
     .catch(() => pulse(btn, 'fas fa-exclamation-circle', '#ef4444'));
   }
 
-  function deleteOrder(row, orderId, btn) {
+  function deleteOrder(row, base, orderId, btn) {
     if (!confirm('Delete this order?')) return;
-    fetch(`/order/${orderId}/delete`, {
+    const tbody = row.closest('tbody');
+    fetch(`${base}/${orderId}/delete`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }
     })
     .then(r => r.json())
@@ -216,7 +290,7 @@ document.addEventListener('DOMContentLoaded', function() {
         row.style.opacity = '0'; row.style.transform = 'translateX(-12px)';
         setTimeout(() => {
           row.remove();
-          if (!tbody.querySelectorAll('tr').length) location.reload();
+          if (tbody && !tbody.querySelectorAll('tr').length) location.reload();
         }, 300);
       }, 1200);
     })

@@ -53,6 +53,7 @@
         <div>Name</div>
         <div>Category</div>
         <div>Stock</div>
+        <div>In Storage</div>
         <div>Unit</div>
         <div>Inventory Mode</div>
         <div>Supplier</div>
@@ -86,7 +87,13 @@
           <div>
             <a class="item-link" href="/items/{{ it.id }}">{{ it.name }}</a>
           </div>
-          <div class="muted">{{ it.category }}</div>
+          <div class="muted" style="display:flex; align-items:center; gap:6px;">
+            {% set ap = cat_appearance.get(it.category) %}
+            <span class="cat-badge-sm" style="{% if ap and ap.color %}background:{{ ap.color }}22; color:{{ ap.color }}; border-color:{{ ap.color }}55;{% endif %}">
+              <i class="fas fa-{{ ap.icon if ap else 'tag' }}"></i>
+            </span>
+            {{ it.category }}
+          </div>
           <div class="stock-cell">
             <span class="on-hand-badge {{ 'badge-short' if needed > 0 else ('badge-ok' if has_par else '') }}">{{ oh }}</span>
             {% if needed > 0 %}
@@ -96,6 +103,15 @@
             {% else %}
               <span class="muted smalltxt">No par set</span>
             {% endif %}
+          </div>
+          <div class="muted storage-cell">
+            {% set s = storage.get(it.id) %}
+            {% if s %}
+              <span>{{ s.total }} {{ s.unit }}</span>
+              {% if s.breakdown %}
+              <span class="muted smalltxt storage-breakdown">{% for label, count in s.breakdown %}{{ label }}: {{ count }}{% if not loop.last %} · {% endif %}{% endfor %}</span>
+              {% endif %}
+            {% else %}—{% endif %}
           </div>
           <div class="muted">{{ it.unit or '—' }}</div>
           <div class="muted">{{ mode_label }}</div>
@@ -108,7 +124,7 @@
               </a>
               <form method="POST" action="/items/{{ it.id }}/delete" style="display:inline;">
                 <button class="icon-btn danger" type="submit" title="Delete {{ it.name }}"
-                        onclick="return confirm('Delete {{ it.name }}?')">
+                        onclick="return confirm('Delete {{ it.name }}? This also permanently deletes its receiving/prep/reconcile history, if any. This cannot be undone.')">
                   <i class="fas fa-trash"></i>
                 </button>
               </form>
@@ -126,13 +142,15 @@
 
 <style>
 /* column layouts — Jinja-free so VS Code CSS linter is happy */
-.items-row { grid-template-columns: 1.8fr 0.9fr 1.4fr 0.7fr 1fr 1fr auto; }
-.row-admin  { grid-template-columns: 32px 1.8fr 0.9fr 1.4fr 0.7fr 1fr 1fr auto; }
+.items-row { grid-template-columns: 1.7fr 0.9fr 1.2fr 1.5fr 0.6fr 0.9fr 0.9fr auto; }
+.row-admin  { grid-template-columns: 32px 1.7fr 0.9fr 1.2fr 1.5fr 0.6fr 0.9fr 0.9fr auto; }
 .search-wrap  { position:relative; display:flex; align-items:center; }
 .search-icon  { position:absolute; left:10px; color:var(--text-muted); font-size:13px; pointer-events:none; }
 .search-live  { padding-left:32px !important; width:220px; }
 .item-link    { color:var(--text); font-weight:600; text-decoration:none; }
 .item-link:hover { color:var(--primary); }
+.storage-cell { display:flex; flex-direction:column; gap:2px; }
+.storage-breakdown { line-height:1.3; }
 .icon-btn {
   background:none; border:none; color:var(--text-muted); font-size:14px; cursor:pointer;
   padding:6px 8px; border-radius:var(--radius-sm); transition:var(--transition);

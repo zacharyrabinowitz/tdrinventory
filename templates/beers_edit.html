@@ -98,6 +98,20 @@
           >
         </div>
 
+        <div class="col-12 col-md-6">
+          <label class="form-label">Units per Case (optional)</label>
+          <input
+            class="form-control"
+            name="units_per_case"
+            type="number"
+            step="1"
+            min="1"
+            value="{% if beer.units_per_case is not none %}{{ beer.units_per_case }}{% endif %}"
+            placeholder="e.g. 24"
+          >
+          <div class="form-text">Lets you order this beer by the case on the New Order page.</div>
+        </div>
+
         <div class="col-12">
           <label class="form-label">Kegs On Hand (unopened)</label>
 

@@ -50,7 +50,7 @@
                   </a>
                   <form method="POST" action="/items/{{ it.id }}/delete" style="display:inline;">
                     <button class="icon-btn danger" type="submit" title="Delete"
-                            onclick="return confirm('Delete {{ it.name }}?')">
+                            onclick="return confirm('Delete {{ it.name }}? This also permanently deletes its receiving/prep/reconcile history, if any. This cannot be undone.')">
                       <i class="fas fa-trash"></i>
                     </button>
                   </form>

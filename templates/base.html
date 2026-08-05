@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#18181b">
   <meta name="mobile-web-app-capable" content="yes">
 
-  <title>The Draft Room • Inventory</title>
+  <title>{{ business_name }} • Inventory</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,8 +39,8 @@
   <header class="navbar">
     <div class="navbar-inner">
       <a href="/" class="navbar-brand">
-        <img src="{{ url_for('static', filename='favicon-96x96.png') }}" alt="The Draft Room" class="navbar-logo">
-        <span>The Draft Room Inventory System</span>
+        <img src="{{ url_for('static', filename='favicon-96x96.png') }}" alt="{{ business_name }}" class="navbar-logo">
+        <span>{{ business_name }} Inventory System</span>
       </a>
 
       <nav class="navbar-nav">

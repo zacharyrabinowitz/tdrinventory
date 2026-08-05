@@ -780,6 +780,7 @@ def inject_user():
         "can_manage_users": can_manage_users(),
         "asset_v": _asset_version("style.css"),
         "app_js_v": _asset_version("app.js"),
+        "business_name": get_app_setting("business_name"),
     }
 
 
@@ -867,7 +868,11 @@ class Beer(db.Model):
 
     # ✅ Canonical name (OPTION A)
     on_hand_kegs = db.Column(db.Integer, nullable=False, default=0)
-    
+
+    # Ordering: how many individual units (cans/bottles) come in one case,
+    # for beers ordered by the case rather than by the keg.
+    units_per_case = db.Column(db.Integer, nullable=True)
+
 
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
@@ -891,6 +896,28 @@ class BeerTap(db.Model):
     notes = db.Column(db.Text, nullable=True)
 
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AppSetting(db.Model):
+    """Simple key/value store for global, business-wide settings
+    (business name, etc.) — edited from Settings > General."""
+    __tablename__ = "app_settings"
+    key = db.Column(db.String(60), primary_key=True)
+    value = db.Column(db.String(400), nullable=True)
+
+
+_APP_SETTING_DEFAULTS = {
+    "business_name": "The Draft Room",
+}
+
+def get_app_setting(key: str) -> str:
+    default = _APP_SETTING_DEFAULTS.get(key, "")
+    row = AppSetting.query.get(key)
+    if not row or not (row.value or "").strip():
+        return default
+    return row.value
+
+
 class Supplier(db.Model):
     __tablename__ = "suppliers"
     id = db.Column(db.Integer, primary_key=True)
@@ -989,6 +1016,15 @@ class Item(db.Model):
         server_default=db.text("0"),
     )
 
+    # Simple Count items with "Track by Bar Location" enabled: stock not yet
+    # sent to a bar. on_hand_count is kept in sync as backup_stock + main_bar_on_hand + low_bar_on_hand.
+    backup_stock = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+        server_default=db.text("0"),
+    )
+
     on_hand_count = db.Column(
         db.Integer,
         nullable=False,
@@ -1039,9 +1075,14 @@ class Order(db.Model):
     item_id = db.Column(db.Integer, db.ForeignKey("items.id"), nullable=False)
     item = db.relationship("Item", backref="orders")
 
-    quantity = db.Column(db.Integer, nullable=False, default=0)
+    quantity = db.Column(db.Integer, nullable=False, default=0)  # total individual units (boxes/eaches, or cases x case_size if ordered by the case)
     order_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.String(400), nullable=True)
+
+    # How the quantity was entered: "individual" (the default) or "case".
+    order_unit = db.Column(db.String(20), nullable=False, default="individual")
+    # Snapshot of the case size used at order time, when order_unit == "case".
+    case_size = db.Column(db.Integer, nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default="pending")  # pending|ordered|received|cancelled
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
@@ -1076,6 +1117,7 @@ class ItemSetting(db.Model):
     default_sales_mode = db.Column(db.String(30),  nullable=True)   # simple | packs_4
     has_reconcile      = db.Column(db.Boolean,     nullable=True, default=False)
     has_locations      = db.Column(db.Boolean,     nullable=True, default=False)
+    has_cooler_stock   = db.Column(db.Boolean,     nullable=True, default=False)  # independent of has_locations
 
     # ── state / storage display labels (category rows) ──────────
     state_label_raw       = db.Column(db.String(50), nullable=True)   # display label for "raw"
@@ -1083,6 +1125,17 @@ class ItemSetting(db.Model):
     storage_label_freezer = db.Column(db.String(50), nullable=True)   # display label for "freezer"
     storage_label_cooler  = db.Column(db.String(50), nullable=True)   # display label for "cooler"
     storage_label_out     = db.Column(db.String(50), nullable=True)   # display label for "out"
+
+    # ── appearance (category rows) — shown as a colored icon badge
+    # anywhere the category appears (Items list, Item Hub, Settings) ──
+    icon  = db.Column(db.String(40), nullable=True)   # Font Awesome icon name, e.g. "beer"
+    color = db.Column(db.String(20), nullable=True)   # hex color, e.g. "#f59e0b"
+
+    # ── new-item defaults (category rows) — pre-fill when adding an
+    # item in this category; the item can still override either ──
+    default_par_level    = db.Column(db.Integer, nullable=True)
+    default_supplier_id  = db.Column(db.Integer, db.ForeignKey("suppliers.id"), nullable=True)
+    default_supplier     = db.relationship("Supplier", foreign_keys=[default_supplier_id])
 
     # ── unit properties ──────────────────────────────────────
     abbreviation       = db.Column(db.String(20),  nullable=True)
@@ -1100,15 +1153,24 @@ class ItemSetting(db.Model):
             "default_sales_mode": self.default_sales_mode or "simple",
             "has_reconcile": bool(self.has_reconcile),
             "has_locations": bool(self.has_locations),
+            "has_cooler_stock": bool(self.has_cooler_stock),
             # state / storage labels (fall back to sensible defaults if not set)
             "state_label_raw":       self.state_label_raw       or "Raw",
             "state_label_prepped":   self.state_label_prepped   or "Prepped",
             "storage_label_freezer": self.storage_label_freezer or "Freezer",
             "storage_label_cooler":  self.storage_label_cooler  or "Cooler",
             "storage_label_out":     self.storage_label_out     or "Out",
+            # appearance
+            "icon": self.icon or "",
+            "color": self.color or "",
+            # new-item defaults
+            "default_par_level": self.default_par_level,
+            "default_supplier_id": self.default_supplier_id,
+            "default_supplier_name": self.default_supplier.name if self.default_supplier else "",
             # unit
             "abbreviation": self.abbreviation or "",
             # the category's Inventory Mode states/locations (for dynamic shelf-life UI)
+            "mode_name": mode.name if mode else "",
             "mode_engine": mode.engine if mode else "",
             "mode_states": [s.to_dict() for s in mode.states] if mode else [],
             "mode_locations": [l.to_dict() for l in mode.locations] if mode else [],
@@ -1181,15 +1243,25 @@ class InventoryMode(db.Model):
     """
     __tablename__ = "inventory_modes"
 
-    id       = db.Column(db.Integer, primary_key=True)
-    name     = db.Column(db.String(100), nullable=False)
-    slug     = db.Column(db.String(50),  nullable=False, unique=True)
-    engine   = db.Column(db.String(20),  nullable=False, default="lot_tracking")
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(100), nullable=False)
+    slug        = db.Column(db.String(50),  nullable=False, unique=True)
+    engine      = db.Column(db.String(20),  nullable=False, default="lot_tracking")
+    description = db.Column(db.String(300), nullable=True)
 
     reconcile_style     = db.Column(db.String(20), nullable=True)  # unit_count | box_quantity
     on_hand_style       = db.Column(db.String(20), nullable=True)  # unit_count | box_quantity (independent of reconcile_style)
     on_hand_state_key   = db.Column(db.String(60), nullable=True)
     on_hand_location_key= db.Column(db.String(60), nullable=True)
+
+    # box_quantity modes normally count on-hand from ONE location only
+    # (on_hand_location_key) — right for prep-based modes where stock in
+    # other locations genuinely isn't sellable yet. When a mode has no prep
+    # step at all (everything received is immediately sellable, e.g. cases
+    # of liquor split across a cooler/cage/multiple bars), every location's
+    # stock should count toward on-hand. Default False preserves exact
+    # existing behavior for every mode that predates this flag.
+    sums_all_locations  = db.Column(db.Boolean, nullable=False, default=False)
 
     default_sales_mode   = db.Column(db.String(30), nullable=False, default="simple")
     default_has_reconcile= db.Column(db.Boolean, nullable=False, default=False)
@@ -1209,10 +1281,12 @@ class InventoryMode(db.Model):
             "name": self.name,
             "slug": self.slug,
             "engine": self.engine,
+            "description": self.description or "",
             "reconcile_style": self.reconcile_style or "",
             "on_hand_style": self.on_hand_style or "",
             "on_hand_state_key": self.on_hand_state_key or "",
             "on_hand_location_key": self.on_hand_location_key or "",
+            "sums_all_locations": bool(self.sums_all_locations),
             "default_sales_mode": self.default_sales_mode or "simple",
             "default_has_reconcile": bool(self.default_has_reconcile),
             "default_has_locations": bool(self.default_has_locations),
@@ -1333,9 +1407,15 @@ class BeerOrder(db.Model):
     beer_id = db.Column(db.Integer, db.ForeignKey("beers.id"), nullable=False)
     beer = db.relationship("Beer", backref="orders")
 
-    quantity = db.Column(db.Integer, nullable=False, default=0)  # number of kegs
+    quantity = db.Column(db.Integer, nullable=False, default=0)  # total individual units (kegs, or cans/bottles if ordered by the case)
     order_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.String(400), nullable=True)
+
+    # How the quantity was entered: "individual" (kegs/units, the default) or "case".
+    order_unit = db.Column(db.String(20), nullable=False, default="individual")
+    # Snapshot of the beer's units_per_case at order time, when order_unit == "case"
+    # (kept even if the beer's case size changes later, so past orders stay readable).
+    case_size = db.Column(db.Integer, nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default="pending")  # pending|ordered|received|cancelled
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
@@ -2024,6 +2104,12 @@ def run_migrations():
 
     sqlite_add_column_if_missing("items", "on_hand_count", "INTEGER NOT NULL DEFAULT 0")
     sqlite_add_column_if_missing("items", "par_level", "INTEGER")
+    sqlite_add_column_if_missing("items", "backup_stock", "INTEGER NOT NULL DEFAULT 0")
+    sqlite_add_column_if_missing("beers", "units_per_case", "INTEGER")
+    sqlite_add_column_if_missing("beer_orders", "order_unit", "VARCHAR(20) NOT NULL DEFAULT 'individual'")
+    sqlite_add_column_if_missing("beer_orders", "case_size", "INTEGER")
+    sqlite_add_column_if_missing("orders", "order_unit", "VARCHAR(20) NOT NULL DEFAULT 'individual'")
+    sqlite_add_column_if_missing("orders", "case_size", "INTEGER")
     
     # ✅ FIX: Set any NULL on_hand_count values to 0
     try:
@@ -2055,6 +2141,8 @@ def run_migrations():
     sqlite_add_column_if_missing("prep_batches", "received_amount", "FLOAT")
     sqlite_add_column_if_missing("prep_batches", "computed_yield", "FLOAT")
     sqlite_add_column_if_missing("inventory_modes", "on_hand_style", "VARCHAR(20)")
+    sqlite_add_column_if_missing("inventory_modes", "description", "VARCHAR(300)")
+    sqlite_add_column_if_missing("inventory_modes", "sums_all_locations", "BOOLEAN NOT NULL DEFAULT 0")
 
     # item_settings columns
     sqlite_add_column_if_missing("item_settings", "description",        "VARCHAR(300)")
@@ -2062,12 +2150,25 @@ def run_migrations():
     sqlite_add_column_if_missing("item_settings", "default_sales_mode", "VARCHAR(30)")
     sqlite_add_column_if_missing("item_settings", "has_reconcile",      "BOOLEAN DEFAULT 0")
     sqlite_add_column_if_missing("item_settings", "has_locations",      "BOOLEAN DEFAULT 0")
+    _had_has_cooler_stock = "has_cooler_stock" in sqlite_table_columns("item_settings")
+    sqlite_add_column_if_missing("item_settings", "has_cooler_stock",   "BOOLEAN DEFAULT 0")
+    if not _had_has_cooler_stock:
+        # One-time backfill: "Track by Bar Location" used to also imply cooler/
+        # backup-stock tracking, before the two became independent settings.
+        # Preserve existing categories' current behavior on first upgrade.
+        db.session.execute(text(
+            "UPDATE item_settings SET has_cooler_stock = has_locations WHERE setting_type = 'category'"))
+        db.session.commit()
     sqlite_add_column_if_missing("item_settings", "abbreviation",       "VARCHAR(20)")
     sqlite_add_column_if_missing("item_settings", "state_label_raw",       "VARCHAR(50)")
     sqlite_add_column_if_missing("item_settings", "state_label_prepped",   "VARCHAR(50)")
     sqlite_add_column_if_missing("item_settings", "storage_label_freezer", "VARCHAR(50)")
     sqlite_add_column_if_missing("item_settings", "storage_label_cooler",  "VARCHAR(50)")
     sqlite_add_column_if_missing("item_settings", "storage_label_out",     "VARCHAR(50)")
+    sqlite_add_column_if_missing("item_settings", "icon",  "VARCHAR(40)")
+    sqlite_add_column_if_missing("item_settings", "color", "VARCHAR(20)")
+    sqlite_add_column_if_missing("item_settings", "default_par_level",   "INTEGER")
+    sqlite_add_column_if_missing("item_settings", "default_supplier_id", "INTEGER")
 
     # audit table safety (if older DB)
     sqlite_add_column_if_missing("audit_logs", "created_at", "DATETIME")
@@ -2433,21 +2534,21 @@ def beer_taps_report_pdf():
 
     styles = getSampleStyleSheet()
     sub_style = ParagraphStyle("sub", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
-    summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=11, spaceBefore=4, spaceAfter=14)
-    bar_style = ParagraphStyle("bar", parent=styles["Heading2"], spaceBefore=16, spaceAfter=6,
-                                textColor=colors.HexColor("#18181b"))
-
-    header = ["Tap", "Beer", "Brewery / Style", "ABV", "% Remaining", "Kegs On Hand"]
-    col_widths = [0.5 * inch, 1.6 * inch, 1.6 * inch, 0.6 * inch, 1.0 * inch, 1.0 * inch]
+    summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=11, spaceBefore=4, spaceAfter=10)
+    note_style = ParagraphStyle("note", parent=styles["Normal"], fontSize=8.5, textColor=colors.grey,
+                                 spaceBefore=8, spaceAfter=4)
+    section_style = ParagraphStyle("section", parent=styles["Heading2"], spaceBefore=16, spaceAfter=6,
+                                    textColor=colors.HexColor("#18181b"))
 
     story = [
-        Paragraph("The Draft Room — Beer Taps Report", styles["Title"]),
+        Paragraph(f"{get_app_setting('business_name')} — Beer On Tap Report", styles["Title"]),
         Paragraph(f"Generated {local_now().strftime('%B %d, %Y at %I:%M %p %Z')} by {generated_by}", sub_style),
     ]
 
-    total_taps = len(main_taps) + len(lower_taps)
-    on_taps = sum(1 for t in main_taps + lower_taps if t.beer_id)
-    low_taps = sum(1 for t in main_taps + lower_taps if t.beer_id and (t.percent_remaining or 0) <= 20)
+    all_taps = main_taps + lower_taps
+    total_taps = len(all_taps)
+    on_taps = sum(1 for t in all_taps if t.beer_id)
+    low_taps = sum(1 for t in all_taps if t.beer_id and (t.percent_remaining or 0) <= 20)
 
     story.append(Paragraph(
         f"{total_taps} taps total &nbsp;&bull;&nbsp; "
@@ -2456,43 +2557,121 @@ def beer_taps_report_pdf():
         summary_style
     ))
 
-    for bar_name, taps in (("Main Bar", main_taps), ("Lower Bar", lower_taps)):
-        table_data = [header]
-        low_rows = []
-        for idx, t in enumerate(taps, start=1):
-            beer = t.beer
-            if beer:
-                sub = " / ".join([x for x in [beer.brewery, beer.style] if x])
-                abv = f"{beer.abv:.1f}%" if beer.abv is not None else "—"
-                pct = f"{t.percent_remaining or 0}%"
-                kegs = str(beer.on_hand_kegs or 0)
-                is_low = (t.percent_remaining or 0) <= 20
-                table_data.append([str(idx), beer.name, sub or "—", abv, pct, kegs])
-            else:
-                table_data.append([str(idx), "— Empty —", "—", "—", "—", "—"])
-                is_low = False
-            low_rows.append(is_low)
+    # ── One row per beer, Main % and Lower % side by side (instead of two
+    # separate Main Bar / Lower Bar sections) — most beers run on one tap at
+    # each bar, so this puts the two numbers you actually compare next to
+    # each other. If a beer is on more than one tap at the same bar (not
+    # normal, but possible), the extra tap gets its own row directly below,
+    # labeled with which bar/tap it is, rather than being squeezed in.
+    main_by_beer: dict[int, list] = {}
+    for idx, t in enumerate(main_taps, start=1):
+        if t.beer_id:
+            main_by_beer.setdefault(t.beer_id, []).append((idx, t))
 
-        t_table = Table(table_data, colWidths=col_widths, repeatRows=1)
-        style_cmds = [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f4f5")),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("ALIGN", (0, 0), (0, -1), "CENTER"),
-            ("ALIGN", (3, 0), (5, -1), "CENTER"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
-        ]
-        for idx, is_low in enumerate(low_rows, start=1):
-            if is_low:
-                style_cmds.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#fdecea")))
-                style_cmds.append(("TEXTCOLOR", (4, idx), (4, idx), colors.HexColor("#dc2626")))
-                style_cmds.append(("FONTNAME", (4, idx), (4, idx), "Helvetica-Bold"))
-        t_table.setStyle(TableStyle(style_cmds))
+    lower_by_beer: dict[int, list] = {}
+    for idx, t in enumerate(lower_taps, start=1):
+        if t.beer_id:
+            lower_by_beer.setdefault(t.beer_id, []).append((idx, t))
 
-        story.append(Paragraph(bar_name, bar_style))
-        story.append(t_table)
+    beer_ids_on_tap = set(main_by_beer) | set(lower_by_beer)
+    beers_on_tap = sorted(
+        [b for b in Beer.query.filter(Beer.id.in_(beer_ids_on_tap)).all()],
+        key=lambda b: _natural_sort_key(b.name or "")
+    )
+
+    pending_orders = BeerOrder.query.filter_by(status="pending").all()
+    on_order = {o.beer_id: o.quantity for o in pending_orders}
+
+    def pct_cell(entry):
+        if not entry:
+            return "—"
+        idx, t = entry
+        return f"Tap {idx}: {t.percent_remaining or 0}%"
+
+    def pct_is_low(entry):
+        return bool(entry) and (entry[1].percent_remaining or 0) <= 20
+
+    header = ["Beer", "Brewery / Style", "ABV", "Main %", "Lower %", "Backup Kegs", "On Order"]
+    col_widths = [1.35 * inch, 1.55 * inch, 0.55 * inch, 1.05 * inch, 1.05 * inch, 0.8 * inch, 0.75 * inch]
+    table_data = [header]
+    row_flags = []  # (main_low, lower_low, kegs_low, is_continuation)
+
+    for beer in beers_on_tap:
+        m_list = main_by_beer.get(beer.id, [])
+        l_list = lower_by_beer.get(beer.id, [])
+        rows_needed = max(len(m_list), len(l_list), 1)
+        sub = " / ".join([x for x in [beer.brewery, beer.style] if x]) or "—"
+        abv = f"{beer.abv:.1f}%" if beer.abv is not None else "—"
+        kegs = str(beer.on_hand_kegs or 0)
+        qty_ordered = on_order.get(beer.id)
+
+        for i in range(rows_needed):
+            is_primary = (i == 0)
+            m_entry = m_list[i] if i < len(m_list) else None
+            l_entry = l_list[i] if i < len(l_list) else None
+            table_data.append([
+                beer.name if is_primary else "↳ (same beer, extra tap)",
+                sub if is_primary else "",
+                abv if is_primary else "",
+                pct_cell(m_entry),
+                pct_cell(l_entry),
+                kegs if is_primary else "",
+                (str(qty_ordered) if qty_ordered else "—") if is_primary else "",
+            ])
+            row_flags.append((
+                pct_is_low(m_entry),
+                pct_is_low(l_entry),
+                is_primary and (beer.on_hand_kegs or 0) <= 1,
+                not is_primary,
+                is_primary and bool(qty_ordered),
+            ))
+
+    t_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f4f5")),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (2, 0), (6, -1), "CENTER"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+    ]
+    for i, (main_low, lower_low, kegs_low, is_cont, has_order) in enumerate(row_flags, start=1):
+        if is_cont:
+            style_cmds.append(("FONTNAME", (0, i), (0, i), "Helvetica-Oblique"))
+            style_cmds.append(("TEXTCOLOR", (0, i), (0, i), colors.grey))
+        if main_low:
+            style_cmds.append(("TEXTCOLOR", (3, i), (3, i), colors.HexColor("#dc2626")))
+            style_cmds.append(("FONTNAME", (3, i), (3, i), "Helvetica-Bold"))
+        if lower_low:
+            style_cmds.append(("TEXTCOLOR", (4, i), (4, i), colors.HexColor("#dc2626")))
+            style_cmds.append(("FONTNAME", (4, i), (4, i), "Helvetica-Bold"))
+        if kegs_low:
+            style_cmds.append(("TEXTCOLOR", (5, i), (5, i), colors.HexColor("#dc2626")))
+            style_cmds.append(("FONTNAME", (5, i), (5, i), "Helvetica-Bold"))
+        if has_order:
+            style_cmds.append(("TEXTCOLOR", (6, i), (6, i), colors.HexColor("#16a34a")))
+            style_cmds.append(("FONTNAME", (6, i), (6, i), "Helvetica-Bold"))
+    t_table.setStyle(TableStyle(style_cmds))
+
+    story.append(t_table)
+    story.append(Paragraph(
+        "<b>Backup Kegs</b> = unopened kegs in storage. It does not include the keg currently pouring on tap "
+        "(that's what Main % / Lower % show).",
+        note_style
+    ))
+
+    # ── Empty taps — not tied to a beer, so they live in their own list ──
+    empty_main = [idx for idx, t in enumerate(main_taps, start=1) if not t.beer_id]
+    empty_lower = [idx for idx, t in enumerate(lower_taps, start=1) if not t.beer_id]
+    if empty_main or empty_lower:
+        story.append(Paragraph("Empty Taps", section_style))
+        parts = []
+        if empty_main:
+            parts.append("Main — Tap " + ", ".join(str(i) for i in empty_main))
+        if empty_lower:
+            parts.append("Lower — Tap " + ", ".join(str(i) for i in empty_lower))
+        story.append(Paragraph(" &nbsp;&bull;&nbsp; ".join(parts), styles["Normal"]))
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
@@ -2754,6 +2933,12 @@ def beers_bulk_edit_save():
                 except (ValueError, TypeError):
                     pass
 
+            if "units_per_case" in beer_data:
+                try:
+                    beer.units_per_case = int(beer_data["units_per_case"]) if beer_data["units_per_case"] else None
+                except (ValueError, TypeError):
+                    pass
+
         db.session.commit()
         return {"success": True, "message": f"Updated {len(data['beers'])} beers", "redirect": "/beers"}
     except Exception as e:
@@ -2832,6 +3017,9 @@ def beers_report_pdf():
 
     beers = sorted(Beer.query.all(), key=lambda b: _natural_sort_key(b.name))
 
+    pending_orders = BeerOrder.query.filter_by(status="pending").all()
+    on_order = {o.beer_id: o.quantity for o in pending_orders}
+
     u = current_user()
     generated_by = "Break-glass Admin" if session.get("break_glass_admin") else (u.display_name() if u else "Unknown")
 
@@ -2839,18 +3027,19 @@ def beers_report_pdf():
     sub_style = ParagraphStyle("sub", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
     summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=11, spaceBefore=4, spaceAfter=14)
 
-    header = ["Beer", "Style", "ABV", "Keg", "Cups", "Cost", "Price", "Backstock"]
-    col_widths = [1.7 * inch, 1.0 * inch, 0.6 * inch, 0.6 * inch, 0.6 * inch, 0.7 * inch, 0.7 * inch, 0.8 * inch]
+    header = ["Beer", "Style", "ABV", "Keg", "Cups", "Cost", "Price", "Backstock", "On Order"]
+    col_widths = [1.5 * inch, 0.9 * inch, 0.55 * inch, 0.55 * inch, 0.55 * inch, 0.6 * inch, 0.6 * inch, 0.7 * inch, 0.7 * inch]
 
     story = [
-        Paragraph("The Draft Room — Beer List Report", styles["Title"]),
+        Paragraph(f"{get_app_setting('business_name')} — Beer List Report", styles["Title"]),
         Paragraph(f"Generated {local_now().strftime('%B %d, %Y at %I:%M %p %Z')} by {generated_by}", sub_style),
     ]
 
     zero_stock = sum(1 for b in beers if (b.on_hand_kegs or 0) == 0)
     story.append(Paragraph(
         f"{len(beers)} beers total &nbsp;&bull;&nbsp; "
-        f"<font color='#dc2626'><b>{zero_stock} out of backstock</b></font>",
+        f"<font color='#dc2626'><b>{zero_stock} out of backstock</b></font> &nbsp;&bull;&nbsp; "
+        f"<font color='#16a34a'><b>{len(on_order)} on order</b></font>",
         summary_style
     ))
 
@@ -2861,10 +3050,11 @@ def beers_report_pdf():
         cost = f"${b.cost:.2f}" if b.cost is not None else "—"
         price = f"${b.price:.2f}" if b.price is not None else "—"
         kegs = b.on_hand_kegs or 0
+        qty_ordered = on_order.get(b.id)
         table_data.append([
             f"{b.name}\n{b.brewery or ''}", b.style or "—", abv,
             (b.keg_size or "—").capitalize(), str(b.cups_per_keg or "—"),
-            cost, price, str(kegs)
+            cost, price, str(kegs), str(qty_ordered) if qty_ordered else "—"
         ])
         zero_rows.append(kegs == 0)
 
@@ -2875,7 +3065,7 @@ def beers_report_pdf():
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (2, 0), (7, -1), "CENTER"),
+        ("ALIGN", (2, 0), (8, -1), "CENTER"),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
     ]
     for idx, is_zero in enumerate(zero_rows, start=1):
@@ -2883,6 +3073,9 @@ def beers_report_pdf():
             style_cmds.append(("BACKGROUND", (0, idx), (-1, idx), colors.HexColor("#fdecea")))
             style_cmds.append(("TEXTCOLOR", (7, idx), (7, idx), colors.HexColor("#dc2626")))
             style_cmds.append(("FONTNAME", (7, idx), (7, idx), "Helvetica-Bold"))
+        if table_data[idx][8] != "—":
+            style_cmds.append(("TEXTCOLOR", (8, idx), (8, idx), colors.HexColor("#16a34a")))
+            style_cmds.append(("FONTNAME", (8, idx), (8, idx), "Helvetica-Bold"))
     t.setStyle(TableStyle(style_cmds))
     story.append(t)
 
@@ -2984,6 +3177,7 @@ def beers_edit(beer_id):
             b.keg_size = "full" if keg_size == "full" else "half"
 
             b.cups_per_keg = _to_int(request.form.get("cups_per_keg"), None)
+            b.units_per_case = _to_int(request.form.get("units_per_case"), None)
 
             # ---- ON HAND KEGS (accept many possible input names) ----
             # We will look for the first one that exists in the POST.
@@ -3223,6 +3417,39 @@ def beers_save_sheet():
     print("✅ /beers/save_sheet UPDATED:", updated, "SAVED:", saved)
     return jsonify(ok=True, updated=updated, saved=saved)
 
+def _simple_item_tracking(item: "Item", cat_cfg: dict) -> tuple[bool, bool]:
+    """(track_bars, track_cooler) — Simple Count items only. "Track by Bar
+    Location" and "Track Cooler Stock" are independent category settings;
+    either, both, or neither can be on."""
+    is_simple = (item.prep_type or "").lower() == "items"
+    return (
+        is_simple and bool(cat_cfg.get("has_locations")),
+        is_simple and bool(cat_cfg.get("has_cooler_stock")),
+    )
+
+
+def _apply_simple_item_on_hand(item: "Item", cat_cfg: dict, main_val: int, low_val: int, backup_val: int | None):
+    """Update whichever of Main/Lower bar + Cooler/backup stock are tracked
+    for this Simple Count item, then recompute on_hand_count as the sum of
+    only the tracked pools (an untracked pool never contributes, even if its
+    column has a stale nonzero value from before a setting was turned off)."""
+    track_bars, track_cooler = _simple_item_tracking(item, cat_cfg)
+
+    if track_bars:
+        item.main_bar_on_hand = main_val
+        item.low_bar_on_hand = low_val
+    if track_cooler:
+        item.backup_stock = backup_val if backup_val is not None else (item.backup_stock or 0)
+
+    if track_bars or track_cooler:
+        total = 0
+        if track_cooler:
+            total += item.backup_stock or 0
+        if track_bars:
+            total += (item.main_bar_on_hand or 0) + (item.low_bar_on_hand or 0)
+        item.on_hand_count = total
+
+
 @app.post("/items/<int:item_id>/generic_on_hand")
 def item_generic_on_hand(item_id: int):
     guard = require_inventory_edit()
@@ -3231,9 +3458,11 @@ def item_generic_on_hand(item_id: int):
 
     item = Item.query.get_or_404(item_id)
 
-    # Only for generic items
-    if (item.prep_type or "").lower() != "generic":
-        flash("On-hand entry is only for generic items.", "error")
+    # Allowed for generic items, or any category tracking bars/cooler stock
+    cat_cfg = _get_cat_cfg(item.category)
+    track_bars, track_cooler = _simple_item_tracking(item, cat_cfg)
+    if (item.prep_type or "").lower() != "generic" and not (track_bars or track_cooler):
+        flash("On-hand entry is only for generic items or categories with bar/cooler tracking enabled.", "error")
         return redirect(f"/items/{item_id}")
 
     # Parse + sanitize
@@ -3250,11 +3479,15 @@ def item_generic_on_hand(item_id: int):
     low_raw = request.form.get("low_bar_on_hand", None)
     if low_raw is None:
         low_raw = request.form.get("lower_bar_on_hand", 0)
-
     low_val = _to_int(low_raw, 0)
 
-    item.main_bar_on_hand = main_val
-    item.low_bar_on_hand = low_val
+    if (item.prep_type or "").lower() == "generic":
+        item.main_bar_on_hand = main_val
+        item.low_bar_on_hand = low_val
+    else:
+        backup_raw = request.form.get("backup_stock")
+        backup_val = _to_int(backup_raw, item.backup_stock or 0) if backup_raw is not None else None
+        _apply_simple_item_on_hand(item, cat_cfg, main_val, low_val, backup_val)
 
     db.session.commit()
 
@@ -3269,9 +3502,11 @@ def update_item_on_hand(item_id):
 
     item = Item.query.get_or_404(item_id)
 
-    # Only allowed for generic items
-    if (item.prep_type or "").lower() != "generic":
-        abort(400, "On-hand counts only apply to generic items.")
+    # Allowed for generic items, or any category tracking bars/cooler stock
+    cat_cfg = _get_cat_cfg(item.category)
+    track_bars, track_cooler = _simple_item_tracking(item, cat_cfg)
+    if (item.prep_type or "").lower() != "generic" and not (track_bars or track_cooler):
+        abort(400, "On-hand counts only apply to generic items or categories with bar/cooler tracking enabled.")
 
     def _to_int_strict(val):
         # strict int parsing (keeps your existing behavior)
@@ -3295,12 +3530,94 @@ def update_item_on_hand(item_id):
         flash("On-hand values cannot be negative.", "error")
         return redirect(request.referrer or url_for("item_hub", item_id=item.id))
 
-    item.main_bar_on_hand = main_bar
-    item.low_bar_on_hand = low_bar
+    if (item.prep_type or "").lower() == "generic":
+        item.main_bar_on_hand = main_bar
+        item.low_bar_on_hand = low_bar
+    else:
+        try:
+            backup_val = _to_int_strict(request.form.get("backup_stock", item.backup_stock or 0))
+        except ValueError:
+            backup_val = item.backup_stock or 0
+        if backup_val < 0:
+            backup_val = item.backup_stock or 0
+        _apply_simple_item_on_hand(item, cat_cfg, main_bar, low_bar, backup_val)
 
     db.session.commit()
     flash("On-hand counts updated.", "success")
 
+    return redirect(url_for("item_hub", item_id=item.id))
+
+
+@app.post("/items/<int:item_id>/receive_boxes")
+def item_receive_boxes(item_id: int):
+    """Quick-add boxes to a Simple Count item's cooler/backup stock: boxes x units/box.
+    Only available for categories with 'Track Cooler Stock' enabled."""
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    item = Item.query.get_or_404(item_id)
+    cat_cfg = _get_cat_cfg(item.category)
+    track_bars, track_cooler = _simple_item_tracking(item, cat_cfg)
+    if not track_cooler:
+        flash("Receiving boxes is only for Simple Count categories with cooler-stock tracking enabled.", "error")
+        return redirect(url_for("item_hub", item_id=item.id))
+
+    def _to_pos_int(val, default=None):
+        try:
+            n = int(val)
+            return n if n > 0 else default
+        except Exception:
+            return default
+
+    boxes = _to_pos_int(request.form.get("boxes"))
+    if not boxes:
+        flash("Enter how many boxes were received.", "error")
+        return redirect(url_for("item_hub", item_id=item.id))
+
+    units_per_box_raw = (request.form.get("units_per_box") or "").strip()
+    units_per_box = _to_pos_int(units_per_box_raw) if units_per_box_raw else (item.default_units_per_box or 1)
+    if not units_per_box:
+        units_per_box = 1
+
+    # Remember the box size for next time (only if the user actually set one)
+    if units_per_box_raw:
+        item.default_units_per_box = units_per_box
+
+    new_backup = (item.backup_stock or 0) + (boxes * units_per_box)
+    _apply_simple_item_on_hand(item, cat_cfg, item.main_bar_on_hand or 0, item.low_bar_on_hand or 0, new_backup)
+
+    db.session.commit()
+    flash(f"Added {boxes} box(es) × {units_per_box} = {boxes * units_per_box} units to cooler stock.", "success")
+
+    return redirect(url_for("item_hub", item_id=item.id))
+
+
+@app.post("/items/<int:item_id>/set_units_per_box")
+def item_set_units_per_box(item_id: int):
+    """Set an item's box size directly from the Item Hub — independent of
+    receiving stock. Works for every item regardless of mode: it's what
+    Receive Boxes prefills and what case-based ordering uses as the case size."""
+    guard = require_inventory_edit()
+    if guard:
+        return guard
+
+    item = Item.query.get_or_404(item_id)
+    raw = (request.form.get("default_units_per_box") or "").strip()
+
+    if not raw:
+        item.default_units_per_box = None
+        db.session.commit()
+        flash("Box size cleared.", "success")
+        return redirect(url_for("item_hub", item_id=item.id))
+
+    if not raw.isdigit() or int(raw) < 1:
+        flash("Units per box must be a whole number of 1 or more.", "error")
+        return redirect(url_for("item_hub", item_id=item.id))
+
+    item.default_units_per_box = int(raw)
+    db.session.commit()
+    flash(f"Box size set to {item.default_units_per_box} {item.unit or 'units'} per box.", "success")
     return redirect(url_for("item_hub", item_id=item.id))
 
 
@@ -3951,8 +4268,11 @@ def items_all():
     items = query.order_by(Item.category.asc(), Item.name.asc()).all()
     suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
     on_hand = _compute_on_hand_map(items)
+    storage = _compute_storage_map(items)
+    cat_appearance = _get_category_appearance_map()
 
-    return render_template("items.html", items=items, suppliers=suppliers, q=q, on_hand=on_hand)
+    return render_template("items.html", items=items, suppliers=suppliers, q=q, on_hand=on_hand,
+                           storage=storage, cat_appearance=cat_appearance)
 
 @app.get("/api/beers")
 def api_get_beers():
@@ -3973,7 +4293,8 @@ def api_get_beers():
             'price': b.price,
             'keg_size': b.keg_size,
             'cups_per_keg': b.cups_per_keg,
-            'on_hand_kegs': b.on_hand_kegs
+            'on_hand_kegs': b.on_hand_kegs,
+            'units_per_case': b.units_per_case
         }
         for b in beers
     ]
@@ -3991,15 +4312,20 @@ def _compute_on_hand_map(items):
     # (replaces the old hardcoded prep_type tuples — works for any admin-defined mode too)
     modes_by_slug = {m.slug: m for m in InventoryMode.query.all()}
     box_qty_by_loc: dict[str, list[int]] = {}
+    box_qty_all_locs_ids: list[int] = []
     unit_count_by_key: dict[tuple[str, str], list[int]] = {}
     for i in items:
         mode = modes_by_slug.get((i.prep_type or "").lower())
         if not mode or mode.engine != "lot_tracking" or not mode.on_hand_style:
             continue
-        loc = mode.on_hand_location_key or "cooler"
         if mode.on_hand_style == "box_quantity":
-            box_qty_by_loc.setdefault(loc, []).append(i.id)
+            if mode.sums_all_locations:
+                box_qty_all_locs_ids.append(i.id)
+            else:
+                loc = mode.on_hand_location_key or "cooler"
+                box_qty_by_loc.setdefault(loc, []).append(i.id)
         else:
+            loc = mode.on_hand_location_key or "cooler"
             state = mode.on_hand_state_key or "prepped"
             unit_count_by_key.setdefault((state, loc), []).append(i.id)
 
@@ -4012,6 +4338,19 @@ def _compute_on_hand_map(items):
             ).filter(
                 InventoryLot.item_id.in_(ids),
                 InventoryLot.storage == loc,
+                InventoryLot.is_consumed == False
+            ).group_by(InventoryLot.item_id).all()
+            for item_id, qty in rows:
+                on_hand[item_id] = int(round(float(qty or 0) * upb_map.get(item_id, 1)))
+
+        # box_quantity style, no-prep-step modes: every location is equally
+        # sellable (nothing to prep), so sum quantity across ALL locations.
+        if box_qty_all_locs_ids:
+            rows = db.session.query(
+                InventoryLot.item_id,
+                func.coalesce(func.sum(InventoryLot.quantity), 0)
+            ).filter(
+                InventoryLot.item_id.in_(box_qty_all_locs_ids),
                 InventoryLot.is_consumed == False
             ).group_by(InventoryLot.item_id).all()
             for item_id, qty in rows:
@@ -4032,6 +4371,75 @@ def _compute_on_hand_map(items):
                 on_hand[item_id] = int(units or 0)
 
     return on_hand
+
+
+def _compute_storage_map(items):
+    """What's physically in storage for each item — the same breakdown the
+    Item Hub page shows, so the Items list doesn't require opening each item
+    individually to see it. Returns {item_id: {"unit", "total", "breakdown"}}:
+      - Simple Count + "Track Cooler Stock": a single cooler/backup-stock count
+        (no per-location breakdown — that pool isn't location-differentiated).
+      - Lot-tracking modes (Box/Case, Wings, Raw Protein, Portion Packs, custom
+        modes): box/case counts broken out by every one of the mode's storage
+        locations (Freezer/Cooler/Out, etc.), same as the Item Hub cards.
+    Items with neither get no entry."""
+    storage: dict[int, dict] = {}
+    unit_by_id = {i.id: (i.unit or "").strip() for i in items}
+
+    cat_has_cooler_stock = {
+        row.value: bool(row.has_cooler_stock)
+        for row in ItemSetting.query.filter_by(setting_type="category").all()
+    }
+    for i in items:
+        if (i.prep_type or "").lower() == "items" and cat_has_cooler_stock.get(i.category):
+            storage[i.id] = {
+                "unit": unit_by_id[i.id] or "units",
+                "total": i.backup_stock or 0,
+                "breakdown": None,
+            }
+
+    modes_by_slug = {m.slug: m for m in InventoryMode.query.all()}
+    items_by_mode: dict[int, list["Item"]] = {}
+    for i in items:
+        if i.id in storage:
+            continue
+        mode = modes_by_slug.get((i.prep_type or "").lower())
+        if not mode or mode.engine != "lot_tracking":
+            continue
+        items_by_mode.setdefault(mode.id, []).append(i)
+
+    if items_by_mode:
+        modes_by_id = {m.id: m for m in InventoryMode.query.filter(InventoryMode.id.in_(items_by_mode.keys())).all()}
+        for mode_id, mode_items in items_by_mode.items():
+            mode = modes_by_id[mode_id]
+            loc_labels = [(l.key, l.label) for l in mode.locations]
+            item_ids = [i.id for i in mode_items]
+            rows = db.session.query(
+                InventoryLot.item_id, InventoryLot.storage,
+                func.coalesce(func.sum(InventoryLot.quantity), 0)
+            ).filter(
+                InventoryLot.item_id.in_(item_ids),
+                InventoryLot.is_consumed == False
+            ).group_by(InventoryLot.item_id, InventoryLot.storage).all()
+            by_item: dict[int, dict[str, float]] = {}
+            for item_id, loc_key, qty in rows:
+                by_item.setdefault(item_id, {})[loc_key] = float(qty or 0)
+
+            for i in mode_items:
+                counts = by_item.get(i.id, {})
+                upb = int(i.default_units_per_box or 1)
+                # Units, not raw box quantity — matches the "On Hand" figure
+                # and avoids a fractional box (e.g. 1 bottle of a 12-pack
+                # case) silently rounding down to a misleading 0.
+                breakdown = [(label, int(round(counts.get(key, 0) * upb))) for key, label in loc_labels]
+                total = sum(b for _, b in breakdown)
+                storage[i.id] = {
+                    "unit": unit_by_id.get(i.id) or "units",
+                    "total": total,
+                    "breakdown": breakdown if len(breakdown) > 1 else None,
+                }
+
+    return storage
 
 
 @app.get("/order")
@@ -4096,7 +4504,7 @@ def items_report_pdf():
     col_widths = [2.3 * inch, 0.85 * inch, 0.8 * inch, 0.6 * inch, 1.15 * inch, 0.9 * inch]
 
     story = [
-        Paragraph("The Draft Room — Inventory Report", styles["Title"]),
+        Paragraph(f"{get_app_setting('business_name')} — Inventory Report", styles["Title"]),
         Paragraph(f"Generated {local_now().strftime('%B %d, %Y at %I:%M %p %Z')} by {generated_by}", sub_style),
     ]
 
@@ -4199,8 +4607,19 @@ def save_order():
         data = request.get_json()
         item_id = data.get("item_id")
         quantity = data.get("quantity", 0)
-        order_date = data.get("order_date")
+        order_date = (data.get("order_date") or "").strip() or None
         notes = data.get("notes", "")
+
+        # Ordered by the case (e.g. "3 cases of 24") vs. individual units.
+        # `quantity` is always the resolved total; case_size is kept for display.
+        order_unit = (data.get("order_unit") or "individual").strip().lower()
+        if order_unit not in ("individual", "case"):
+            order_unit = "individual"
+        case_size = data.get("case_size")
+        try:
+            case_size = int(case_size) if order_unit == "case" and case_size else None
+        except (ValueError, TypeError):
+            case_size = None
 
         if not item_id:
             return {"error": "Invalid item"}, 400
@@ -4212,6 +4631,12 @@ def save_order():
             except (ValueError, TypeError):
                 order_date = None
 
+        # Remember the case size on the item for next time (only if the user set one)
+        if case_size:
+            item = Item.query.get(item_id)
+            if item:
+                item.default_units_per_box = case_size
+
         # Check if order already exists for this item
         existing_order = Order.query.filter(
             Order.item_id == item_id,
@@ -4222,13 +4647,17 @@ def save_order():
             existing_order.quantity = quantity
             existing_order.order_date = order_date
             existing_order.notes = notes
+            existing_order.order_unit = order_unit
+            existing_order.case_size = case_size
             existing_order.updated_at = utcnow()
         else:
             new_order = Order(
                 item_id=item_id,
                 quantity=quantity,
                 order_date=order_date,
-                notes=notes
+                notes=notes,
+                order_unit=order_unit,
+                case_size=case_size
             )
             db.session.add(new_order)
 
@@ -4251,8 +4680,19 @@ def save_beer_order():
         data = request.get_json()
         beer_id = data.get("beer_id")
         quantity = data.get("quantity", 0)
-        order_date = data.get("order_date")
+        order_date = (data.get("order_date") or "").strip() or None
         notes = data.get("notes", "")
+
+        # Ordered by the case (e.g. "3 cases of 24") vs. individual units/kegs.
+        # `quantity` is always the resolved total; case_size is kept only for display.
+        order_unit = (data.get("order_unit") or "individual").strip().lower()
+        if order_unit not in ("individual", "case"):
+            order_unit = "individual"
+        case_size = data.get("case_size")
+        try:
+            case_size = int(case_size) if order_unit == "case" and case_size else None
+        except (ValueError, TypeError):
+            case_size = None
 
         if not beer_id:
             return {"error": "Invalid beer"}, 400
@@ -4264,6 +4704,12 @@ def save_beer_order():
             except (ValueError, TypeError):
                 order_date = None
 
+        # Remember the case size on the beer for next time (only if the user set one)
+        if case_size:
+            beer = Beer.query.get(beer_id)
+            if beer:
+                beer.units_per_case = case_size
+
         # Check if order already exists for this beer
         existing_order = BeerOrder.query.filter(
             BeerOrder.beer_id == beer_id,
@@ -4274,13 +4720,17 @@ def save_beer_order():
             existing_order.quantity = quantity
             existing_order.order_date = order_date
             existing_order.notes = notes
+            existing_order.order_unit = order_unit
+            existing_order.case_size = case_size
             existing_order.updated_at = utcnow()
         else:
             new_order = BeerOrder(
                 beer_id=beer_id,
                 quantity=quantity,
                 order_date=order_date,
-                notes=notes
+                notes=notes,
+                order_unit=order_unit,
+                case_size=case_size
             )
             db.session.add(new_order)
 
@@ -4315,6 +4765,136 @@ def view_orders():
     beer_orders = beer_query.order_by(BeerOrder.created_at.desc()).all()
     
     return render_template("orders.html", orders=orders, beer_orders=beer_orders, status_filter=status_filter)
+
+
+@app.get("/orders/report.pdf")
+def orders_report_pdf():
+    """A printable 'what's being ordered' sheet — items grouped by supplier
+    (so it doubles as a call/email list) plus a beers section, for whichever
+    status filter the Orders page was on when the download was clicked."""
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+
+    status_filter = request.args.get("status", "pending")
+
+    item_query = Order.query.join(Item)
+    beer_query = BeerOrder.query.join(Beer)
+    if status_filter and status_filter != "all":
+        item_query = item_query.filter(Order.status == status_filter)
+        beer_query = beer_query.filter(BeerOrder.status == status_filter)
+
+    item_orders = item_query.order_by(Item.category.asc(), Item.name.asc()).all()
+    beer_orders = beer_query.order_by(BeerOrder.created_at.desc()).all()
+
+    u = current_user()
+    generated_by = "Break-glass Admin" if session.get("break_glass_admin") else (u.display_name() if u else "Unknown")
+
+    status_label = {"pending": "Pending", "ordered": "Ordered", "received": "Received", "all": "All"}.get(status_filter, status_filter.title())
+
+    styles = getSampleStyleSheet()
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
+    summary_style = ParagraphStyle("summary", parent=styles["Normal"], fontSize=11, spaceBefore=4, spaceAfter=14)
+    section_style = ParagraphStyle("section", parent=styles["Heading2"], spaceBefore=18, spaceAfter=6,
+                                    textColor=colors.HexColor("#18181b"))
+    supplier_style = ParagraphStyle("supplier", parent=styles["Heading3"], spaceBefore=12, spaceAfter=4,
+                                     fontSize=11, textColor=colors.HexColor("#3f3f46"))
+    empty_style = ParagraphStyle("empty", parent=styles["Normal"], textColor=colors.grey, spaceBefore=6)
+
+    def qty_cell(quantity, order_unit, case_size):
+        if order_unit == "case" and case_size:
+            cases = quantity / case_size
+            unit_word = "case" if cases == 1 else "cases"
+            return f"{quantity}\n({cases:g} {unit_word} x {case_size})"
+        return str(quantity)
+
+    story = [
+        Paragraph(f"{get_app_setting('business_name')} — {status_label} Orders", styles["Title"]),
+        Paragraph(f"Generated {local_now().strftime('%B %d, %Y at %I:%M %p %Z')} by {generated_by}", sub_style),
+    ]
+
+    story.append(Paragraph(
+        f"{len(item_orders) + len(beer_orders)} order(s) total &nbsp;&bull;&nbsp; "
+        f"{len(item_orders)} item(s) &nbsp;&bull;&nbsp; "
+        f"{len(beer_orders)} beer(s)",
+        summary_style
+    ))
+
+    if not item_orders and not beer_orders:
+        story.append(Paragraph(f"No {status_label.lower()} orders.", empty_style))
+
+    # ── Items, grouped by supplier so this doubles as a call/email list ──
+    if item_orders:
+        story.append(Paragraph("Items", section_style))
+        by_supplier: dict[str, list] = {}
+        for o in item_orders:
+            supplier_name = o.item.supplier.name if o.item.supplier else "No Supplier Set"
+            by_supplier.setdefault(supplier_name, []).append(o)
+
+        header = ["Item", "Category", "Qty", "Unit", "Order By", "Status", "Notes"]
+        col_widths = [1.5 * inch, 1.0 * inch, 0.9 * inch, 0.6 * inch, 0.9 * inch, 0.8 * inch, 1.3 * inch]
+
+        for supplier_name in sorted(by_supplier.keys()):
+            story.append(Paragraph(supplier_name, supplier_style))
+            table_data = [header]
+            for o in by_supplier[supplier_name]:
+                table_data.append([
+                    o.item.name, o.item.category or "—",
+                    qty_cell(o.quantity, o.order_unit, o.case_size), o.item.unit or "—",
+                    o.order_date.strftime("%b %d, %Y") if o.order_date else "—",
+                    o.status.title(), o.notes or "—",
+                ])
+            t = Table(table_data, colWidths=col_widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f4f5")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (2, 0), (5, -1), "CENTER"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+            ]))
+            story.append(t)
+
+    # ── Beers ──
+    if beer_orders:
+        story.append(Paragraph("Beers", section_style))
+        header = ["Beer", "Brewery", "Qty", "Order By", "Status", "Notes"]
+        col_widths = [1.6 * inch, 1.5 * inch, 1.0 * inch, 0.9 * inch, 0.8 * inch, 1.3 * inch]
+        table_data = [header]
+        for o in beer_orders:
+            table_data.append([
+                o.beer.name, o.beer.brewery or "—",
+                qty_cell(o.quantity, o.order_unit, o.case_size),
+                o.order_date.strftime("%b %d, %Y") if o.order_date else "—",
+                o.status.title(), o.notes or "—",
+            ])
+        t = Table(table_data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f4f4f5")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d4d4d8")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (2, 0), (4, -1), "CENTER"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+        ]))
+        story.append(t)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch,
+                             leftMargin=0.5 * inch, rightMargin=0.5 * inch)
+    doc.build(story)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/pdf", as_attachment=True,
+                      download_name=f"TDR {status_label} Orders.pdf")
+
 
 @app.get("/order/<int:order_id>/edit")
 def edit_order(order_id):
@@ -4395,6 +4975,73 @@ def delete_order(order_id):
 
     try:
         order = Order.query.get_or_404(order_id)
+        db.session.delete(order)
+        db.session.commit()
+        return {"success": True, "message": "Order deleted"}
+    except Exception as e:
+        db.session.rollback()
+        return {"error": str(e)}, 500
+
+@app.get("/beer-order/<int:order_id>/edit")
+def edit_beer_order(order_id):
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    order = BeerOrder.query.get_or_404(order_id)
+    return render_template("edit_beer_order.html", order=order)
+
+@app.post("/beer-order/<int:order_id>/update")
+def update_beer_order(order_id):
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    try:
+        order = BeerOrder.query.get_or_404(order_id)
+        data = request.get_json()
+        old_status = order.status
+
+        if "quantity" in data:
+            order.quantity = int(data["quantity"])
+        if "order_date" in data:
+            order_date = data["order_date"]
+            if order_date:
+                try:
+                    order.order_date = datetime.strptime(order_date, "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    order.order_date = None
+            else:
+                order.order_date = None
+        if "notes" in data:
+            order.notes = data["notes"]
+        if "status" in data:
+            order.status = data["status"]
+
+        # If status is changing to "received", add the order quantity to the beer's on-hand kegs
+        if old_status != "received" and order.status == "received":
+            beer = Beer.query.get(order.beer_id)
+            if beer:
+                beer.on_hand_kegs = (beer.on_hand_kegs or 0) + order.quantity
+
+        order.updated_at = utcnow()
+        db.session.commit()
+        return {"success": True, "message": "Order updated"}
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error in update_beer_order: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
+
+@app.post("/beer-order/<int:order_id>/delete")
+def delete_beer_order(order_id):
+    guard = require_view_access()
+    if guard:
+        return guard
+
+    try:
+        order = BeerOrder.query.get_or_404(order_id)
         db.session.delete(order)
         db.session.commit()
         return {"success": True, "message": "Order deleted"}
@@ -4835,12 +5482,19 @@ def _item_form_options():
 
 _CAT_CFG_DEFAULTS = {
     "inv_mode": "", "default_sales_mode": "simple",
-    "has_reconcile": True, "has_locations": False,
+    "has_reconcile": True, "has_locations": False, "has_cooler_stock": False,
     "description": "", "abbreviation": "",
     # state / storage labels — shown in dropdowns and lot tables
     "state_label_raw": "Raw", "state_label_prepped": "Prepped",
     "storage_label_freezer": "Freezer", "storage_label_cooler": "Cooler", "storage_label_out": "Out",
 }
+
+def _get_category_appearance_map() -> dict:
+    """{category_name: {'icon':..., 'color':...}} for every configured category —
+    used to render the colored icon badge on list pages without an N+1 query."""
+    rows = ItemSetting.query.filter_by(setting_type="category").all()
+    return {r.value: {"icon": r.icon or "tag", "color": r.color or ""} for r in rows}
+
 
 def _get_cat_cfg(category_name: str) -> dict:
     """
@@ -4877,6 +5531,13 @@ def _format_field_value(value: float | str | None, field_type: str, unit_suffix:
         # plain number: trim trailing zeros, keep the suffix
         text_val = f"{num:,.4f}".rstrip("0").rstrip(".")
         return f"{text_val} {suffix}".strip()
+    if field_type == "checkbox":
+        return "Yes" if str(value).strip().lower() in ("1", "true", "yes", "on") else "No"
+    if field_type == "date":
+        try:
+            return datetime.strptime(str(value), "%Y-%m-%d").strftime("%b %d, %Y")
+        except (TypeError, ValueError):
+            return "—"
     return str(value)
 
 
@@ -4893,11 +5554,15 @@ def _get_item_custom_fields(item: "Item") -> list[dict]:
     values = {v.category_field_id: v.value for v in
               ItemFieldValue.query.filter_by(item_id=item.id).all()}
 
-    # raw values keyed by field_key, for formula evaluation (non-formula fields only)
+    # raw values keyed by field_key, for formula evaluation (numeric fields only —
+    # text/date/checkbox pass their raw value through unconverted since formulas
+    # only meaningfully operate on numbers)
     by_key = {}
     for f in fields:
-        if f.field_type != "formula":
-            by_key[f.field_key] = _to_float_or_none(values.get(f.id)) if f.field_type != "text" else values.get(f.id)
+        if f.field_type in ("number", "currency"):
+            by_key[f.field_key] = _to_float_or_none(values.get(f.id))
+        elif f.field_type != "formula":
+            by_key[f.field_key] = values.get(f.id)
 
     out = []
     for f in fields:
@@ -4924,8 +5589,15 @@ def _save_item_custom_fields(item: "Item", category: str, form) -> None:
     for f in _get_cat_fields(category):
         if f.field_type == "formula":
             continue
-        raw = form.get(f"cf_{f.field_key}")
-        value = (raw or "").strip() if f.field_type == "text" else _to_float_or_none(raw)
+        if f.field_type == "checkbox":
+            # unchecked checkboxes aren't submitted at all — presence means checked
+            value = "1" if f"cf_{f.field_key}" in form else "0"
+        else:
+            raw = form.get(f"cf_{f.field_key}")
+            if f.field_type in ("text", "date"):
+                value = (raw or "").strip()
+            else:
+                value = _to_float_or_none(raw)
         row = ItemFieldValue.query.filter_by(item_id=item.id, category_field_id=f.id).first()
         if value in (None, ""):
             if row:
@@ -4989,6 +5661,11 @@ def item_new_post():
     on_hand_count = to_int(request.form.get("on_hand_count"), 0)
     par_level = to_int(request.form.get("par_level"), 0) or None
 
+    # Units per box (Simple Count items with bar-location tracking use this
+    # to convert "boxes received" into backup stock — see /receive_boxes)
+    dupb_raw = (request.form.get("default_units_per_box") or "").strip()
+    default_units_per_box = int(dupb_raw) if dupb_raw.isdigit() else None
+
     if not name:
         flash("Item name is required.", "error")
         return redirect("/items/new")
@@ -5007,6 +5684,7 @@ def item_new_post():
         supplier_id=supplier_id,
         on_hand_count=on_hand_count,
         par_level=par_level,
+        default_units_per_box=default_units_per_box,
     )
 
     db.session.add(item)
@@ -5071,7 +5749,66 @@ def item_edit(item_id: int):
                            field_values=field_values,
                            mode_states=[s.to_dict() for s in inv_mode.states] if inv_mode else [],
                            mode_locations=[l.to_dict() for l in inv_mode.locations] if inv_mode else [],
+                           mode_obj=inv_mode,
                            shelf_life=shelf_life)
+
+
+def _migrate_item_stock_on_mode_change(item: "Item", old_prep_type: str, new_prep_type: str) -> Optional[int]:
+    """An item's on-hand number is computed completely differently depending
+    on its Inventory Mode (a flat counter for Simple Count vs. summed lots for
+    everything else). Switching modes with no migration makes stock silently
+    look like it vanished. This carries the current total across as an
+    opening lot (moving into lot-tracking — added directly to the session) or
+    returns a summed count (moving into Simple Count — caller assigns it to
+    on_hand_count, since that field gets set separately below).
+
+    MUST be called before item.prep_type is reassigned to the new value —
+    it relies on item.prep_type still reflecting old_prep_type to correctly
+    read the item's current lot-based on-hand total."""
+    if (old_prep_type or "").lower() == (new_prep_type or "").lower():
+        return None
+
+    old_mode = get_mode_by_slug(old_prep_type)
+    new_mode = get_mode_by_slug(new_prep_type)
+    old_is_simple = (old_prep_type or "").lower() == "items"
+    new_is_simple = (new_prep_type or "").lower() == "items"
+    old_is_lot = bool(old_mode) and old_mode.engine == "lot_tracking"
+    new_is_lot = bool(new_mode) and new_mode.engine == "lot_tracking"
+
+    if old_is_simple and new_is_lot:
+        current = item.on_hand_count or 0
+        if current <= 0:
+            return None
+        loc = new_mode.on_hand_location_key or (new_mode.locations[0].key if new_mode.locations else None)
+        if not loc:
+            return None
+        max_lot = db.session.query(func.max(InventoryLot.lot_number)).filter(
+            InventoryLot.item_id == item.id).scalar()
+        next_lot_number = (max_lot + 1) if max_lot else 1
+
+        if new_mode.on_hand_style == "box_quantity":
+            upb = item.default_units_per_box or 1
+            qty = (current / upb) if upb else current
+            state = new_mode.states[0].key if new_mode.states else "raw"
+            db.session.add(InventoryLot(
+                item_id=item.id, lot_number=next_lot_number, quantity=qty,
+                storage=loc, state=state, received_date=date.today(), is_consumed=False,
+                lot_label="Opening balance (from Simple Count)",
+            ))
+        else:
+            state = mode_sellable_state_key(new_mode) or (new_mode.states[0].key if new_mode.states else "prepped")
+            db.session.add(InventoryLot(
+                item_id=item.id, lot_number=next_lot_number, quantity=1, count_units=current,
+                storage=loc, state=state, received_date=date.today(), is_consumed=False,
+                lot_label="Opening balance (from Simple Count)",
+            ))
+        return None
+
+    elif old_is_lot and new_is_simple:
+        return _compute_on_hand_map([item]).get(item.id, 0)
+
+    return None
+
 
 @app.post("/items/<int:item_id>/edit")
 def item_edit_post(item_id: int):
@@ -5107,6 +5844,14 @@ def item_edit_post(item_id: int):
         flash("Another item already uses that name.", "error")
         return redirect(f"/items/{item.id}/edit")
 
+    # Carry current stock across a mode change BEFORE prep_type is reassigned —
+    # the migration needs item.prep_type to still be the OLD mode to read the
+    # existing on-hand correctly. An unchecked checkbox submits nothing at all
+    # (standard HTML behavior), so absence here correctly means "skip it".
+    carried_on_hand = None
+    if request.form.get("carry_over_stock") == "1":
+        carried_on_hand = _migrate_item_stock_on_mode_change(item, item.prep_type, prep_type)
+
     item.name = name
     item.category = category
     item.prep_type = prep_type
@@ -5117,14 +5862,36 @@ def item_edit_post(item_id: int):
     # item form submits dynamic sl_<state>_<location> fields, saved to
     # ItemShelfLife via _save_item_shelf_life() below.
     #
-    # NOTE: unit/default_units_per_box/multiplier/pack1-4 are no longer read
-    # here either — that configuration now lives in ItemUnitConfig/ItemPackUnit,
-    # edited centrally in Settings > Unit Conversion (see
+    # NOTE: unit/multiplier/pack1-4 are no longer read here — that
+    # configuration now lives in ItemUnitConfig/ItemPackUnit, edited
+    # centrally in Settings > Unit Conversion (see
     # settings_save_unit_conversion()). The legacy columns are left untouched
-    # (not nulled) for rollback safety.
+    # (not nulled) for rollback safety. default_units_per_box (box/case size)
+    # IS still read here, though — it's live and used everywhere box/case
+    # math happens (on-hand totals, Receive Boxes prefill, order-by-the-case).
 
     # ✅ ITEMS SETTINGS
-    item.on_hand_count = to_int(request.form.get("on_hand_count"), 0)
+    cat_cfg_for_save = _get_cat_cfg(category)
+    is_simple = prep_type.lower() == "items"
+    track_bars_save = is_simple and cat_cfg_for_save.get("has_locations")
+    track_cooler_save = is_simple and cat_cfg_for_save.get("has_cooler_stock")
+
+    dupb_raw = (request.form.get("default_units_per_box") or "").strip()
+    if dupb_raw:
+        item.default_units_per_box = int(dupb_raw) if dupb_raw.isdigit() else item.default_units_per_box
+    elif "default_units_per_box" in request.form:
+        # Field was present but cleared — treat blank as "unset", not "keep old value"
+        item.default_units_per_box = None
+
+    if carried_on_hand is not None:
+        # A lot_tracking -> Simple Count switch just carried the real total
+        # over — that overrides whatever stale number was in the (now-hidden)
+        # Current Stock field when the page was loaded under the old mode.
+        item.on_hand_count = carried_on_hand
+    elif not (track_bars_save or track_cooler_save):
+        item.on_hand_count = to_int(request.form.get("on_hand_count"), 0)
+    # else: on_hand is derived from backup stock and/or Main/Lower bar counts
+    # (set on the Item Hub page) — don't let this form zero it out.
     item.par_level = to_int(request.form.get("par_level"), 0) or None
 
     _save_item_custom_fields(item, category, request.form)
@@ -5167,26 +5934,39 @@ def item_delete(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
+    name, category = item.name, item.category
 
     lots_count = InventoryLot.query.filter(InventoryLot.item_id == item.id).count()
     prep_count = PrepBatch.query.filter(PrepBatch.item_id == item.id).count()
     rec_count = ReconcileRecord.query.filter(ReconcileRecord.item_id == item.id).count()
+    has_history = lots_count > 0 or prep_count > 0 or rec_count > 0
 
-    if lots_count > 0 or prep_count > 0 or rec_count > 0:
-        flash("Can't delete this item because it already has inventory/prep/reconcile history.", "error")
-        return redirect("/items")
-
+    # Deleting was previously silently BLOCKED whenever an item had any
+    # receiving/prep/reconcile history — which by now is most real items —
+    # with only a flash message as the explanation, easy to miss and easy to
+    # read as "delete is broken." Now it cascade-deletes that history too
+    # (same mechanism the admin bulk-delete already used), gated behind an
+    # explicit confirmation on the frontend that says so.
     audit_log(
         action="delete",
         entity_type="Item",
         entity_id=item.id,
-        message="Item deleted",
-        details={"name": item.name, "category": item.category}
+        message="Item deleted" + (" (with history)" if has_history else ""),
+        details={"name": name, "category": category, "lots": lots_count, "preps": prep_count, "reconciles": rec_count}
     )
 
-    db.session.delete(item)
-    db.session.commit()
-    flash("Item deleted.", "success")
+    try:
+        _cascade_delete_item(item)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Couldn't delete '{name}': {e}", "error")
+        return redirect("/items")
+
+    if has_history:
+        flash(f"'{name}' deleted, along with its receiving/prep/reconcile history.", "success")
+    else:
+        flash("Item deleted.", "success")
     return redirect("/items")
 
 
@@ -5522,12 +6302,19 @@ def adjust_item_stock(item_id: int):
         return guard
 
     item = Item.query.get_or_404(item_id)
-    
+
     # Check if this is an "items" prep type
     if (item.prep_type or "").lower() != "items":
         flash("Stock adjustment only available for 'items' prep type.", "error")
         return redirect(f"/items/{item_id}")
-    
+
+    # Categories tracking bars and/or cooler stock derive on_hand_count from
+    # those pools — adjust those instead.
+    cat_cfg = _get_cat_cfg(item.category)
+    if cat_cfg.get("has_locations") or cat_cfg.get("has_cooler_stock"):
+        flash("This item tracks backup stock and/or bar counts separately — adjust those below instead.", "error")
+        return redirect(f"/items/{item_id}")
+
     notes = (request.form.get("notes") or "").strip() or None
 
     old_count = item.on_hand_count or 0
@@ -8214,7 +9001,38 @@ def settings_page():
         ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
     units = ItemSetting.query.filter_by(setting_type="unit").order_by(
         ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
-    return render_template("settings.html", categories=categories, units=units)
+
+    # How many items currently use each value — shown in the list so it's
+    # obvious before you try to delete one, and used to drive the reassign flow.
+    cat_counts = dict(db.session.query(Item.category, func.count(Item.id)).group_by(Item.category).all())
+    unit_counts = dict(db.session.query(Item.unit, func.count(Item.id)).group_by(Item.unit).all())
+    suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+    # slug -> name for any custom Inventory Mode, so category badges show a
+    # real name instead of a raw slug like "liquor_cases"
+    mode_names = {m.slug: m.name for m in InventoryMode.query.all()}
+
+    return render_template("settings.html", categories=categories, units=units,
+                           cat_counts=cat_counts, unit_counts=unit_counts, suppliers=suppliers,
+                           mode_names=mode_names,
+                           business_name_setting=get_app_setting("business_name"))
+
+
+@app.post("/settings/general/save")
+def settings_save_general():
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+    data = request.get_json() or {}
+    name = (data.get("business_name") or "").strip()
+    if not name:
+        return jsonify(error="Business name can't be blank"), 400
+    row = AppSetting.query.get("business_name")
+    if row:
+        row.value = name
+    else:
+        db.session.add(AppSetting(key="business_name", value=name))
+    db.session.commit()
+    return jsonify(success=True, business_name=name)
 
 
 def _apply_setting_fields(row, data):
@@ -8227,6 +9045,7 @@ def _apply_setting_fields(row, data):
         row.default_sales_mode = sm if sm in ("simple", "packs_4") else "simple"
         row.has_reconcile = bool(data.get("has_reconcile"))
         row.has_locations = bool(data.get("has_locations"))
+        row.has_cooler_stock = bool(data.get("has_cooler_stock"))
         # state / storage labels — store None when blank so defaults kick in
         def _lbl(key): return (data.get(key) or "").strip() or None
         row.state_label_raw       = _lbl("state_label_raw")
@@ -8234,6 +9053,20 @@ def _apply_setting_fields(row, data):
         row.storage_label_freezer = _lbl("storage_label_freezer")
         row.storage_label_cooler  = _lbl("storage_label_cooler")
         row.storage_label_out     = _lbl("storage_label_out")
+        # appearance
+        row.icon  = (data.get("icon") or "").strip() or None
+        row.color = (data.get("color") or "").strip() or None
+        # new-item defaults
+        par_raw = data.get("default_par_level")
+        try:
+            row.default_par_level = int(par_raw) if par_raw not in (None, "") else None
+        except (TypeError, ValueError):
+            row.default_par_level = None
+        supplier_raw = data.get("default_supplier_id")
+        try:
+            row.default_supplier_id = int(supplier_raw) if supplier_raw not in (None, "", 0) else None
+        except (TypeError, ValueError):
+            row.default_supplier_id = None
     elif row.setting_type == "unit":
         row.abbreviation = (data.get("abbreviation") or "").strip() or None
 
@@ -8278,6 +9111,83 @@ def settings_edit_option(opt_id):
     return jsonify(success=True, **row.to_dict())
 
 
+@app.post("/settings/item-options/<int:opt_id>/move")
+def settings_move_option(opt_id):
+    """Swap this row's display_order with its immediate neighbor (up/down)
+    so category/unit lists can be reordered without hand-editing numbers."""
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+    row = ItemSetting.query.get_or_404(opt_id)
+    direction = (request.get_json() or {}).get("direction")
+    if direction not in ("up", "down"):
+        return jsonify(error="Invalid direction"), 400
+
+    siblings = ItemSetting.query.filter_by(setting_type=row.setting_type).order_by(
+        ItemSetting.display_order.asc(), ItemSetting.value.asc()).all()
+    idx = next((i for i, s in enumerate(siblings) if s.id == row.id), None)
+    if idx is None:
+        return jsonify(error="Not found"), 404
+
+    swap_idx = idx - 1 if direction == "up" else idx + 1
+    if swap_idx < 0 or swap_idx >= len(siblings):
+        return jsonify(success=True)  # already at the edge — no-op
+
+    other = siblings[swap_idx]
+    row.display_order, other.display_order = other.display_order, row.display_order
+    # Guard against ties (rows sharing a display_order from older data) —
+    # ensure the swap actually changes relative order.
+    if row.display_order == other.display_order:
+        row.display_order, other.display_order = swap_idx, idx
+    db.session.commit()
+    return jsonify(success=True)
+
+
+@app.post("/settings/item-options/<int:opt_id>/duplicate")
+def settings_duplicate_option(opt_id):
+    """Clone a category's (or unit's) full config — mode, reconcile/locations,
+    labels, appearance, defaults, and for categories its Custom Field
+    definitions too — under a new name. Setting up a near-identical category
+    from scratch is tedious; this makes 'one like that but different' fast."""
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+    row = ItemSetting.query.get_or_404(opt_id)
+
+    data = request.get_json() or {}
+    new_value = (data.get("value") or "").strip() or f"{row.value} Copy"
+    if ItemSetting.query.filter_by(setting_type=row.setting_type, value=new_value).first():
+        return jsonify(error=f'"{new_value}" already exists'), 409
+
+    max_order = db.session.query(db.func.max(ItemSetting.display_order)).filter_by(
+        setting_type=row.setting_type).scalar() or 0
+
+    clone = ItemSetting(
+        setting_type=row.setting_type, value=new_value, display_order=max_order + 1,
+        description=row.description, inv_mode=row.inv_mode, default_sales_mode=row.default_sales_mode,
+        has_reconcile=row.has_reconcile, has_locations=row.has_locations,
+        state_label_raw=row.state_label_raw, state_label_prepped=row.state_label_prepped,
+        storage_label_freezer=row.storage_label_freezer, storage_label_cooler=row.storage_label_cooler,
+        storage_label_out=row.storage_label_out,
+        icon=row.icon, color=row.color,
+        default_par_level=row.default_par_level, default_supplier_id=row.default_supplier_id,
+        abbreviation=row.abbreviation,
+    )
+    db.session.add(clone)
+    db.session.flush()
+
+    if row.setting_type == "category":
+        for f in _get_cat_fields(row.value):
+            db.session.add(CategoryField(
+                category=new_value, field_key=f.field_key, label=f.label,
+                field_type=f.field_type, unit_suffix=f.unit_suffix, formula=f.formula,
+                display_order=f.display_order,
+            ))
+
+    db.session.commit()
+    return jsonify(success=True, **clone.to_dict())
+
+
 @app.get("/settings/categories.json")
 def settings_categories_json():
     """Return all categories with their properties as JSON (used by item form)."""
@@ -8286,21 +9196,74 @@ def settings_categories_json():
     return jsonify([c.to_dict() for c in cats])
 
 
+def _items_using_setting(row: "ItemSetting"):
+    """Items currently referencing this category/unit value (a plain string
+    field on Item — not a foreign key — so deleting the setting row silently
+    orphans them unless we check first)."""
+    if row.setting_type == "category":
+        return Item.query.filter_by(category=row.value)
+    if row.setting_type == "unit":
+        return Item.query.filter_by(unit=row.value)
+    return Item.query.filter_by(id=-1)  # never matches
+
+
 @app.post("/settings/item-options/<int:opt_id>/delete")
 def settings_delete_option(opt_id):
     guard = require_inventory_edit()
     if guard:
         return jsonify(error="Permission denied"), 403
     row = ItemSetting.query.get_or_404(opt_id)
+
+    count = _items_using_setting(row).count()
+    if count > 0:
+        return jsonify(
+            error=f'{count} item{"s" if count != 1 else ""} still {"use" if count != 1 else "uses"} "{row.value}". '
+                  f'Reassign them to another {row.setting_type} first, then delete.',
+            in_use=True, count=count
+        ), 409
+
     db.session.delete(row)
     db.session.commit()
     return jsonify(success=True)
 
 
+@app.post("/settings/item-options/<int:opt_id>/reassign-and-delete")
+def settings_reassign_and_delete_option(opt_id):
+    """Bulk-move every item off this category/unit onto another existing one,
+    then delete the now-unused row. Lets Settings recover from the 'items
+    are stuck on a deleted category' situation instead of dead-ending."""
+    guard = require_inventory_edit()
+    if guard:
+        return jsonify(error="Permission denied"), 403
+    row = ItemSetting.query.get_or_404(opt_id)
+
+    data = request.get_json() or {}
+    new_value = (data.get("new_value") or "").strip()
+    if not new_value:
+        return jsonify(error="Pick a replacement value"), 400
+    if new_value == row.value:
+        return jsonify(error="Pick a different value to reassign to"), 400
+
+    target = ItemSetting.query.filter_by(setting_type=row.setting_type, value=new_value).first()
+    if not target:
+        return jsonify(error=f'"{new_value}" is not a known {row.setting_type}'), 400
+
+    items = _items_using_setting(row).all()
+    for item in items:
+        if row.setting_type == "category":
+            item.category = new_value
+        else:
+            item.unit = new_value
+
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify(success=True, reassigned=len(items))
+
+
 # ============================================================
 # CATEGORY CUSTOM FIELDS (Settings > Edit Category)
 # ============================================================
-_VALID_FIELD_TYPES = {"number", "currency", "text", "formula"}
+_VALID_FIELD_TYPES = {"number", "currency", "text", "formula", "date", "checkbox"}
 
 def _slugify_field_key(label: str) -> str:
     key = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
@@ -8540,7 +9503,16 @@ def _sync_mode_states_locations(mode: "InventoryMode", states_in: list, location
 @app.get("/settings/inventory-modes.json")
 def settings_inventory_modes_json():
     modes = InventoryMode.query.order_by(InventoryMode.display_order.asc(), InventoryMode.id.asc()).all()
-    return jsonify([m.to_dict() for m in modes])
+    cat_counts = dict(db.session.query(ItemSetting.inv_mode, func.count(ItemSetting.id))
+                       .filter_by(setting_type="category").group_by(ItemSetting.inv_mode).all())
+    item_counts = dict(db.session.query(Item.prep_type, func.count(Item.id)).group_by(Item.prep_type).all())
+    out = []
+    for m in modes:
+        d = m.to_dict()
+        d["category_count"] = cat_counts.get(m.slug, 0)
+        d["item_count"] = item_counts.get(m.slug, 0)
+        out.append(d)
+    return jsonify(out)
 
 
 @app.post("/settings/inventory-modes/add")
@@ -8561,12 +9533,20 @@ def settings_add_inventory_mode():
     if reconcile_style not in ("unit_count", "box_quantity"):
         reconcile_style = "unit_count"
 
+    default_sales_mode = (data.get("default_sales_mode") or "simple").strip().lower()
+    if default_sales_mode not in ("simple", "packs_4"):
+        default_sales_mode = "simple"
+
     max_order = db.session.query(db.func.max(InventoryMode.display_order)).scalar() or 0
     mode = InventoryMode(
         name=name, slug=_unique_mode_slug(name), engine=engine,
+        description=(data.get("description") or "").strip() or None,
         reconcile_style=reconcile_style if engine == "lot_tracking" else None,
         on_hand_style=reconcile_style if engine == "lot_tracking" else None,
-        default_sales_mode="simple",
+        default_sales_mode=default_sales_mode,
+        default_has_reconcile=bool(data.get("default_has_reconcile")),
+        default_has_locations=bool(data.get("default_has_locations")),
+        sums_all_locations=bool(data.get("sums_all_locations")),
         display_order=max_order + 1,
     )
     db.session.add(mode)
@@ -8602,7 +9582,16 @@ def settings_edit_inventory_mode(mode_id):
     if reconcile_style not in ("unit_count", "box_quantity"):
         reconcile_style = "unit_count"
 
+    default_sales_mode = (data.get("default_sales_mode") or "simple").strip().lower()
+    if default_sales_mode not in ("simple", "packs_4"):
+        default_sales_mode = "simple"
+
     mode.name = name
+    mode.description = (data.get("description") or "").strip() or None
+    mode.default_sales_mode = default_sales_mode
+    mode.default_has_reconcile = bool(data.get("default_has_reconcile"))
+    mode.default_has_locations = bool(data.get("default_has_locations"))
+    mode.sums_all_locations = bool(data.get("sums_all_locations"))
     if mode.engine == "lot_tracking":
         locations_in = data.get("locations") or []
         _sync_mode_states_locations(mode, data.get("states") or [], locations_in)

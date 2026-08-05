@@ -1134,6 +1134,13 @@ table.table tbody tr:last-child td { border-bottom: none; }
 .badge-status-other    { background: rgba(168, 85, 247, 0.14); color: #a855f7; }
 
 .avatar { width: 36px; height: 36px; border-radius: var(--radius-pill); }
+
+/* Category icon badge — small colored circle, used anywhere a category name appears */
+.cat-badge-sm {
+  display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;
+  width:20px; height:20px; border-radius:50%; font-size:10px;
+  background:var(--card2); color:var(--text-muted); border:1px solid var(--stroke);
+}
 .avatar-lg { width: 56px; height: 56px; border-radius: var(--radius-pill); }
 
 /* ============================================================

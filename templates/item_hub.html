@@ -6,6 +6,7 @@
 {% set inv_mode       = (cat_cfg.inv_mode if cat_cfg and cat_cfg.inv_mode else (item.prep_type or 'generic'))|lower %}
 {% set has_reconcile  = cat_cfg.has_reconcile if cat_cfg else true %}
 {% set has_locations  = cat_cfg.has_locations  if cat_cfg else false %}
+{% set has_cooler_stock = cat_cfg.has_cooler_stock if cat_cfg else false %}
 {% set cat_desc       = cat_cfg.description    if cat_cfg else '' %}
 
 {# Convenience booleans for template branches #}
@@ -20,6 +21,7 @@
 {# Location counts #}
 {% set mb = (item.main_bar_on_hand if item.main_bar_on_hand is not none else 0) %}
 {% set lb = (item.low_bar_on_hand  if item.low_bar_on_hand  is not none else 0) %}
+{% set bs = (item.backup_stock     if item.backup_stock     is not none else 0) %}
 {% set total_on_hand = mb + lb %}
 
 {# Readable mode label — falls back to the admin-defined mode's own name for custom modes #}
@@ -40,6 +42,9 @@
     <div>
       <h1>{{ item.name }}</h1>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:4px;">
+        <span class="cat-badge-sm" style="{% if cat_cfg and cat_cfg.color %}background:{{ cat_cfg.color }}22; color:{{ cat_cfg.color }}; border-color:{{ cat_cfg.color }}55;{% endif %}">
+          <i class="fas fa-{{ (cat_cfg.icon if cat_cfg and cat_cfg.icon else 'tag') }}"></i>
+        </span>
         <span class="muted">{{ item.category }}</span>
         <span style="color:var(--text-muted)">·</span>
         <span class="hub-badge">{{ mode_label }}</span>
@@ -47,7 +52,10 @@
         <span class="hub-badge badge-green">Reconcile</span>
         {% endif %}
         {% if has_locations %}
-        <span class="hub-badge badge-blue">Locations</span>
+        <span class="hub-badge badge-blue">Bars</span>
+        {% endif %}
+        {% if has_cooler_stock %}
+        <span class="hub-badge badge-blue">Cooler</span>
         {% endif %}
         {% if item.unit %}
         <span class="muted smalltxt">unit: {{ item.unit }}</span>
@@ -92,28 +100,57 @@
 
     {# ── SIMPLE COUNT ────────────────────────────── #}
     {% if is_simple %}
+    {% set tracks_pools = has_locations or has_cooler_stock %}
     <div class="card mini">
       <div class="muted">On Hand</div>
       <div class="big">{{ item.on_hand_count or 0 }}</div>
-      <div class="muted smalltxt">Current stock count</div>
+      <div class="muted smalltxt">
+        {% if has_cooler_stock and has_locations %}Cooler + both bars
+        {% elif has_cooler_stock %}Cooler stock
+        {% elif has_locations %}Main + Lower bar
+        {% else %}Current stock count{% endif %}
+      </div>
     </div>
+    {% if has_cooler_stock %}
+    <div class="card mini">
+      <div class="muted">Cooler Stock</div>
+      <div class="big">{{ bs }}</div>
+      <div class="muted smalltxt">{% if has_locations %}Not yet sent to a bar{% else %}Backup stock{% endif %}</div>
+    </div>
+    {% endif %}
+    {% if has_locations %}
+    <div class="card mini">
+      <div class="muted">Main Bar</div>
+      <div class="big">{{ mb }}</div>
+      <div class="muted smalltxt">On hand at Main Bar</div>
+    </div>
+    <div class="card mini">
+      <div class="muted">Lower Bar</div>
+      <div class="big">{{ lb }}</div>
+      <div class="muted smalltxt">On hand at Lower Bar</div>
+    </div>
+    {% endif %}
+    {% if not tracks_pools %}
     <div class="card mini">
       <div class="muted">Supplier</div>
       <div class="big" style="font-size:18px;">{{ item.supplier.name if item.supplier else '—' }}</div>
       <div class="muted smalltxt">Where to order from</div>
     </div>
+    {% endif %}
     <div class="card mini">
       <div class="muted">Quick Actions</div>
-      <div class="muted smalltxt">Adjust stock count below</div>
+      <div class="muted smalltxt">{% if tracks_pools %}Adjust cooler/bars below{% else %}Adjust stock count below{% endif %}</div>
     </div>
 
     {# ── GENERIC (BOX/CASE) ──────────────────────── #}
     {% elif is_generic %}
+    {% for loc in locations %}
     <div class="card mini">
-      <div class="muted">Cooler Stock</div>
-      <div class="big">{{ cooler_units_available | default(0) }}</div>
-      <div class="muted smalltxt">Units in cooler</div>
+      <div class="muted">{{ loc.label }}</div>
+      <div class="big">{{ totals[loc.key ~ '_boxes'] if totals else 0 }} box{{ '' if (totals[loc.key ~ '_boxes'] if totals else 0) == 1 else 'es' }}</div>
+      <div class="muted smalltxt">{{ totals[loc.key ~ '_units'] if totals else 0 }} units</div>
     </div>
+    {% endfor %}
     {% if has_locations %}
     <div class="card mini">
       <div class="muted">At Bars</div>
@@ -159,18 +196,13 @@
 
     {# ── PREP-BASED (wings / raw_protein / portion_pack) ─ #}
     {% elif is_prep_based %}
+    {% for loc in locations %}
     <div class="card mini">
-      <div class="muted">
-        {% if is_wings %}Boxes in Cooler{% else %}Available (Cooler){% endif %}
-      </div>
-      <div class="big">
-        {% if is_wings %}{{ totals.cooler_boxes if totals else 0 }}
-        {% else %}{{ cooler_units_available | default(0) }}{% endif %}
-      </div>
-      <div class="muted smalltxt">
-        {% if is_wings %}Raw boxes before prep{% else %}Ready to use{% endif %}
-      </div>
+      <div class="muted">{{ loc.label }}</div>
+      <div class="big">{{ totals[loc.key ~ '_boxes'] if totals else 0 }} box{{ '' if (totals[loc.key ~ '_boxes'] if totals else 0) == 1 else 'es' }}</div>
+      <div class="muted smalltxt">{{ totals[loc.key ~ '_units'] if totals else 0 }} units</div>
     </div>
+    {% endfor %}
     <div class="card mini">
       <div class="muted">Prepped Units</div>
       <div class="big">{{ prepped_units_available }}</div>
@@ -207,12 +239,35 @@
 
   </div>{# /grid3 #}
 
+  {# ── Box Size — how many units come in one box/case. Works the same for
+       every item regardless of mode: it's what Receive Boxes prefills and
+       what "order by the case" on the Order page uses as the case size. ── #}
+  {% if can_edit_inventory %}
+  <div style="height:12px;"></div>
+  <div class="card" style="padding:14px;">
+    <div class="strong" style="margin-bottom:4px;">Box Size</div>
+    <div class="muted smalltxt" style="margin-bottom:10px;">
+      How many {{ item.unit or 'units' }} come in one box/case. Used to prefill Receive Boxes and to order this item by the case.
+    </div>
+    <form class="form" method="POST" action="/items/{{ item.id }}/set_units_per_box" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+      <div class="field" style="max-width:160px;">
+        <label>Units Per Box</label>
+        <input class="input" type="number" min="1" step="1" name="default_units_per_box"
+               value="{{ item.default_units_per_box if item.default_units_per_box is not none else '' }}"
+               placeholder="e.g. 24">
+      </div>
+      <button class="btn primary" type="submit">Save</button>
+    </form>
+  </div>
+  {% endif %}
+
   <!-- ══════════════════════════════════════════════
        INLINE ACTION PANELS
        ══════════════════════════════════════════════ -->
 
-  {# ── Simple Count: stock adjustment ────────────── #}
-  {% if is_simple and can_edit_inventory %}
+  {# ── Simple Count: stock adjustment (only when NOT tracking cooler/bars —
+       those derive on_hand from the pools below instead) ── #}
+  {% if is_simple and not (has_locations or has_cooler_stock) and can_edit_inventory %}
   <div style="height:12px;"></div>
   <div class="card" style="padding:14px;">
     <div class="strong" style="margin-bottom:12px;">Adjust Stock</div>
@@ -240,16 +295,37 @@
   </div>
   {% endif %}
 
-  {# ── Generic / has_locations: bar on-hand entry ── #}
-  {% if (is_generic or has_locations) and not is_simple and can_edit_inventory %}
+  {# ── Generic / bars / cooler: on-hand entry ── #}
+  {% if (is_generic or has_locations or has_cooler_stock) and can_edit_inventory %}
   <div style="height:12px;"></div>
   <div class="card" style="padding:14px;">
-    <div class="strong" style="margin-bottom:6px;">On Hand at Bars</div>
+    <div class="strong" style="margin-bottom:6px;">
+      On Hand
+      {% if is_simple and has_locations and has_cooler_stock %} at Bars &amp; Cooler
+      {% elif is_simple and has_locations %} at Bars
+      {% elif is_simple and has_cooler_stock %} in Cooler
+      {% else %} at Bars{% endif %}
+    </div>
     <div class="muted smalltxt" style="margin-bottom:12px;">
+      {% if is_simple and has_locations and has_cooler_stock %}
+      Set how many units are currently at each bar and in the cooler. On Hand ({{ item.on_hand_count or 0 }}) is the sum of all three.
+      {% elif is_simple and has_cooler_stock %}
+      Set how many units are currently in the cooler. On Hand ({{ item.on_hand_count or 0 }}) matches this.
+      {% elif is_simple %}
+      Set how many units are currently at each bar location. On Hand ({{ item.on_hand_count or 0 }}) is the sum of both.
+      {% else %}
       Set how many units are currently at each bar location. Cooler stock is tracked separately via Receive / Boxes.
+      {% endif %}
     </div>
     <form class="form" method="POST" action="/items/{{ item.id }}/generic_on_hand">
-      <div class="grid2">
+      <div class="{% if is_simple and has_locations and has_cooler_stock %}grid3{% else %}grid2{% endif %}">
+        {% if is_simple and has_cooler_stock %}
+        <div class="field">
+          <label>Cooler Stock</label>
+          <input class="input" type="number" min="0" step="1" name="backup_stock" value="{{ bs }}">
+        </div>
+        {% endif %}
+        {% if not is_simple or has_locations %}
         <div class="field">
           <label>Main Bar · On Hand</label>
           <input class="input" type="number" min="0" step="1" name="main_bar_on_hand" value="{{ mb }}">
@@ -258,9 +334,37 @@
           <label>Lower Bar · On Hand</label>
           <input class="input" type="number" min="0" step="1" name="low_bar_on_hand" value="{{ lb }}">
         </div>
+        {% endif %}
       </div>
       <div class="actions" style="justify-content:flex-end; margin-top:10px;">
         <button class="btn primary" type="submit">Save On-Hand</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  {# ── Simple Count + has_cooler_stock: receive boxes into cooler stock ── #}
+  {% if is_simple and has_cooler_stock and can_edit_inventory %}
+  <div style="height:12px;"></div>
+  <div class="card" style="padding:14px;">
+    <div class="strong" style="margin-bottom:6px;">Receive Boxes</div>
+    <div class="muted smalltxt" style="margin-bottom:12px;">
+      Add boxes/cases to cooler stock. Units per box is remembered on this item for next time.
+    </div>
+    <form class="form" method="POST" action="/items/{{ item.id }}/receive_boxes">
+      <div class="grid3">
+        <div class="field">
+          <label>Boxes Received</label>
+          <input class="input" type="number" min="1" step="1" name="boxes" value="1" required>
+        </div>
+        <div class="field">
+          <label>Units Per Box</label>
+          <input class="input" type="number" min="1" step="1" name="units_per_box"
+                 value="{{ item.default_units_per_box or '' }}" placeholder="e.g. 24">
+        </div>
+        <div class="field" style="justify-content:flex-end; display:flex; align-items:flex-end;">
+          <button class="btn primary" type="submit" style="width:100%;">Add to Cooler Stock</button>
+        </div>
       </div>
     </form>
   </div>

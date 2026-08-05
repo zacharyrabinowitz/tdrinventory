@@ -11,6 +11,9 @@
 {% set mode_is_simple  = (eff_mode == 'items') %}
 {% set mode_is_generic = (eff_mode == 'generic' or eff_mode == 'generic_food') %}
 {% set mode_is_prep    = (eff_mode in ['wings','raw_protein','portion_pack']) %}
+{% set has_locations   = (cat_cfg.has_locations if cat_cfg else false) %}
+{% set has_cooler_stock = (cat_cfg.has_cooler_stock if cat_cfg else false) %}
+{% set tracks_pools     = has_locations or has_cooler_stock %}
 
 {# Show shelf-life + pack sections only for prep-based modes #}
 {% set show_raw_shelf    = mode_is_prep %}
@@ -28,7 +31,7 @@
           {{ item.category }} · {{ {
             'items':'Simple Count','generic':'Box/Case','generic_food':'Prep Food',
             'wings':'Wings Prep','raw_protein':'Raw Protein','portion_pack':'Portion Packs'
-          }.get(eff_mode, eff_mode) }}
+          }.get(eff_mode, (mode_obj.name if mode_obj else eff_mode)) }}
         {% else %}
           Fill in the details below — advanced sections appear based on the category you choose.
         {% endif %}
@@ -70,7 +73,7 @@
     <div class="grid2">
       <div class="field">
         <label>Supplier (optional)</label>
-        <select class="input" name="supplier_id">
+        <select class="input" name="supplier_id" id="supplierSelect">
           <option value="">— none —</option>
           {% for s in suppliers %}
           <option value="{{ s.id }}" {% if is_edit and item.supplier_id == s.id %}selected{% endif %}>
@@ -100,10 +103,17 @@
     <div class="grid2">
       <div class="field">
         <label>Par Level (optional)</label>
-        <input class="input" type="number" min="0" step="1" name="par_level"
+        <input class="input" type="number" min="0" step="1" name="par_level" id="parLevelInput"
                value="{{ item.par_level if is_edit and item.par_level is not none else '' }}"
                placeholder="e.g. 10">
         <div class="muted smalltxt">Target on-hand quantity — the Order page shows how far below this the item is.</div>
+      </div>
+      <div class="field">
+        <label>Units Per Box / Case <span class="muted smalltxt">optional</span></label>
+        <input class="input" type="number" min="1" step="1" name="default_units_per_box"
+               value="{{ item.default_units_per_box if is_edit and item.default_units_per_box is not none else '' }}"
+               placeholder="e.g. 24">
+        <div class="muted smalltxt">How many {{ item.unit or 'units' }} come in one box/case — used for Receive Boxes and ordering by the case.</div>
       </div>
     </div>
 
@@ -113,9 +123,17 @@
     ──────────────────────────────────────────────────────── #}
     <div class="grid2">
       <div class="field">
-        <label>Inventory Mode</label>
+        <label>
+          Inventory Mode
+          {% if is_edit and cat_cfg and cat_cfg.inv_mode and item.prep_type and item.prep_type != cat_cfg.inv_mode %}
+          <span style="display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; margin-left:6px;
+                       vertical-align:middle; border-radius:20px; background:var(--primary-tint); color:var(--primary);
+                       border:1px solid var(--primary-tint);"
+                title="This item uses a different mode than its category's default">Custom override</span>
+          {% endif %}
+        </label>
         {% set pt = (item.prep_type if is_edit and item.prep_type else 'generic') %}
-        <select class="input" name="prep_type" id="prep_type">
+        <select class="input" name="prep_type" id="prep_type" data-original="{{ pt if is_edit else '' }}">
           <option value="items"        {% if pt == 'items'        %}selected{% endif %}>Simple Count — just track how many</option>
           <option value="generic"      {% if pt == 'generic'      %}selected{% endif %}>Box / Case — receive by box/case</option>
           <option value="generic_food" {% if pt == 'generic_food' %}selected{% endif %}>Prep Food — raw stock → prep batches</option>
@@ -123,13 +141,29 @@
           <option value="raw_protein"  {% if pt == 'raw_protein'  %}selected{% endif %}>Raw Protein — protein with shelf life</option>
           <option value="portion_pack" {% if pt == 'portion_pack' %}selected{% endif %}>Portion Packs — pre-portioned packs</option>
         </select>
+        <div class="muted smalltxt" style="margin-top:4px;" id="modeDescription"></div>
         {% if cat_cfg and cat_cfg.inv_mode %}
-        <div class="muted smalltxt" style="margin-top:4px;">
+        <div class="muted smalltxt" style="margin-top:2px;">
           <i class="fas fa-info-circle"></i>
           Category default: {{ {
             'items':'Simple Count','generic':'Box/Case','generic_food':'Prep Food',
             'wings':'Wings Prep','raw_protein':'Raw Protein','portion_pack':'Portion Packs'
-          }.get(cat_cfg.inv_mode, cat_cfg.inv_mode) }}
+          }.get(cat_cfg.inv_mode, (cat_cfg.mode_name or cat_cfg.inv_mode)) }}
+        </div>
+        {% endif %}
+        {% if is_edit %}
+        <div id="modeChangeWarning" style="display:none; margin-top:10px; padding:10px 12px;
+             border-radius:var(--radius-md); border:1px solid rgba(245,158,11,.4); background:rgba(245,158,11,.08);">
+          <div class="smalltxt" style="font-weight:600; color:var(--warning); margin-bottom:6px;">
+            <i class="fas fa-triangle-exclamation"></i> Changing modes changes how stock is counted
+          </div>
+          <label class="s-check" style="background:none; border:none; padding:2px 0;">
+            <input type="checkbox" name="carry_over_stock" value="1" checked>
+            <span>
+              <strong style="font-size:12px;">Carry over current stock</strong>
+              <span class="s-check-sub">Creates an opening lot (or sums existing lots into a plain count) so the on-hand number doesn't just disappear. Uncheck to start this item fresh under the new mode.</span>
+            </span>
+          </label>
         </div>
         {% endif %}
       </div>
@@ -150,11 +184,16 @@
     <div id="items_wrap" style="display:none;">
       <h2>Stock Settings</h2>
       <div class="grid2">
-        <div class="field">
+        <div class="field" id="onHandCountField" {% if tracks_pools %}style="display:none;"{% endif %}>
           <label>Current Stock</label>
           <input class="input" type="number" min="0" step="1" name="on_hand_count"
                  value="{{ item.on_hand_count if is_edit and item.on_hand_count is not none else 0 }}">
         </div>
+        {% if tracks_pools %}
+        <div class="muted smalltxt" style="grid-column:1/-1;">
+          On-hand is set on the Item page ({% if has_cooler_stock and has_locations %}Cooler + Main/Lower bar{% elif has_cooler_stock %}Cooler stock{% else %}Main/Lower bar{% endif %}), not here.
+        </div>
+        {% endif %}
       </div>
       <div style="height:8px;"></div>
     </div>
@@ -187,15 +226,25 @@
       <h2>Custom Fields</h2>
       <div class="grid2" id="custom_fields_grid">
         {% for f in category_fields %}
+        {% set fv = field_values.get(f.field_key) if field_values else none %}
         <div class="field">
+          {% if f.field_type == 'checkbox' %}
+          <label class="s-check" style="margin-top:18px;">
+            <input type="checkbox" name="cf_{{ f.field_key }}" {% if fv in ('1', 1, True) %}checked{% endif %}>
+            <span><strong style="font-size:13px;">{{ f.label }}</strong></span>
+          </label>
+          {% else %}
           <label>{{ f.label }}{% if f.unit_suffix %} <span class="muted smalltxt">({{ f.unit_suffix }})</span>{% endif %}</label>
           {% if f.field_type == 'formula' %}
           <input class="input" type="text" value="Calculated after saving" disabled>
+          {% elif f.field_type == 'date' %}
+          <input class="input" type="date" name="cf_{{ f.field_key }}" value="{{ fv or '' }}">
           {% else %}
           <input class="input" type="{{ 'text' if f.field_type == 'text' else 'number' }}"
-                 {% if f.field_type != 'text' %}step="any"{% endif %}
+                 {% if f.field_type not in ('text',) %}step="any"{% endif %}
                  name="cf_{{ f.field_key }}"
-                 value="{{ field_values.get(f.field_key, '') if field_values and field_values.get(f.field_key) is not none else '' }}">
+                 value="{{ fv if fv is not none else '' }}">
+          {% endif %}
           {% endif %}
         </div>
         {% endfor %}
@@ -222,6 +271,18 @@ const catSelectEl   = document.getElementById('categorySelect');
 const itemsWrap      = document.getElementById('items_wrap');
 const shelfLifeWrap  = document.getElementById('shelf_life_wrap');
 const shelfLifeGrid  = document.getElementById('shelf_life_grid');
+const onHandCountField  = document.getElementById('onHandCountField');
+const modeDescriptionEl = document.getElementById('modeDescription');
+const modeChangeWarning = document.getElementById('modeChangeWarning');
+
+const MODE_DESCRIPTIONS = {
+  items:        'A single on-hand number, no receiving/lot history. Best when you don\'t need to track boxes coming in — just "how many do we have."',
+  generic:      'Receive boxes/cases into a cooler pool. Optionally split further between Main/Lower bar via "Track by Bar Location" on the category.',
+  generic_food: 'Raw stock received and tracked through Prep → Sellable states, same mechanics as Box/Case but food-oriented.',
+  wings:        'Raw boxes are batch-prepped into portioned sellable units before they count as available stock.',
+  raw_protein:  'Raw protein tracked with shelf-life expiration by state (Raw/Prepped) and storage location.',
+  portion_pack: 'Pre-portioned packs tracked through prep states with shelf life, similar to Raw Protein.',
+};
 
 // ── Toggle sections based on prep type ───────────────────────
 function toggleByPrepType() {
@@ -230,13 +291,39 @@ function toggleByPrepType() {
 
   const isSimple   = v === 'items';
   const isGeneric  = v === 'generic' || v === 'generic_food';
-  const mode = _catCfgMap[catSelectEl ? catSelectEl.value : ''];
-  const isLotTracking = mode ? mode.mode_engine === 'lot_tracking' : !isSimple;
+  const catCfg = _catCfgMap[catSelectEl ? catSelectEl.value : ''];
+  // Engine of the mode actually SELECTED right now (could differ from the
+  // category's default if this item deliberately overrides it) — falls
+  // back to the category's engine, then a simple heuristic, if the modes
+  // list hasn't loaded yet.
+  const selectedMode = _modesMap[v];
+  const isLotTracking = selectedMode ? selectedMode.engine === 'lot_tracking'
+                       : catCfg ? catCfg.mode_engine === 'lot_tracking' : !isSimple;
+  const hasLocations = catCfg ? !!catCfg.has_locations : {{ 'true' if has_locations else 'false' }};
+  const hasCoolerStock = catCfg ? !!catCfg.has_cooler_stock : {{ 'true' if has_cooler_stock else 'false' }};
+  const tracksPools = hasLocations || hasCoolerStock;
 
   // Items wrap
   if (itemsWrap)  itemsWrap.style.display  = isSimple  ? '' : 'none';
+  // Simple Count: on-hand is either a plain manual count, or (when the category
+  // tracks bars and/or cooler stock) derived from those pools instead — in
+  // which case we hide the manual field.
+  if (onHandCountField) onHandCountField.style.display = (isSimple && !tracksPools) ? '' : 'none';
   // Shelf life — only for lot-tracking modes (has states/locations to set days for)
   if (shelfLifeWrap) shelfLifeWrap.style.display = (isLotTracking && shelfLifeGrid && shelfLifeGrid.children.length) ? '' : 'none';
+
+  // Plain-language description of whichever mode is currently selected —
+  // custom modes use their own Settings-defined description; built-ins fall
+  // back to the static copy below.
+  if (modeDescriptionEl) {
+    modeDescriptionEl.textContent = (selectedMode && selectedMode.description) || MODE_DESCRIPTIONS[v] || '';
+  }
+
+  // Warn (edit mode only) when the mode differs from what this item was saved with
+  if (modeChangeWarning && prepTypeEl) {
+    const original = prepTypeEl.dataset.original;
+    modeChangeWarning.style.display = (original && original !== v) ? '' : 'none';
+  }
 }
 
 if (prepTypeEl)  prepTypeEl.addEventListener('change', toggleByPrepType);
@@ -244,15 +331,46 @@ if (salesModeEl) salesModeEl.addEventListener('change', toggleByPrepType);
 
 // ── Category change: fetch config + auto-fill ────────────────
 const isEdit = {{ 'true' if is_edit else 'false' }};
+const CURRENT_PREP_TYPE = {{ (item.prep_type if is_edit and item.prep_type else '') | tojson }};
 let _catCfgMap = {};
+let _modesMap = {};
 
-fetch('/settings/categories.json')
-  .then(r => r.json())
-  .then(list => {
-    list.forEach(c => { _catCfgMap[c.value] = c; });
-    if (!isEdit && catSelectEl) { renderShelfLife(catSelectEl.value); toggleByPrepType(); }
-  })
-  .catch(() => {});
+// The Inventory Mode dropdown only ever had the 6 built-in modes hardcoded
+// in — any admin-defined custom mode (Settings > Inventory Modes) couldn't
+// be selected here at all, so a category defaulting to a custom mode had
+// nothing to actually apply. Fetch the full mode list and add whatever's
+// missing before applying any default selection.
+Promise.all([
+  fetch('/settings/categories.json').then(r => r.json()).catch(() => []),
+  fetch('/settings/inventory-modes.json').then(r => r.json()).catch(() => []),
+]).then(([categories, modes]) => {
+  categories.forEach(c => { _catCfgMap[c.value] = c; });
+
+  if (prepTypeEl) {
+    const existing = new Set(Array.from(prepTypeEl.options).map(o => o.value));
+    modes.forEach(m => {
+      _modesMap[m.slug] = m;
+      if (!existing.has(m.slug)) {
+        const opt = document.createElement('option');
+        opt.value = m.slug;
+        opt.textContent = m.name;
+        prepTypeEl.appendChild(opt);
+      }
+    });
+  }
+
+  if (isEdit) {
+    // Now that any custom mode exists as an option, make sure the item's
+    // actual saved mode is what's selected (server-side rendering could
+    // only pre-select one of the 6 built-ins).
+    if (prepTypeEl && CURRENT_PREP_TYPE) prepTypeEl.value = CURRENT_PREP_TYPE;
+  } else if (catSelectEl) {
+    renderShelfLife(catSelectEl.value);
+    const cfg = _catCfgMap[catSelectEl.value];
+    if (cfg && cfg.inv_mode && prepTypeEl) prepTypeEl.value = cfg.inv_mode;
+  }
+  toggleByPrepType();
+});
 
 function renderShelfLife(category) {
   if (!shelfLifeGrid) return;
@@ -298,6 +416,17 @@ function renderCustomFields(category) {
       return `<div class="field"><label>${escAttr(f.label)}${suffix}</label>
         <input class="input" type="text" value="Calculated after saving" disabled></div>`;
     }
+    if (f.field_type === 'checkbox') {
+      return `<div class="field">
+        <label class="s-check" style="margin-top:18px;">
+          <input type="checkbox" name="cf_${escAttr(f.field_key)}">
+          <span><strong style="font-size:13px;">${escAttr(f.label)}</strong></span>
+        </label></div>`;
+    }
+    if (f.field_type === 'date') {
+      return `<div class="field"><label>${escAttr(f.label)}${suffix}</label>
+        <input class="input" type="date" name="cf_${escAttr(f.field_key)}"></div>`;
+    }
     const inputType = f.field_type === 'text' ? 'text' : 'number';
     const step = f.field_type === 'text' ? '' : 'step="any"';
     return `<div class="field"><label>${escAttr(f.label)}${suffix}</label>
@@ -326,6 +455,10 @@ if (catSelectEl) {
     if (!cfg) return;
     if (cfg.inv_mode && prepTypeEl)  prepTypeEl.value = cfg.inv_mode;
     if (cfg.default_sales_mode && salesModeEl) salesModeEl.value = cfg.default_sales_mode;
+    const parEl = document.getElementById('parLevelInput');
+    if (parEl) parEl.value = cfg.default_par_level ?? '';
+    const supplierEl = document.getElementById('supplierSelect');
+    if (supplierEl) supplierEl.value = cfg.default_supplier_id || '';
     toggleByPrepType();
   });
 }
