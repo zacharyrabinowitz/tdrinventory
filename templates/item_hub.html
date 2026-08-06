@@ -2,8 +2,10 @@
 {% block content %}
 
 {# ── Resolve effective inventory mode ──────────────────────── #}
-{# cat_cfg.inv_mode is set from Settings; fall back to item.prep_type #}
-{% set inv_mode       = (cat_cfg.inv_mode if cat_cfg and cat_cfg.inv_mode else (item.prep_type or 'generic'))|lower %}
+{# The item's own prep_type is authoritative (it's what the backend checks
+   everywhere) — cat_cfg.inv_mode is only the category's default for NEW
+   items, and can differ from an existing item's own assigned mode. #}
+{% set inv_mode       = (item.prep_type if item.prep_type else (cat_cfg.inv_mode if cat_cfg and cat_cfg.inv_mode else 'generic'))|lower %}
 {% set has_reconcile  = cat_cfg.has_reconcile if cat_cfg else true %}
 {% set has_locations  = cat_cfg.has_locations  if cat_cfg else false %}
 {% set has_cooler_stock = cat_cfg.has_cooler_stock if cat_cfg else false %}
