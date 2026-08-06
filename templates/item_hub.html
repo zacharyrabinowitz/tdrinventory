@@ -295,8 +295,12 @@
   </div>
   {% endif %}
 
-  {# ── Generic / bars / cooler: on-hand entry ── #}
-  {% if (is_generic or has_locations or has_cooler_stock) and can_edit_inventory %}
+  {# ── Generic / bars / cooler: on-hand entry ──
+     Only for "generic" items or Simple Count ("items") items whose category
+     tracks bars/cooler — matches what the /generic_on_hand route accepts.
+     Other modes (lot tracking, prep-based, etc.) derive on-hand from lots
+     via Receive/Boxes instead, so this form isn't valid for them. #}
+  {% if (is_generic or (is_simple and (has_locations or has_cooler_stock))) and can_edit_inventory %}
   <div style="height:12px;"></div>
   <div class="card" style="padding:14px;">
     <div class="strong" style="margin-bottom:6px;">
